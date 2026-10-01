@@ -138,18 +138,30 @@ final class MikrotikScript
 :foreach e in=[/log find] do={
     :local es [:tostr \$e]
     :local idn [:tonum ("0x" . [:pick \$es 1 [:len \$es]])]
-    :if (\$idn > \$nocLastLog && \$cnt < 200) do={
+    :if (\$idn > \$nocLastLog && \$cnt < 60) do={
         :local lv [/log get \$e]
         :local tp [:tostr (\$lv->"topics")]
         :if ((\$tp ~ \$logInc) && !(\$tp ~ \$logExc)) do={
-            :set (\$logs->\$cnt) {"t"=[:tostr (\$lv->"time")];"tp"=\$tp;"m"=[:tostr (\$lv->"message")]}
+            :set (\$logs->\$cnt) {"t"=[:tostr (\$lv->"time")];"tp"=\$tp;"m"=[:pick [:tostr (\$lv->"message")] 0 400]}
             :set cnt (\$cnt + 1)
         }
         :set maxid \$idn
     }
 }
 
-:local body [:serialize to=json value={"v"=1;"tick"=\$nocTick;"ident"=\$ident;"res"=\$res;"rb"=\$rb;"health"=\$hl;"ifs"=\$ifs;"rates"=\$rates;"ping"=\$ping;"conns"=\$conns;"nLeases"=\$nLeases;"leases"=\$leases;"pools"=\$pools;"wg"=\$wg;"logs"=\$logs;"upd"=\$nocUpd}]
+:local data {"v"=1;"tick"=\$nocTick;"ident"=\$ident;"res"=\$res;"rb"=\$rb;"health"=\$hl;"ifs"=\$ifs;"rates"=\$rates;"ping"=\$ping;"conns"=\$conns;"nLeases"=\$nLeases;"leases"=\$leases;"pools"=\$pools;"wg"=\$wg;"logs"=\$logs;"upd"=\$nocUpd}
+:local body [:serialize to=json value=\$data]
+# varovalka: fetch ima omejitev velikosti - prevelik push (npr. ogromne vrstice loga) pošlji brez logov
+:if ([:len \$body] > 48000) do={
+    :set (\$data->"logs") [:toarray ""]
+    :set body [:serialize to=json value=\$data]
+    :log warning ("noc: logi izpusceni, push bi bil prevelik")
+}
+:if ([:len \$body] > 48000) do={
+    :set (\$data->"leases") [:toarray ""]
+    :set body [:serialize to=json value=\$data]
+    :log warning ("noc: DHCP najemi izpusceni, push bi bil prevelik (" . \$nLeases . " najemov)")
+}
 
 # :onerror zapiše dejansko sporočilo RouterOS (npr. "not enough permissions", "failure: ... 401")
 :onerror e in={
