@@ -64,6 +64,13 @@ CREATE TABLE devices (
   thresholds     TEXT NULL,                            -- JSON: odstopanja od globalnih pragov
   newdev_alert   TINYINT(1) NOT NULL DEFAULT 1,        -- obvestilo o novi napravi v LAN-u
   newdev_ignore  VARCHAR(255) NOT NULL DEFAULT '',     -- DHCP strežniki brez obvestil
+  filter_profile   ENUM('off','basic','family') NOT NULL DEFAULT 'off',   -- zaščita
+  filter_force_dns TINYINT(1) NOT NULL DEFAULT 1,
+  filter_block_doh TINYINT(1) NOT NULL DEFAULT 1,
+  filter_ip_lists  TINYINT(1) NOT NULL DEFAULT 1,
+  filter_domains   TEXT NULL,
+  filter_networks  VARCHAR(500) NOT NULL DEFAULT '',
+  dns_original     VARCHAR(255) NULL,
   api_key_hash   CHAR(64) NULL UNIQUE,
   api_key_enc    TEXT NULL,
   export_raw     MEDIUMTEXT NULL,                      -- /export, iz katerega je bila naprava dodana

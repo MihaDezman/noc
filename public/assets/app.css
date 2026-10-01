@@ -173,6 +173,20 @@ textarea.code { font-family: var(--mono); font-size: .82rem; min-height: 260px; 
 .enroll-wait.expired .pulse { background: var(--down); animation: none; }
 @keyframes pulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(107,79,216,.5); } 50% { box-shadow: 0 0 0 10px rgba(107,79,216,0); } }
 
+/* izbira profila (zaščita) */
+.choice-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.choice { display: grid; gap: 6px; padding: 14px; border: 1.5px solid var(--line); border-radius: var(--r); cursor: pointer; align-content: start; }
+.choice:hover { border-color: var(--faint); }
+.choice:has(input:checked) { border-color: var(--violet); background: color-mix(in srgb, var(--violet-soft) 50%, transparent); }
+.choice input { position: absolute; opacity: 0; pointer-events: none; }
+.choice small { color: var(--muted); font-size: .8rem; line-height: 1.4; }
+.choice-ico { width: 36px; height: 36px; border-radius: 10px; display: grid; place-items: center; }
+.choice-ico.c-off { background: var(--line-2); color: var(--muted); }
+.choice-ico.c-basic { background: var(--up-soft); color: var(--up); }
+.choice-ico.c-family { background: var(--violet-soft); color: var(--violet); }
+.check span b { font-weight: 600; }
+@media (max-width: 900px) { .choice-grid { grid-template-columns: 1fr; } }
+
 /* upravljanje naprave (Konfiguracija, Nastavitve) */
 .manage-head { margin-bottom: 20px; display: grid; gap: 6px; }
 .manage-head h2 { display: flex; align-items: center; gap: 9px; font-size: 1.2rem; }

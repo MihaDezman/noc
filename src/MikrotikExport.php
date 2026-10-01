@@ -43,7 +43,7 @@ final class MikrotikExport
         $r = ['model' => '', 'serial' => '', 'ros_version' => '', 'identity' => '', 'ifaces' => [], 'bridges' => [], 'vlans' => [],
               'addresses' => [], 'dhcp_clients' => [], 'pppoe' => [], 'gateway' => '', 'wan_iface' => '', 'public_ip' => '', 'lan_networks' => [],
               'lists' => [], 'wg' => [], 'needs_icmp_rule' => false, 'flow_existing' => false, 'flow_targets' => [], 'has_noc' => false,
-              'dhcp_servers' => [], 'warnings' => [], 'facts' => []];
+              'dhcp_servers' => [], 'warnings' => [], 'facts' => [], 'dns' => ['servers' => '', 'remote' => 'no']];
 
         if (preg_match('/by RouterOS\s+([0-9.]+[a-z0-9]*)/i', $rsc, $m)) $r['ros_version'] = $m[1];
         if (preg_match('/^#\s*model\s*=\s*(.+)$/mi', $rsc, $m)) $r['model'] = trim($m[1]);
@@ -70,6 +70,9 @@ final class MikrotikExport
                     if ($verb === 'add' && in_array($kv['dst-address'] ?? '0.0.0.0/0', ['0.0.0.0/0'], true) && isset($kv['gateway']) && ($kv['disabled'] ?? 'no') !== 'yes' && !$r['gateway']) $r['gateway'] = $kv['gateway'];
                     break;
                 case '/ip firewall filter': if ($verb === 'add' && ($kv['chain'] ?? '') === 'input') $inputRules[] = $kv; break;
+                case '/ip dns':
+                    if ($verb === 'set') { if (isset($kv['servers'])) $r['dns']['servers'] = $kv['servers']; if (isset($kv['allow-remote-requests'])) $r['dns']['remote'] = $kv['allow-remote-requests']; }
+                    break;
                 case '/ip traffic-flow': if ($verb === 'set' && ($kv['enabled'] ?? '') === 'yes') $flowEnabled = true; break;
                 case '/ip traffic-flow target': if ($verb === 'add') $r['flow_targets'][] = ($kv['dst-address'] ?? '?') . ':' . ($kv['port'] ?? '2055'); break;
                 case '/system script': case '/system scheduler': if (str_starts_with($kv['name'] ?? '', 'noc-')) $r['has_noc'] = true; break;
@@ -136,6 +139,7 @@ final class MikrotikExport
             'VLAN' => implode(', ', array_map(fn($n, $v) => "$n ({$v['id']})", array_keys($r['vlans']), $r['vlans'])),
             'WireGuard' => implode(', ', $r['wg']), 'DHCP strežniki' => implode(', ', array_column($r['dhcp_servers'], 'name')),
             'Ping s strežnika' => $r['needs_icmp_rule'] ? 'doda se pravilo v input' : 'že dovoljen',
+            'DNS' => ($r['dns']['servers'] !== '' ? $r['dns']['servers'] : 'od ponudnika') . ($r['dns']['remote'] === 'yes' ? ' · za LAN' : ''),
         ]);
         return $r;
     }

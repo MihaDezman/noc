@@ -40,6 +40,10 @@ if (str_starts_with($path, '/api/')) {
         echo MikrotikScript::ascii(MikrotikScript::package($full)['noc-install.rsc']);
         exit;
     }
+    if ($path === '/api/filter/drop' && $method === 'GET') {   // varnostna IP lista za router (zaščita)
+        header('Content-Type: text/plain; charset=utf-8'); header('Cache-Control: no-store');
+        echo Filter::dropRsc(); exit;
+    }
     if ($path === '/api/backup' && $method === 'POST') {
         json_out(Ingest::backupPart($dev, (string)($_SERVER['HTTP_X_UPLOAD'] ?? ''), (int)($_SERVER['HTTP_X_PART'] ?? -1), (int)($_SERVER['HTTP_X_SIZE'] ?? 0), (string)file_get_contents('php://input')));
     }
@@ -192,7 +196,7 @@ if (($seg[0] ?? '') === 'devices' && ctype_digit($seg[1] ?? '')) {
         $tab = q('tab', 'overview');
         if ($tab === 'wg') $tab = 'ifaces';   // WireGuard je zdaj na zavihku Vmesniki
         $allowed = ['overview', 'ifaces', 'clients', 'sla', 'security', 'logs', 'alerts'];
-        if ($isSuper) array_push($allowed, 'backups', 'settings');
+        if ($isSuper) array_push($allowed, 'backups', 'settings', 'protect');
         if (!in_array($tab, $allowed, true)) $tab = 'overview';
         $vars = ['d' => $d, 'tab' => $tab, 'ifaces' => Devices::ifaces($id), 'alerts' => Alerts::openList($id), 'title' => $d['name'], 'nav' => 'devices', 'tenants' => Devices::tenants()];
         if ($tab === 'overview') { $vars['autorefresh'] = 120; $vars['vol'] = $d['wan_iface'] ? Metrics::volume($id, $d['wan_iface']) : null; }
@@ -256,6 +260,24 @@ if (($seg[0] ?? '') === 'devices' && ctype_digit($seg[1] ?? '')) {
         Ufw::write();
         audit('device.save', $f['name']);
         back("/devices/$id?tab=settings", A('Shranjeno. Če si spremenil prehod, ping cilj, filtre logov ali traffic-flow, prenesi in naloži nov paket.'));
+    }
+    if ($sub === 'filter' && $method === 'POST') {
+        $prof = in_array(post('filter_profile'), ['off', 'basic', 'family'], true) ? post('filter_profile') : 'off';
+        $nets = array_values(array_intersect(Devices::list(post('filter_networks_csv')), Devices::list((string)$d['lan_networks'])));
+        if (isset($_POST['nets']) && is_array($_POST['nets'])) $nets = array_values(array_intersect(array_map('strval', $_POST['nets']), Devices::list((string)$d['lan_networks'])));
+        $doms = implode("\n", Filter::domains(['filter_domains' => post('filter_domains')]));
+        // prvotni DNS shranimo ob prvem vklopu (iz zadnjega pusha ali iz analize /export)
+        $orig = $d['dns_original'];
+        if ($prof !== 'off' && $orig === null) {
+            $an = json_decode((string)$d['analysis_json'], true) ?: [];
+            $cur = $d['status']['flt']['dns'] ?? null;
+            $orig = json_encode(['servers' => $cur !== null && !str_contains((string)$cur, '1.1.1.2') && !str_contains((string)$cur, '1.1.1.3') ? (string)$cur : ($an['dns']['servers'] ?? ''), 'remote' => $an['dns']['remote'] ?? 'yes']);
+        }
+        db()->prepare('UPDATE devices SET filter_profile=?, filter_force_dns=?, filter_block_doh=?, filter_ip_lists=?, filter_domains=?, filter_networks=?, dns_original=? WHERE id=?')
+            ->execute([$prof, post('filter_force_dns') ? 1 : 0, post('filter_block_doh') ? 1 : 0, post('filter_ip_lists') ? 1 : 0, $doms, implode(',', $nets), $orig, $id]);
+        if ($prof !== 'off' && post('filter_ip_lists') && !is_file(rtrim((string)cfg('data_dir', '/var/lib/noc'), '/') . '/spamhaus-drop.txt')) Filter::updateDropList();
+        audit('device.filter', $d['name'] . ' ' . $prof);
+        back("/devices/$id?tab=protect", A('Zaščita shranjena. Na routerju se uveljavi, ko poženeš namestitveni ukaz s strani Paket.'));
     }
     if ($sub === 'key' && $method === 'POST') { Devices::newKey($id); audit('device.key', $d['name']); back("/devices/$id/install", A('Nov ključ ustvarjen – stari ne deluje več. Naloži nov paket na router.')); }
     if ($sub === 'mute' && $method === 'POST') {

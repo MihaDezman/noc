@@ -144,6 +144,7 @@ final class Ingest
             'ident' => (string)($b['ident'] ?? ''), 'res' => $res, 'rb' => $rb, 'health' => $healthRaw, 'ping' => $ping,
             'wg' => (array)($b['wg'] ?? []), 'upd' => (array)($b['upd'] ?? []), 'h' => $h, 'at' => date('c', $now),
             'pools' => $pools ?? ($oldStatus['pools'] ?? []),
+            'flt' => is_array($b['flt'] ?? null) && $b['flt'] ? $b['flt'] : ($oldStatus['flt'] ?? null),
         ];
         $rebooted = $d['last_uptime'] !== null && $uptime !== null && $uptime + 120 < (int)$d['last_uptime'];
         $pdo->prepare('UPDATE devices SET last_seen_at=NOW(), last_seen_ip=?, last_uptime=?, status_json=?, model=IF(?<>"", ?, model), serial=IF(?<>"", ?, serial), os_version=?, firmware=?, arch=? WHERE id=?')

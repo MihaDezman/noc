@@ -122,6 +122,10 @@ final class MikrotikScript
     } on-error={}
 }
 
+# --- stanje zascite (noc-filter)
+:local flt [:toarray ""]
+:do { :set flt {"dns"=[:tostr [/ip dns get servers]];"n"=([:len [/ip firewall nat find comment~"^noc-filter"]] + [:len [/ip firewall filter find comment~"^noc-filter"]]);"drop"=[:len [/ip firewall address-list find list=noc-filter-drop]]} } on-error={}
+
 # --- WireGuard
 :local wg [:toarray ""]
 :do {
@@ -149,7 +153,7 @@ final class MikrotikScript
     }
 }
 
-:local data {"v"=1;"tick"=\$nocTick;"ident"=\$ident;"res"=\$res;"rb"=\$rb;"health"=\$hl;"ifs"=\$ifs;"rates"=\$rates;"ping"=\$ping;"conns"=\$conns;"nLeases"=\$nLeases;"leases"=\$leases;"pools"=\$pools;"wg"=\$wg;"logs"=\$logs;"upd"=\$nocUpd}
+:local data {"v"=1;"tick"=\$nocTick;"ident"=\$ident;"res"=\$res;"rb"=\$rb;"health"=\$hl;"ifs"=\$ifs;"rates"=\$rates;"ping"=\$ping;"conns"=\$conns;"nLeases"=\$nLeases;"leases"=\$leases;"pools"=\$pools;"flt"=\$flt;"wg"=\$wg;"logs"=\$logs;"upd"=\$nocUpd}
 :local body [:serialize to=json value=\$data]
 # varovalka: fetch ima omejitev velikosti - prevelik push (npr. ogromne vrstice loga) pošlji brez logov
 :if ([:len \$body] > 48000) do={
@@ -235,6 +239,7 @@ ROS;
             }
             $s .= ":if ([:len [/ip traffic-flow target find dst-address=$noc]] = 0) do={ /ip traffic-flow target add dst-address=$noc port=$port version=ipfix }\n\n";
         }
+        $s .= Filter::rsc($d);
         $s .= "# --- fetch,info ne polni loga (vsak push bi zapisal vrstico 'Download ... FINISHED'); napake fetcha se se vedno belezijo\n";
         $s .= ":foreach r in=[/system logging find] do={ :if ([:tostr [/system logging get \$r topics]] = \"info\") do={ /system logging set \$r topics=info,!fetch } }\n\n";
         $s .= "# --- prvi zagon: push takoj, backup konfiguracije + preverjanje posodobitev v ozadju (traja ~20 s)\n/system script run noc-push\n:execute script=\"/system script run noc-backup\"\n:log info \"noc: nameščeno – push vsako minuto, backup zdaj in vsak dan ob " . sprintf('%02d:%02d', $hour, $min) . "\"\n";
@@ -249,6 +254,9 @@ ROS;
             . "/ip traffic-flow target remove [find dst-address=$noc]\n"
             . ":if ([:len [/ip traffic-flow target find]] = 0) do={ /ip traffic-flow set enabled=no }\n"
             . ":foreach r in=[/system logging find] do={ :if ([:tostr [/system logging get \$r topics]] = \"info;!fetch\") do={ /system logging set \$r topics=info } }\n"
+            . "/ip firewall nat remove [find comment~\"^noc-filter\"]\n/ip firewall filter remove [find comment~\"^noc-filter\"]\n"
+            . "/ip firewall raw remove [find comment~\"^noc-filter\"]\n/ip firewall address-list remove [find comment~\"^noc-filter\"]\n/ip dns static remove [find comment~\"^noc-filter\"]\n"
+            . Filter::restoreDns($d)
             . "/system script environment remove [find name~\"^noc\"]\n:log info \"noc: odstranjeno\"\n";
     }
 

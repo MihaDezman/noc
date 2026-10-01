@@ -4,7 +4,7 @@ $isSuper = Auth::isSuper();
 $ports = face_ports($ifaces, $d['wan_iface'], 40);
 $wanRow = null; foreach ($ifaces as $i) if ($i['name'] === $d['wan_iface']) $wanRow = $i;
 $tabs = ['overview' => ['dashboard', A('Pregled')], 'ifaces' => ['ethernet', A('Vmesniki')], 'clients' => ['laptop', A('Naprave v LAN')], 'sla' => ['gauge', A('Razpoložljivost')], 'security' => ['shield', A('Varnost')], 'logs' => ['scroll', A('Logi')], 'alerts' => ['bell', A('Alarmi')]];
-$manage = in_array($tab, ['backups', 'settings'], true);   // upravljanje: odpre se z gumbom v glavi, ne kot zavihek
+$manage = in_array($tab, ['backups', 'settings', 'protect'], true);   // upravljanje: odpre se z gumbom v glavi, ne kot zavihek
 $upd = $s['upd'] ?? [];
 ?>
 <div class="crumbs"><a href="/devices"><?= h(A('Naprave')) ?></a><?= icon('chev', 14) ?><?= h($d['tenant_name'] ?: '–') ?></div>
@@ -35,6 +35,7 @@ $upd = $s['upd'] ?? [];
       <?php endif; ?>
     </form>
     <a class="btn sm <?= $tab === 'backups' ? 'on' : '' ?>" href="/devices/<?= $id ?>?tab=backups"><?= icon('archive', 15) ?><?= h(A('Konfiguracija')) ?></a>
+    <a class="btn sm <?= $tab === 'protect' ? 'on' : '' ?>" href="/devices/<?= $id ?>?tab=protect"><?= icon('shield', 15) ?><?= h(A('Zaščita')) ?><?php if (($d['filter_profile'] ?? 'off') !== 'off'): ?> <span class="dot up" style="margin-left:2px"></span><?php endif; ?></a>
     <a class="btn sm <?= $tab === 'settings' ? 'on' : '' ?>" href="/devices/<?= $id ?>?tab=settings"><?= icon('settings', 15) ?><?= h(A('Nastavitve')) ?></a>
     <a class="btn sm" href="/devices/<?= $id ?>/install"><?= icon('download', 15) ?><?= h(A('Paket')) ?></a>
   </div>
@@ -50,7 +51,8 @@ $upd = $s['upd'] ?? [];
 <?php else: ?><div style="height:18px"></div><?php endif; ?>
 
 <?php if ($manage): ?>
-<div class="manage-head"><a href="/devices/<?= $id ?>" class="small"><?= icon('chev', 14, 'flip') ?><?= h(A('Nazaj na pregled naprave')) ?></a><h2><?= icon($tab === 'backups' ? 'archive' : 'settings', 18) ?><?= h($tab === 'backups' ? A('Konfiguracija') : A('Nastavitve')) ?></h2></div>
+<?php $mt = ['backups' => ['archive', A('Konfiguracija')], 'settings' => ['settings', A('Nastavitve')], 'protect' => ['shield', A('Zaščita omrežja')]][$tab]; ?>
+<div class="manage-head"><a href="/devices/<?= $id ?>" class="small"><?= icon('chev', 14, 'flip') ?><?= h(A('Nazaj na pregled naprave')) ?></a><h2><?= icon($mt[0], 18) ?><?= h($mt[1]) ?></h2></div>
 <?php else: ?>
 <nav class="tabs">
   <?php foreach ($tabs as $k => [$ic, $lbl]): ?><a href="/devices/<?= $id ?>?tab=<?= $k ?>" class="<?= $tab === $k ? 'on' : '' ?>"><?= icon($ic, 16) ?><?= h($lbl) ?><?= $k === 'alerts' && $alerts ? ' <span class="tag down">' . count($alerts) . '</span>' : '' ?></a><?php endforeach; ?>
@@ -118,6 +120,7 @@ $upd = $s['upd'] ?? [];
         <dt><?= h(A('Prehod WAN')) ?></dt><dd class="mono"><?= h(($s['ping']['gw'] ?? '') ?: '–') ?></dd>
         <dt><?= h(A('Povezave (conntrack)')) ?></dt><dd><?= isset($hh['conns']) && $hh['conns'] !== null ? number_format((int)$hh['conns'], 0, ',', '.') : '–' ?></dd>
         <dt><?= h(A('DHCP najemi')) ?></dt><dd><?= $hh['leases'] ?? '–' ?></dd>
+        <dt><?= h(A('Zaščita')) ?></dt><dd><?php [$fok, $fmsg] = Filter::routerState($d); ?><span class="tag <?= ($d['filter_profile'] ?? 'off') === 'off' ? '' : ($fok ? 'up' : 'warn') ?>"><?= h(Filter::label($d['filter_profile'] ?? 'off')) ?></span></dd>
         <dt><?= h(A('Razpoložljivost 30 d')) ?></dt><dd><a href="?tab=sla"><span class="tag <?= Sla::cls($sla30['pct']) ?>"><?= h(Sla::fmt($sla30['pct'])) ?></span></a></dd>
         <?php foreach ($s['health'] ?? [] as $k => $v): if (str_contains((string)$k, 'temperature') || $k === 'cpu-temperature') continue; ?>
         <dt><?= h($k) ?></dt><dd><?= h($v) ?></dd>
@@ -351,6 +354,56 @@ $upd = $s['upd'] ?? [];
     </tr><?php endforeach; ?></tbody>
   </table></div><?php endif; ?>
 </section>
+
+<?php elseif ($tab === 'protect'):
+  $prof = $d['filter_profile'] ?? 'off'; [$fok, $fmsg] = Filter::routerState($d);
+  $lan = Devices::list((string)$d['lan_networks']); $sel = Devices::list((string)($d['filter_networks'] ?? '')) ?: $lan;
+  $routerDns = $s['flt']['dns'] ?? null;
+?>
+<div class="grid g-main">
+  <form class="form" method="post" action="/devices/<?= $id ?>/filter">
+    <?= Auth::csrf() ?>
+    <section class="panel"><div class="panel-head"><h2><?= icon('shield', 18) ?><?= h(A('Profil zaščite')) ?></h2></div>
+      <div class="panel-body"><div class="choice-grid">
+        <?php foreach (['off' => ['x', A('Router uporablja DNS kot doslej. Nastavitve zaščite se odstranijo, DNS se vrne na prvotnega.')],
+                        'basic' => ['shield', A('Blokira zlonamerne in phishing strani (Cloudflare 1.1.1.2, Quad9). Za pisarne in vse stranke.')],
+                        'family' => ['users', A('Osnovna zaščita in še vsebine za odrasle (Cloudflare 1.1.1.3). Za gostujoči WiFi in javne prostore.')]] as $k => [$ic, $desc]): ?>
+        <label class="choice"><input type="radio" name="filter_profile" value="<?= $k ?>" <?= $prof === $k ? 'checked' : '' ?>>
+          <span class="choice-ico c-<?= $k ?>"><?= icon($ic, 20) ?></span><b><?= h(Filter::label($k)) ?></b><small><?= h($desc) ?></small></label>
+        <?php endforeach; ?>
+      </div></div></section>
+    <section class="panel"><div class="panel-head"><h2><?= icon('sliders', 18) ?><?= h(A('Dodatno')) ?></h2></div>
+      <div class="panel-body form">
+        <label class="check"><input type="checkbox" name="filter_force_dns" value="1" <?= (int)($d['filter_force_dns'] ?? 1) ? 'checked' : '' ?>> <span><b><?= h(A('Vsi morajo prek routerja')) ?></b> – <?= h(A('naprave z ročno vpisanim DNS (npr. 8.8.8.8) se preusmerijo na DNS routerja')) ?></span></label>
+        <label class="check"><input type="checkbox" name="filter_block_doh" value="1" <?= (int)($d['filter_block_doh'] ?? 1) ? 'checked' : '' ?>> <span><b><?= h(A('Blokiraj šifriran DNS')) ?></b> – <?= h(A('DoH in DoT, prek katerih bi brskalniki obšli filter')) ?></span></label>
+        <label class="check"><input type="checkbox" name="filter_ip_lists" value="1" <?= (int)($d['filter_ip_lists'] ?? 1) ? 'checked' : '' ?>> <span><b><?= h(A('Varnostne IP liste')) ?></b> – <?= h(A('znana zlonamerna omrežja (Spamhaus DROP), posodobitev vsak dan')) ?></span></label>
+        <?php if ($lan): ?>
+        <div><b class="small"><?= h(A('Omrežja z zaščito')) ?></b><div class="actions" style="margin-top:8px">
+          <?php foreach ($lan as $n): ?><label class="check"><input type="checkbox" name="nets[]" value="<?= h($n) ?>" <?= in_array($n, $sel, true) ? 'checked' : '' ?>> <span class="mono"><?= h($n) ?></span></label><?php endforeach; ?>
+        </div><small class="muted"><?= h(A('Npr. samo gostujoči WiFi, pisarna pa brez filtra.')) ?></small></div>
+        <?php endif; ?>
+        <label class="f"><?= h(A('Lastne blokirane domene')) ?><textarea name="filter_domains" rows="4" class="mono" placeholder="primer.com&#10;igre.primer.net"><?= h((string)($d['filter_domains'] ?? '')) ?></textarea><small><?= h(A('Ena na vrstico. Blokirane so tudi vse poddomene.')) ?></small></label>
+        <div class="actions"><button class="btn primary"><?= icon('check', 16) ?><?= h(A('Shrani')) ?></button></div>
+      </div></section>
+  </form>
+  <aside>
+    <section class="panel"><div class="panel-head"><h2><?= icon('router', 18) ?><?= h(A('Na routerju')) ?></h2></div>
+      <div class="panel-body"><dl class="kv">
+        <dt><?= h(A('Izbrano v NOC')) ?></dt><dd><?= h(Filter::label($prof)) ?></dd>
+        <dt><?= h(A('Stanje')) ?></dt><dd><span class="tag <?= $fok === null ? '' : ($fok ? 'up' : 'warn') ?>"><?= h($fmsg) ?></span></dd>
+        <dt><?= h(A('DNS routerja')) ?></dt><dd class="mono"><?= h($routerDns === null ? '–' : ($routerDns !== '' ? $routerDns : A('od ponudnika'))) ?></dd>
+        <?php if ($d['dns_original'] !== null): $o = json_decode((string)$d['dns_original'], true) ?: []; ?><dt><?= h(A('Prvotni DNS')) ?></dt><dd class="mono"><?= h(($o['servers'] ?? '') !== '' ? $o['servers'] : A('od ponudnika')) ?></dd><?php endif; ?>
+      </dl></div></section>
+    <section class="panel"><div class="panel-head"><h2><?= icon('download', 18) ?><?= h(A('Uveljavi na routerju')) ?></h2></div>
+      <div class="panel-body"><p class="small muted" style="margin-top:0"><?= h(A('Po shranjevanju prilepi v terminal routerja:')) ?></p>
+        <?php $one = MikrotikScript::oneLiner($d); ?><div class="cmd"><code><?= h($one) ?></code><button type="button" data-copy="<?= h($one) ?>"><?= icon('copy', 14) ?></button></div>
+        <p class="small muted"><?= h(A('Stanje se tukaj osveži v minuti po namestitvi.')) ?></p></div></section>
+    <section class="panel"><div class="panel-body small muted">
+      <?= icon('info', 14) ?> <?= h(A('Vse spremembe na routerju nosijo oznako "noc-filter" in se ob izklopu odstranijo v celoti. NOC ne beleži, katere strani kdo obiskuje.')) ?>
+      <br><br><?= h(A('Naprave, ki uporabljajo zasebni relay (iCloud Private Relay) ali VPN, filtra ne gredo skozi – to je pričakovano.')) ?>
+    </div></section>
+  </aside>
+</div>
 
 <?php elseif ($tab === 'settings'):
   $f = $d; $th = json_decode((string)$d['thresholds'], true) ?: [];

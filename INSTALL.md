@@ -122,6 +122,12 @@ Bot upošteva samo sporočila iz nastavljenega chat ID-ja. Ko so ukazi vklopljen
 Naprave → Dodaj napravo → **Ustvari kodo in ukaz** → ukaz prilepi v terminal routerja → stran se sama nadaljuje → potrdi predlog → namestitev z ukazom s strani Paket.
 Koda velja 30 minut in je enkratna.
 
+## Zaščita omrežja (filtriranje)
+
+Naprava → **Zaščita** → profil (Osnovna / Družinska), dodatna stikala, omrežja → Shrani → na routerju poženi namestitveni ukaz s strani Paket.
+Varnostno IP listo (Spamhaus DROP) strežnik prenese vsak dan (`cron/daily.php`) v `/var/lib/noc/spamhaus-drop.txt`, routerji jo prevzamejo ob 5h.
+Ob izklopu se vse nastavitve `noc-filter` odstranijo in DNS routerja vrne na prvotnega.
+
 ## fail2ban (priporočeno)
 
 NOC v Apache error log piše `noc-login-fail ip=…` (napačna prijava) in `noc-api-badkey ip=…` (neveljaven API ključ).
