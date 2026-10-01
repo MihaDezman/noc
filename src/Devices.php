@@ -84,7 +84,7 @@ final class Devices
 
     public static function thresholds(array $d): array
     {
-        $keys = ['th_cpu', 'th_cpu_min', 'th_temp', 'th_mem', 'th_hdd', 'th_gw_loss', 'th_gw_ms', 'th_ext_loss', 'th_ext_ms', 'th_ping_min', 'th_offline_min', 'th_host_gb_h', 'th_host_mbps', 'th_host_min'];
+        $keys = ['th_cpu', 'th_cpu_min', 'th_temp', 'th_mem', 'th_hdd', 'th_gw_loss', 'th_gw_ms', 'th_ext_loss', 'th_ext_ms', 'th_ping_min', 'th_offline_min', 'th_host_gb_h', 'th_host_mbps', 'th_host_min', 'th_attack', 'th_attack_min', 'th_pool', 'th_backup_days'];
         $own = json_decode((string)($d['thresholds'] ?? ''), true) ?: [];
         $out = [];
         foreach ($keys as $k) $out[$k] = (isset($own[$k]) && $own[$k] !== '') ? (float)$own[$k] : (float)setting($k, '0');

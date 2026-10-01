@@ -32,7 +32,8 @@ $flash = Auth::flash();
       <?= $navItem('devices', '/devices', 'router', A('Naprave')) ?>
       <?= $navItem('alerts', '/alerts', 'bell', A('Alarmi'), ($ac['c'] ?? 0) > 0 ? '<span class="count">' . (int)$ac['c'] . '</span>' : (($ac['w'] ?? 0) > 0 ? '<span class="count warn">' . (int)$ac['w'] . '</span>' : '')) ?>
       <?= $navItem('logs', '/logs', 'scroll', A('Logi')) ?>
-      <?php if ($isSuper): ?><?= $navItem('backups', '/backups', 'archive', A('Konfiguracije')) ?><?php endif; ?>
+      <?= $navItem('reports', '/reports', 'file', A('Poročila')) ?>
+      <?php if ($isSuper): ?><?= $navItem('backups', '/backups', 'archive', A('Konfiguracije')) ?><?= $navItem('updates', '/updates', 'refresh', A('Posodobitve')) ?><?php endif; ?>
     </div>
     <?php if ($isSuper): ?>
     <div class="nav-group"><span><?= h(A('Upravljanje')) ?></span>

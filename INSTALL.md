@@ -94,6 +94,18 @@ sudo crontab -e
 3. **Alarmi in obvestila**: vpiši e-naslov in klikni "Testni e-mail". Nato vpiši token bota, shrani, botu v Telegramu pošlji sporočilo, klikni "Poišči chat ID" in "Testno Telegram sporočilo".
 4. **Naprave → Dodaj napravo**: naloži `/export`, preveri predlog, prenesi paket in ga uvozi na router (`/import noc-install.rsc`).
 
+## Posodobitve
+
+Zip naloži v `/home/miha` in poženi:
+
+```bash
+sudo /var/www/noc/bin/update.sh          # najnovejši /home/miha/noc-v*.zip
+sudo /var/www/noc/bin/update.sh 1.5      # točno določena verzija
+```
+
+Skripta naredi dump baze (`/var/backups/noc/pred-vX-….sql.gz`), commit trenutnega stanja, razširi zip, nastavi pravice,
+izvede nove `sql/update-*.sql` (vsakega samo enkrat, seznam v `/var/lib/noc/applied-sql.txt`) ter naredi commit in push na GitHub.
+
 ## fail2ban (priporočeno)
 
 NOC v Apache error log piše `noc-login-fail ip=…` (napačna prijava) in `noc-api-badkey ip=…` (neveljaven API ključ).

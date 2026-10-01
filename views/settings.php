@@ -20,9 +20,15 @@ $num = function (string $k, string $label, string $unit, string $hint = '') {
       <div class="row"><?= $num('th_ping_min', A('Vztrajno'), 'min', A('Koliko minut zapored mora prag veljati')) ?></div>
     </div></section>
   </div>
+  <div class="grid g2">
   <section class="panel"><div class="panel-head"><h2><?= icon('laptop', 18) ?><?= h(A('Naprave v LAN-u (traffic-flow)')) ?></h2></div><div class="panel-body form">
     <div class="row"><?= $num('th_host_gb_h', A('Prenos v zadnji uri'), 'GB') ?><?= $num('th_host_mbps', A('Povprečna hitrost'), 'Mb/s') ?><?= $num('th_host_min', A('… v zadnjih'), 'min') ?></div>
   </div></section>
+  <section class="panel"><div class="panel-head"><h2><?= icon('shield', 18) ?><?= h(A('Varnost in vzdrževanje')) ?></h2></div><div class="panel-body form">
+    <div class="row"><?= $num('th_attack', A('Napad: neuspelih prijav'), A('št.'), A('z istega IP-ja')) ?><?= $num('th_attack_min', A('… v'), 'min') ?></div>
+    <div class="row"><?= $num('th_pool', A('Zasedenost IP poola'), '%', A('poln pool = kritično')) ?><?= $num('th_backup_days', A('Brez backupa konfiguracije'), A('dni')) ?></div>
+  </div></section>
+  </div>
 
   <div class="grid g2">
     <section class="panel"><div class="panel-head"><h2><?= icon('mail', 18) ?><?= h(A('E-pošta')) ?></h2></div><div class="panel-body form">

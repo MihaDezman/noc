@@ -138,6 +138,89 @@ final class Alerts
         return [$rcv > 0, $ms, (int)round((1 - $rcv / max(1, $count)) * 100)];
     }
 
+    /** DHCP / IP pool: opozorilo pri th_pool %, kritično, ko je poln */
+    public static function pools(array $d, array $pools): void
+    {
+        $th = Devices::thresholds($d); $seen = [];
+        foreach ($pools as $p) {
+            if ($p['size'] <= 0) continue;
+            $key = 'pool:' . $p['n']; $seen[$key] = true;
+            $pct = (int)round($p['used'] / $p['size'] * 100);
+            $full = $p['used'] >= $p['size'];
+            self::set($d, $pct >= $th['th_pool'], $key, $full ? 'critical' : 'warning',
+                $full ? A('IP pool {n} je poln ({u}/{s}) – nove naprave ne dobijo naslova', ['n' => $p['n'], 'u' => $p['used'], 's' => $p['size']])
+                      : A('IP pool {n} zaseden {p} % ({u}/{s})', ['n' => $p['n'], 'p' => $pct, 'u' => $p['used'], 's' => $p['size']]));
+        }
+        $st = db()->prepare('SELECT akey FROM alerts WHERE device_id=? AND akey LIKE "pool:%" AND ended_at IS NULL'); $st->execute([$d['id']]);
+        foreach ($st->fetchAll(PDO::FETCH_COLUMN) as $k) if (!isset($seen[$k])) self::clear($d, $k);
+    }
+
+    /** Nove naprave v LAN-u (prvič videni MAC naslovi) */
+    public static function newHosts(array $d, array $hosts): void
+    {
+        $fmt = fn($h) => ($h['host'] ?: A('brez imena')) . ' – ' . $h['ip'] . ' (' . $h['mac'] . ($h['srv'] ? ', ' . $h['srv'] : '') . ')';
+        if (count($hosts) <= 3) {
+            foreach ($hosts as $h) self::event($d, 'newdev', 'info', A('Nova naprava v LAN-u: {h}', ['h' => $fmt($h)]));
+        } else {
+            self::event($d, 'newdev', 'info', A('{n} novih naprav v LAN-u, npr. {h}', ['n' => count($hosts), 'h' => $fmt($hosts[0])]));
+        }
+    }
+
+    /** Neuspele prijave na router (SSH, Winbox, API, web) po izvornem IP-ju */
+    public static function attacks(array $d): void
+    {
+        $th = Devices::thresholds($d); $id = (int)$d['id'];
+        $min = max(1, (int)$th['th_attack_min']); $lim = max(1, (int)$th['th_attack']);
+        $st = db()->prepare("SELECT REGEXP_SUBSTR(message, 'from [0-9a-fA-F:.]+') src, COUNT(*) n, GROUP_CONCAT(DISTINCT REGEXP_SUBSTR(message, 'via [a-z-]+')) via,
+                                    GROUP_CONCAT(DISTINCT REGEXP_SUBSTR(message, 'for user [^ ]+')) usr
+                             FROM logs WHERE device_id=? AND message LIKE 'login failure%' AND ts > NOW() - INTERVAL ? MINUTE GROUP BY src");
+        $st->execute([$id, $min]);
+        $hot = [];
+        foreach ($st as $r) {
+            $ip = trim(substr((string)$r['src'], 5)); if ($ip === '' || (int)$r['n'] < $lim) continue;
+            $hot['attack:' . $ip] = A('Napad na router: {n} neuspelih prijav z {ip} v {m} min ({via}, {u})', ['n' => $r['n'], 'ip' => $ip, 'm' => $min,
+                'via' => str_replace('via ', '', (string)$r['via']), 'u' => str_replace('for user ', '', (string)$r['usr'])]);
+        }
+        foreach ($hot as $k => $msg) self::raise($d, $k, 'warning', $msg);
+        // zapri, ko 60 min ni več poskusov z istega IP-ja
+        $open = db()->prepare('SELECT akey FROM alerts WHERE device_id=? AND akey LIKE "attack:%" AND ended_at IS NULL'); $open->execute([$id]);
+        $chk = db()->prepare("SELECT COUNT(*) FROM logs WHERE device_id=? AND message LIKE 'login failure%' AND message LIKE ? AND ts > NOW() - INTERVAL 60 MINUTE");
+        foreach ($open->fetchAll(PDO::FETCH_COLUMN) as $k) {
+            if (isset($hot[$k])) continue;
+            $chk->execute([$id, '%from ' . substr($k, 7) . ' %']);
+            if ((int)$chk->fetchColumn() === 0) self::clear($d, $k);
+        }
+    }
+
+    /** Enkrat na uro: manjkajoč nočni backup konfiguracije */
+    public static function backups(): void
+    {
+        foreach (db()->query('SELECT d.*, (SELECT MAX(created_at) FROM config_backups b WHERE b.device_id=d.id) last_backup FROM devices d WHERE d.active=1 AND d.last_seen_at IS NOT NULL')->fetchAll() as $d) {
+            $d = Devices::decorate($d); $th = Devices::thresholds($d);
+            $days = max(1, (int)$th['th_backup_days']);
+            $ref = $d['last_backup'] ?: $d['created_at'];
+            $old = strtotime((string)$ref) < time() - $days * 86400;
+            $msg = $d['last_backup'] ? A('Ni novega backupa konfiguracije že {n} dni (zadnji {t})', ['n' => intdiv(time() - strtotime($d['last_backup']), 86400), 't' => date('d.m.Y', strtotime($d['last_backup']))])
+                                     : A('Router še ni poslal nobenega backupa konfiguracije');
+            self::set($d, $old && $d['online'], 'backup', 'warning', $msg);
+        }
+    }
+
+    /** Enkrat na uro: nočni backup strežnika (baza NOC) – obvestilo največ enkrat na dan */
+    public static function serverBackup(): ?int
+    {
+        $dir = '/var/backups/noc';
+        $files = @glob($dir . '/db-*.sql.gz') ?: [];
+        $newest = $files ? max(array_map('filemtime', $files)) : null;
+        if ($newest !== null && $newest > time() - 36 * 3600) return $newest;
+        if (setting('srvbackup_notified') !== date('Y-m-d')) {
+            Notify::telegram('🟠 <b>NOC</b>' . "\n" . A('Nočni backup baze NOC na strežniku manjka ali je starejši od 36 h.'));
+            foreach (Notify::recipients() as $to) Notify::mail($to, 'NOC – ' . A('backup strežnika'), '<p>' . A('Nočni backup baze NOC na strežniku manjka ali je starejši od 36 h.') . '</p><p>/var/backups/noc</p>');
+            setting_set('srvbackup_notified', date('Y-m-d'));
+        }
+        return $newest;
+    }
+
     public static function openList(?int $deviceId = null): array
     {
         [$w, $p] = Auth::deviceScope('d');

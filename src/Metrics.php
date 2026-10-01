@@ -78,8 +78,8 @@ final class Metrics
                     ON DUPLICATE KEY UPDATE up_bytes=VALUES(up_bytes), down_bytes=VALUES(down_bytes)');
         $pdo->exec('DELETE FROM iface_1m WHERE ts < NOW() - INTERVAL 48 HOUR');
         $pdo->exec('DELETE FROM health_1m WHERE ts < NOW() - INTERVAL 48 HOUR');
-        $pdo->exec('DELETE FROM iface_5m WHERE ts < NOW() - INTERVAL 31 DAY');
-        $pdo->exec('DELETE FROM health_5m WHERE ts < NOW() - INTERVAL 31 DAY');
+        $pdo->exec('DELETE FROM iface_5m WHERE ts < NOW() - INTERVAL 35 DAY');
+        $pdo->exec('DELETE FROM health_5m WHERE ts < NOW() - INTERVAL 35 DAY');
         $pdo->exec('DELETE FROM host_5m WHERE ts < NOW() - INTERVAL 8 DAY');
         $pdo->exec('DELETE FROM iface_daily WHERE day < CURDATE() - INTERVAL 400 DAY');
         $pdo->exec('DELETE FROM host_daily WHERE day < CURDATE() - INTERVAL 400 DAY');

@@ -136,7 +136,7 @@ if (($seg[0] ?? '') === 'devices' && ctype_digit($seg[1] ?? '')) {
 
     if ($sub === '') {
         $tab = q('tab', 'overview');
-        $allowed = ['overview', 'ifaces', 'clients', 'logs', 'alerts', 'wg'];
+        $allowed = ['overview', 'ifaces', 'clients', 'sla', 'security', 'logs', 'alerts', 'wg'];
         if ($isSuper) array_push($allowed, 'backups', 'settings');
         if (!in_array($tab, $allowed, true)) $tab = 'overview';
         $vars = ['d' => $d, 'tab' => $tab, 'ifaces' => Devices::ifaces($id), 'alerts' => Alerts::openList($id), 'title' => $d['name'], 'nav' => 'devices', 'tenants' => Devices::tenants()];
@@ -153,6 +153,23 @@ if (($seg[0] ?? '') === 'devices' && ctype_digit($seg[1] ?? '')) {
             if (q('sev') !== '') { $sql .= ' AND severity=?'; $p[] = q('sev'); }
             if (q('q') !== '') { $sql .= ' AND (message LIKE ? OR topics LIKE ?)'; $p[] = '%' . q('q') . '%'; $p[] = '%' . q('q') . '%'; }
             $st = db()->prepare($sql . ' ORDER BY ts DESC, id DESC LIMIT 500'); $st->execute($p); $vars['logs'] = $st->fetchAll();
+        }
+        if ($tab === 'overview') $vars['sla30'] = Sla::period($d, time() - 30 * 86400, time());
+        if ($tab === 'sla') {
+            $ym = preg_match('/^\d{4}-\d{2}$/', q('m')) ? q('m') : date('Y-m');
+            [$f, $t] = Sla::monthRange($ym);
+            $vars += ['ym' => $ym, 'slaMonth' => Sla::period($d, $f, $t), 'slaDays' => Sla::month($d, $ym), 'sla30' => Sla::period($d, time() - 30 * 86400, time()),
+                      'sla365' => Sla::period($d, time() - 365 * 86400, time())];
+        }
+        if ($tab === 'security') {
+            $st = db()->prepare("SELECT TRIM(SUBSTRING(REGEXP_SUBSTR(message, 'from [0-9a-fA-F:.]+'), 6)) src, REGEXP_SUBSTR(message, 'via [a-z-]+') via,
+                                        GROUP_CONCAT(DISTINCT TRIM(SUBSTRING(REGEXP_SUBSTR(message, 'for user [^ ]+'), 10)) SEPARATOR ', ') users, COUNT(*) n, MIN(ts) first, MAX(ts) last
+                                 FROM logs WHERE device_id=? AND message LIKE 'login failure%' AND ts > NOW() - INTERVAL 30 DAY GROUP BY src, via ORDER BY n DESC LIMIT 100");
+            $st->execute([$id]); $vars['fails'] = $st->fetchAll();
+            $st = db()->prepare("SELECT ts, message FROM logs WHERE device_id=? AND (message LIKE 'user % logged in%' OR message LIKE 'user % logged out%') ORDER BY ts DESC LIMIT 30");
+            $st->execute([$id]); $vars['logins'] = $st->fetchAll();
+            $st = db()->prepare("SELECT * FROM alerts WHERE device_id=? AND akey LIKE 'attack:%' ORDER BY started_at DESC LIMIT 30");
+            $st->execute([$id]); $vars['attacks'] = $st->fetchAll();
         }
         if ($tab === 'alerts') { $st = db()->prepare('SELECT * FROM alerts WHERE device_id=? ORDER BY started_at DESC LIMIT 200'); $st->execute([$id]); $vars['history'] = $st->fetchAll(); }
         if ($tab === 'settings') {
@@ -180,6 +197,7 @@ if (($seg[0] ?? '') === 'devices' && ctype_digit($seg[1] ?? '')) {
         db()->prepare('UPDATE devices SET tenant_id=?, name=?, site=?, public_ip=?, wan_iface=?, wan_gateway=?, ping_target=?, lan_networks=?, monitor_ifaces=?, down_ifaces=?, wan_down_mbps=?, wan_up_mbps=?, flow_enabled=?, log_include=?, log_exclude=?, thresholds=?, notes=? WHERE id=?')
             ->execute([(int)post('tenant_id') ?: null, $f['name'], $f['site'], $f['public_ip'], $f['wan_iface'], $f['wan_gateway'], $f['ping_target'], $f['lan_networks'], $f['monitor_ifaces'], $f['down_ifaces'],
                 $f['wan_down_mbps'], $f['wan_up_mbps'], $f['flow_enabled'], $f['log_include'], $f['log_exclude'], $th ? json_encode($th) : null, $f['notes'], $id]);
+        db()->prepare('UPDATE devices SET newdev_alert=?, newdev_ignore=? WHERE id=?')->execute([post('newdev_alert') ? 1 : 0, implode(',', Devices::list(post('newdev_ignore'))), $id]);
         Ufw::write();
         audit('device.save', $f['name']);
         back("/devices/$id?tab=settings", A('Shranjeno. Če si spremenil prehod, ping cilj, filtre logov ali traffic-flow, prenesi in naloži nov paket.'));
@@ -265,6 +283,31 @@ if ($path === '/backups') {
     view('backups', ['rows' => $rows, 'changes' => $changes, 'title' => A('Konfiguracije'), 'nav' => 'backups']);
 }
 
+// ---------------------------------------------------------------- mesečna poročila
+if ($path === '/reports') {
+    $months = []; for ($i = 0; $i < 13; $i++) $months[] = date('Y-m', strtotime("first day of -$i month"));
+    view('reports', ['tenants' => Devices::tenants(), 'months' => $months, 'title' => A('Poročila'), 'nav' => 'reports']);
+}
+if ($path === '/reports/view') {
+    $tid = (int)q('t'); $ym = preg_match('/^\d{4}-\d{2}$/', q('m')) ? q('m') : date('Y-m', strtotime('first day of last month'));
+    if (!$isSuper && $tid !== (int)(Auth::$user['tenant_id'] ?? 0)) { http_response_code(403); exit('403'); }
+    echo Report::html(Report::build($tid, $ym)); exit;
+}
+if ($path === '/reports/send' && $method === 'POST') {
+    Auth::requireSuper();
+    $tid = (int)post('t'); $ym = preg_match('/^\d{4}-\d{2}$/', post('m')) ? post('m') : date('Y-m');
+    $to = post('to') === 'me' ? [Auth::$user['email']] : null;
+    $n = Report::send($tid, $ym, $to);
+    audit('report.send', "$tid $ym → $n");
+    back('/reports', $n ? A('Poročilo poslano na {n} naslov(ov).', ['n' => $n]) : A('Poročilo ni bilo poslano – preveri e-naslove naročnika in SMTP.'), $n ? 'ok' : 'err');
+}
+
+// ---------------------------------------------------------------- posodobitve
+if ($path === '/updates') {
+    Auth::requireSuper();
+    view('updates', ['devs' => Devices::all(), 'title' => A('Posodobitve'), 'nav' => 'updates']);
+}
+
 // ---------------------------------------------------------------- naročniki
 if ($path === '/tenants') {
     Auth::requireSuper();
@@ -275,8 +318,10 @@ if ($path === '/tenants') {
 if ($path === '/tenants/save' && $method === 'POST') {
     Auth::requireSuper();
     if (post('name') === '') back('/tenants', A('Ime je obvezno.'), 'err');
-    if ((int)post('id')) db()->prepare('UPDATE tenants SET name=?, contact=?, notes=? WHERE id=?')->execute([post('name'), post('contact'), post('notes'), (int)post('id')]);
-    else db()->prepare('INSERT INTO tenants (name, contact, notes) VALUES (?,?,?)')->execute([post('name'), post('contact'), post('notes')]);
+    $emails = implode(', ', array_filter(array_map('trim', preg_split('/[\s,;]+/', post('report_emails'))), fn($e) => filter_var($e, FILTER_VALIDATE_EMAIL)));
+    $rep = post('report_enabled') && $emails !== '' ? 1 : 0;
+    if ((int)post('id')) db()->prepare('UPDATE tenants SET name=?, contact=?, notes=?, report_enabled=?, report_emails=? WHERE id=?')->execute([post('name'), post('contact'), post('notes'), $rep, $emails, (int)post('id')]);
+    else db()->prepare('INSERT INTO tenants (name, contact, notes, report_enabled, report_emails) VALUES (?,?,?,?,?)')->execute([post('name'), post('contact'), post('notes'), $rep, $emails]);
     audit('tenant.save', post('name'));
     back('/tenants', A('Shranjeno.'));
 }
@@ -330,7 +375,7 @@ if ($path === '/users/delete' && $method === 'POST') {
 if ($path === '/settings') {
     Auth::requireSuper();
     if ($method === 'POST') {
-        foreach (['th_cpu', 'th_cpu_min', 'th_temp', 'th_mem', 'th_hdd', 'th_gw_loss', 'th_gw_ms', 'th_ext_loss', 'th_ext_ms', 'th_ping_min', 'th_offline_min', 'th_host_gb_h', 'th_host_mbps', 'th_host_min'] as $k)
+        foreach (['th_cpu', 'th_cpu_min', 'th_temp', 'th_mem', 'th_hdd', 'th_gw_loss', 'th_gw_ms', 'th_ext_loss', 'th_ext_ms', 'th_ping_min', 'th_offline_min', 'th_host_gb_h', 'th_host_mbps', 'th_host_min', 'th_attack', 'th_attack_min', 'th_pool', 'th_backup_days'] as $k)
             if (isset($_POST[$k]) && is_numeric($_POST[$k])) setting_set($k, (string)(float)$_POST[$k]);
         setting_set('notify_emails', implode(', ', array_filter(array_map('trim', preg_split('/[\s,;]+/', post('notify_emails'))), fn($e) => filter_var($e, FILTER_VALIDATE_EMAIL))));
         foreach (['notify_mail_min', 'notify_tg_min'] as $k) if (in_array(post($k), ['info', 'warning', 'critical', 'off'], true)) setting_set($k, post($k));
@@ -375,7 +420,9 @@ if ($path === '/system') {
     $nfcapd = trim((string)@shell_exec('pgrep -x nfcapd'));
     $disk = ['free' => @disk_free_space('/'), 'total' => @disk_total_space('/')];
     $audit = db()->query('SELECT a.*, u.name FROM audit a LEFT JOIN users u ON u.id=a.user_id ORDER BY a.at DESC LIMIT 40')->fetchAll();
-    view('system', compact('crons', 'dbSize', 'flowFiles', 'newest', 'nfcapd', 'disk', 'audit') + ['title' => A('Sistem'), 'nav' => 'system', 'flowIps' => Ufw::ips()]);
+    $bk = @glob('/var/backups/noc/db-*.sql.gz') ?: [];
+    $srvBackup = $bk ? max(array_map('filemtime', $bk)) : null;
+    view('system', compact('crons', 'dbSize', 'flowFiles', 'newest', 'nfcapd', 'disk', 'audit', 'srvBackup') + ['title' => A('Sistem'), 'nav' => 'system', 'flowIps' => Ufw::ips()]);
 }
 
 // ---------------------------------------------------------------- moj račun

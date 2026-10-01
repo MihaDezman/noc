@@ -16,6 +16,7 @@ $cronDef = ['minute' => [A('Alarmi in ping s strežnika'), 3], 'flows' => [A('Tr
     <dt><?= h(A('Dovoljeni IP-ji (ufw)')) ?></dt><dd class="mono small"><?= $flowIps ? h(implode(', ', $flowIps)) : '–' ?></dd>
   </dl></div></section>
   <section class="panel"><div class="panel-head"><h2><?= icon('hdd', 18) ?><?= h(A('Disk in baza')) ?></h2></div><div class="panel-body">
+    <dl class="kv" style="margin-bottom:14px"><dt><?= h(A('Nočni backup baze')) ?></dt><dd><?= $srvBackup ? h(fmt_ago(date('Y-m-d H:i:s', $srvBackup))) . ($srvBackup < time() - 36 * 3600 ? ' <span class="tag warn">' . h(A('star')) . '</span>' : ' <span class="tag up">OK</span>') : '<span class="tag warn">' . h(A('ni backupa')) . '</span>' ?></dd></dl>
     <?php if ($disk['total']): $used = (1 - $disk['free'] / $disk['total']) * 100; ?>
     <div class="small muted" style="margin-bottom:6px"><?= h(A('Disk: prosto {f} od {t}', ['f' => fmt_bytes($disk['free']), 't' => fmt_bytes($disk['total'])])) ?></div><?= pct_meter($used, 80, 92) ?>
     <?php endif; ?>

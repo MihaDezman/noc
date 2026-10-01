@@ -111,6 +111,17 @@ final class MikrotikScript
     }
 }
 
+# --- zasedenost IP poolov (vsakih 5 min)
+:local pools [:toarray ""]
+:if ((\$nocTick % 5) = 1) do={
+    :do {
+        :foreach pl in=[/ip pool find] do={
+            :local pn [/ip pool get \$pl name]
+            :set (\$pools->[:len \$pools]) {"n"=\$pn;"r"=[:tostr [/ip pool get \$pl ranges]];"u"=[:len [/ip pool used find where pool=\$pn]]}
+        }
+    } on-error={}
+}
+
 # --- WireGuard
 :local wg [:toarray ""]
 :do {
@@ -138,7 +149,7 @@ final class MikrotikScript
     }
 }
 
-:local body [:serialize to=json value={"v"=1;"tick"=\$nocTick;"ident"=\$ident;"res"=\$res;"rb"=\$rb;"health"=\$hl;"ifs"=\$ifs;"rates"=\$rates;"ping"=\$ping;"conns"=\$conns;"nLeases"=\$nLeases;"leases"=\$leases;"wg"=\$wg;"logs"=\$logs;"upd"=\$nocUpd}]
+:local body [:serialize to=json value={"v"=1;"tick"=\$nocTick;"ident"=\$ident;"res"=\$res;"rb"=\$rb;"health"=\$hl;"ifs"=\$ifs;"rates"=\$rates;"ping"=\$ping;"conns"=\$conns;"nLeases"=\$nLeases;"leases"=\$leases;"pools"=\$pools;"wg"=\$wg;"logs"=\$logs;"upd"=\$nocUpd}]
 
 :do {
     :local out [/tool fetch url=\$url http-method=post http-data=\$body http-header-field=("Content-Type: application/json,X-Api-Key: " . \$key) output=user as-value]

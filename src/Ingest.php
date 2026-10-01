@@ -79,18 +79,43 @@ final class Ingest
                          conns_max=GREATEST(COALESCE(conns_max,0), COALESCE(VALUES(conns_max),0)), n=n+1')
             ->execute([$id, $slot5, $h['cpu'], $h['cpu'], $h['mem_pct'], $h['temp'], $h['gw_ms'], $h['gw_loss'], $h['ext_ms'], $h['ext_loss'], $h['conns']]);
 
-        // --- DHCP najemi (vsakih 5 min)
+        // --- DHCP najemi (vsakih 5 min) + zaznava novih naprav v LAN-u
         $leases = (array)($b['leases'] ?? []);
+        $newHosts = [];
         if ($leases) {
+            $known = $pdo->prepare('SELECT mac FROM lan_hosts WHERE device_id=?'); $known->execute([$id]);
+            $knownMacs = array_flip($known->fetchAll(PDO::FETCH_COLUMN));
+            // učno obdobje: prvih 24 h po prvem najemu se nove naprave ne javljajo (sicer bi bile "nove" vse)
+            $st0 = $pdo->prepare('SELECT MIN(first_seen) FROM lan_hosts WHERE device_id=?'); $st0->execute([$id]);
+            $since = $st0->fetchColumn();
+            $learning = !$since || strtotime((string)$since) > $now - 86400;
+            $ignore = array_map('mb_strtolower', Devices::list((string)($d['newdev_ignore'] ?? '')));
             $up = $pdo->prepare('INSERT INTO lan_hosts (device_id, mac, ip, hostname, server, status, first_seen, last_seen) VALUES (?,?,?,?,?,?,NOW(),NOW())
                                  ON DUPLICATE KEY UPDATE ip=VALUES(ip), hostname=IF(VALUES(hostname)="", hostname, VALUES(hostname)), server=VALUES(server), status=VALUES(status), last_seen=NOW()');
             foreach ($leases as $l) {
                 if (!is_array($l)) continue;
                 $mac = normalize_mac((string)($l['m'] ?? '')); $ip = (string)($l['a'] ?? '');
                 if ($mac === '' || !filter_var($ip, FILTER_VALIDATE_IP)) continue;
-                $up->execute([$id, $mac, $ip, mb_substr((string)($l['h'] ?? ''), 0, 120), mb_substr((string)($l['s'] ?? ''), 0, 64), 'bound']);
+                $host = mb_substr((string)($l['h'] ?? ''), 0, 120); $srv = mb_substr((string)($l['s'] ?? ''), 0, 64);
+                $up->execute([$id, $mac, $ip, $host, $srv, 'bound']);
+                if (!isset($knownMacs[$mac]) && !$learning && (int)($d['newdev_alert'] ?? 1) === 1 && !in_array(mb_strtolower($srv), $ignore, true)) {
+                    $newHosts[] = ['mac' => $mac, 'ip' => $ip, 'host' => $host, 'srv' => $srv];
+                }
+                $knownMacs[$mac] = true;
             }
         }
+
+        // --- IP pooli (vsakih 5 min); med pošiljanji obdržimo zadnje znane vrednosti
+        $pools = null;
+        if (is_array($b['pools'] ?? null) && $b['pools']) {
+            $pools = [];
+            foreach ($b['pools'] as $p) {
+                if (!is_array($p) || empty($p['n'])) continue;
+                $size = self::poolSize((string)($p['r'] ?? ''));
+                $pools[] = ['n' => (string)$p['n'], 'r' => (string)($p['r'] ?? ''), 'used' => (int)($p['u'] ?? 0), 'size' => $size];
+            }
+        }
+        $oldStatus = json_decode((string)($d['status_json'] ?? ''), true) ?: [];
 
         // --- logi (vrstico, ki jo že imamo, zavrnemo – router lahko po ponovnem zagonu ali prenamestitvi pošlje znova)
         $logs = (array)($b['logs'] ?? []);
@@ -117,6 +142,7 @@ final class Ingest
         $status = [
             'ident' => (string)($b['ident'] ?? ''), 'res' => $res, 'rb' => $rb, 'health' => $healthRaw, 'ping' => $ping,
             'wg' => (array)($b['wg'] ?? []), 'upd' => (array)($b['upd'] ?? []), 'h' => $h, 'at' => date('c', $now),
+            'pools' => $pools ?? ($oldStatus['pools'] ?? []),
         ];
         $rebooted = $d['last_uptime'] !== null && $uptime !== null && $uptime + 120 < (int)$d['last_uptime'];
         $pdo->prepare('UPDATE devices SET last_seen_at=NOW(), last_seen_ip=?, last_uptime=?, status_json=?, model=IF(?<>"", ?, model), serial=IF(?<>"", ?, serial), os_version=?, firmware=?, arch=? WHERE id=?')
@@ -129,6 +155,9 @@ final class Ingest
         // --- alarmi iz svežih podatkov
         $d = Devices::decorate(array_merge($d, ['last_seen_at' => date('Y-m-d H:i:s'), 'status_json' => json_encode($status)]));
         Alerts::evaluatePush($d, $h, $rebooted, $uptime);
+        if ($pools !== null) Alerts::pools($d, $pools);
+        if ($newHosts) Alerts::newHosts($d, $newHosts);
+        if (!empty($b['logs'])) Alerts::attacks($d);
 
         return ['ok' => true, 'tick' => (int)($b['tick'] ?? 0)];
     }
@@ -168,6 +197,20 @@ final class Ingest
             return round($v, 3);
         }
         return null;
+    }
+
+    /** Število naslovov v RouterOS "ranges": "10.0.0.10-10.0.0.254;10.0.1.0/24" */
+    public static function poolSize(string $ranges): int
+    {
+        $n = 0;
+        foreach (preg_split('/[;,\s]+/', trim($ranges)) as $r) {
+            if ($r === '') continue;
+            if (preg_match('#^([\d.]+)/(\d+)$#', $r, $m)) { $n += 2 ** (32 - (int)$m[2]); continue; }
+            [$a, $z] = array_pad(explode('-', $r, 2), 2, null);
+            $la = ip2long($a); $lz = $z !== null ? ip2long($z) : $la;
+            if ($la !== false && $lz !== false && $lz >= $la) $n += $lz - $la + 1;
+        }
+        return $n;
     }
 
     /** Stopnja vrstice loga. RouterOS spremembo ure (IP Cloud ob zagonu) označi kot critical – to je samo info. */

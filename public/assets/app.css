@@ -283,6 +283,13 @@ textarea.code { font-family: var(--mono); font-size: .82rem; min-height: 260px; 
 .log-tbl td { font-size: .84rem; padding: 7px 14px; }
 .log-tbl .msg { font-family: var(--mono); font-size: .8rem; overflow-wrap: anywhere; }
 
+/* razpoložljivost po dnevih */
+.sla-strip { display: grid; grid-template-columns: repeat(auto-fill, minmax(30px, 1fr)); gap: 5px; }
+.sla-day { height: 42px; border-radius: 6px; background: var(--line); display: flex; align-items: flex-end; justify-content: center; padding-bottom: 3px; }
+.sla-day span { font-size: .68rem; color: #fff; font-weight: 600; }
+.sla-day.none span { color: var(--faint); }
+.sla-day.up { background: var(--up); } .sla-day.warn { background: var(--warn); } .sla-day.down { background: var(--down); }
+
 /* diff */
 .diff { font-family: var(--mono); font-size: .8rem; line-height: 1.55; overflow-x: auto; }
 .diff div { padding: 0 16px; white-space: pre; }

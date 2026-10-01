@@ -3,7 +3,7 @@ $id = (int)$d['id']; $s = $d['status']; $hh = $s['h'] ?? []; $res = $s['res'] ??
 $isSuper = Auth::isSuper();
 $ports = face_ports($ifaces, $d['wan_iface'], 40);
 $wanRow = null; foreach ($ifaces as $i) if ($i['name'] === $d['wan_iface']) $wanRow = $i;
-$tabs = ['overview' => ['dashboard', A('Pregled')], 'ifaces' => ['ethernet', A('Vmesniki')], 'clients' => ['laptop', A('Naprave v LAN')], 'wg' => ['lock', 'WireGuard'], 'logs' => ['scroll', A('Logi')], 'alerts' => ['bell', A('Alarmi')]];
+$tabs = ['overview' => ['dashboard', A('Pregled')], 'ifaces' => ['ethernet', A('Vmesniki')], 'clients' => ['laptop', A('Naprave v LAN')], 'sla' => ['gauge', A('Razpoložljivost')], 'security' => ['shield', A('Varnost')], 'wg' => ['lock', 'WireGuard'], 'logs' => ['scroll', A('Logi')], 'alerts' => ['bell', A('Alarmi')]];
 if ($isSuper) { $tabs['backups'] = ['archive', A('Konfiguracija')]; $tabs['settings'] = ['settings', A('Nastavitve')]; }
 $upd = $s['upd'] ?? [];
 ?>
@@ -112,12 +112,23 @@ $upd = $s['upd'] ?? [];
         <dt><?= h(A('Prehod WAN')) ?></dt><dd class="mono"><?= h(($s['ping']['gw'] ?? '') ?: '–') ?></dd>
         <dt><?= h(A('Povezave (conntrack)')) ?></dt><dd><?= isset($hh['conns']) && $hh['conns'] !== null ? number_format((int)$hh['conns'], 0, ',', '.') : '–' ?></dd>
         <dt><?= h(A('DHCP najemi')) ?></dt><dd><?= $hh['leases'] ?? '–' ?></dd>
+        <dt><?= h(A('Razpoložljivost 30 d')) ?></dt><dd><a href="?tab=sla"><span class="tag <?= Sla::cls($sla30['pct']) ?>"><?= h(Sla::fmt($sla30['pct'])) ?></span></a></dd>
         <?php foreach ($s['health'] ?? [] as $k => $v): if (str_contains((string)$k, 'temperature') || $k === 'cpu-temperature') continue; ?>
         <dt><?= h($k) ?></dt><dd><?= h($v) ?></dd>
         <?php endforeach; ?>
         <dt><?= h(A('Ping s strežnika')) ?></dt><dd><?= $d['tiger_ping_at'] ? ($d['tiger_ping_ok'] ? h(($d['tiger_ping_ms'] ?? '?') . ' ms') : '<span class="tag down">' . h(A('ne odgovarja')) . '</span>') . ' <span class="faint small">' . h(fmt_ago($d['tiger_ping_at'])) . '</span>' : '–' ?></dd>
       </dl></div>
     </section>
+    <?php if (!empty($s['pools'])): ?>
+    <section class="panel">
+      <div class="panel-head"><h2><?= icon('list', 18) ?><?= h(A('IP pooli')) ?></h2></div>
+      <div class="panel-body" style="display:grid;gap:12px">
+      <?php foreach ($s['pools'] as $pl): $pp = $pl['size'] > 0 ? $pl['used'] / $pl['size'] * 100 : 0; ?>
+        <div><div class="small" style="display:flex;justify-content:space-between"><span class="mono"><?= h($pl['n']) ?></span><span class="muted"><?= (int)$pl['used'] ?> / <?= (int)$pl['size'] ?></span></div><?= pct_meter($pp, 75, 90) ?></div>
+      <?php endforeach; ?>
+      </div>
+    </section>
+    <?php endif; ?>
     <section class="panel">
       <div class="panel-head"><h2><?= icon('bell', 18) ?><?= h(A('Odprti alarmi')) ?></h2></div>
       <?php if (!$alerts): ?><div class="empty" style="padding:24px"><?= icon('shield', 26) ?><div><?= h(A('Vse v redu.')) ?></div></div>
@@ -199,12 +210,79 @@ $upd = $s['upd'] ?? [];
   <div class="tbl-wrap"><table class="tbl">
     <thead><tr><th><?= h(A('Ime')) ?></th><th>IP</th><th>MAC</th><th><?= h(A('DHCP strežnik')) ?></th><th><?= h(A('Prvič')) ?></th><th><?= h(A('Zadnjič')) ?></th></tr></thead>
     <tbody><?php foreach ($hosts as $hst): ?><tr>
-      <td><?= h($hst['label'] ?: ($hst['hostname'] ?: '–')) ?><?= $hst['label'] && $hst['hostname'] ? ' <span class="small faint">' . h($hst['hostname']) . '</span>' : '' ?></td>
+      <td><?= h($hst['label'] ?: ($hst['hostname'] ?: '–')) ?><?= $hst['label'] && $hst['hostname'] ? ' <span class="small faint">' . h($hst['hostname']) . '</span>' : '' ?><?= strtotime($hst['first_seen']) > time() - 86400 ? ' <span class="tag info">' . h(A('nova')) . '</span>' : '' ?></td>
       <td class="mono"><?= h($hst['ip']) ?></td><td class="mono small muted"><?= h($hst['mac']) ?></td><td class="muted"><?= h($hst['server']) ?></td>
       <td class="nowrap muted small"><?= h(fmt_dt($hst['first_seen'])) ?></td><td class="nowrap small"><?= h(fmt_ago($hst['last_seen'])) ?></td>
     </tr><?php endforeach; ?></tbody>
   </table></div><?php endif; ?>
 </section>
+
+<?php elseif ($tab === 'sla'):
+  $prevM = date('Y-m', strtotime($ym . '-01 -1 month')); $nextM = date('Y-m', strtotime($ym . '-01 +1 month'));
+  $dur = fn(int $x) => $x < 60 ? $x . ' s' : ($x < 3600 ? intdiv($x, 60) . ' min' : intdiv($x, 3600) . ' h ' . intdiv($x % 3600, 60) . ' min');
+?>
+<div class="grid g3">
+  <?php foreach ([[A('Ta mesec'), $slaMonth], [A('Zadnjih 30 dni'), $sla30], [A('Zadnjih 12 mesecev'), $sla365]] as [$lbl, $p]): ?>
+  <section class="panel"><div class="panel-body">
+    <div class="small muted"><?= h($lbl) ?></div>
+    <div style="font-size:2rem;font-weight:600;color:var(--<?= Sla::cls($p['pct']) ?: 'text' ?>)"><?= h(Sla::fmt($p['pct'])) ?></div>
+    <div class="small muted"><?= $p['count'] ? h(A('{n} izpadov, skupaj {t}', ['n' => $p['count'], 't' => $dur($p['down_s'])])) : h(A('brez izpadov')) ?></div>
+  </div></section>
+  <?php endforeach; ?>
+</div>
+<section class="panel">
+  <div class="panel-head">
+    <h2><?= icon('gauge', 18) ?><?= h(Report::monthName($ym)) ?></h2>
+    <div class="seg"><a href="?tab=sla&m=<?= $prevM ?>">‹ <?= h(Report::monthName($prevM)) ?></a><?php if ($nextM <= date('Y-m')): ?><a href="?tab=sla&m=<?= $nextM ?>"><?= h(Report::monthName($nextM)) ?> ›</a><?php endif; ?></div>
+  </div>
+  <div class="panel-body">
+    <div class="sla-strip">
+    <?php foreach ($slaDays as $day => $pct): ?>
+      <div class="sla-day <?= $pct === null ? 'none' : Sla::cls($pct) ?>" title="<?= h(date('d.m.Y', strtotime($day)) . ': ' . Sla::fmt($pct)) ?>"><span><?= (int)date('j', strtotime($day)) ?></span></div>
+    <?php endforeach; ?>
+    </div>
+    <div class="legend" style="margin-top:12px"><span><i style="background:var(--up)"></i>≥ 99,9 %</span><span><i style="background:var(--warn)"></i>99–99,9 %</span><span><i style="background:var(--down)"></i>&lt; 99 %</span><span><i style="background:var(--line)"></i><?= h(A('ni podatkov')) ?></span></div>
+  </div>
+</section>
+<section class="panel">
+  <div class="panel-head"><h2><?= icon('history', 18) ?><?= h(A('Izpadi v mesecu')) ?></h2><span class="small muted"><?= h(A('Šteje nedosegljiva naprava in izpad interneta.')) ?></span></div>
+  <?php if (!$slaMonth['outages']): ?><div class="empty"><?= icon('shield', 28) ?><div><?= h(A('V tem mesecu ni bilo izpadov.')) ?></div></div><?php else: ?>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th><?= h(A('Vrsta')) ?></th><th><?= h(A('Začetek')) ?></th><th><?= h(A('Konec')) ?></th><th class="num"><?= h(A('Trajanje')) ?></th></tr></thead>
+    <tbody><?php foreach ($slaMonth['outages'] as $o): ?><tr>
+      <td><?= sev_tag('critical') ?> <?= h($o['key'] === 'offline' ? A('Naprava nedosegljiva') : A('Internet ne deluje')) ?></td>
+      <td class="nowrap"><?= h(date('d.m.Y H:i', $o['from'])) ?></td>
+      <td class="nowrap"><?= $o['open'] ? '<span class="tag down">' . h(A('traja')) . '</span>' : h(date('d.m.Y H:i', $o['to'])) ?></td>
+      <td class="num"><?= h($dur(max(0, $o['to'] - $o['from']))) ?></td>
+    </tr><?php endforeach; ?></tbody>
+  </table></div><?php endif; ?>
+</section>
+
+<?php elseif ($tab === 'security'): ?>
+<section class="panel">
+  <div class="panel-head"><h2><?= icon('shield', 18) ?><?= h(A('Neuspele prijave na router (30 dni)')) ?></h2><span class="small muted"><?= h(A('Alarm: {n} poskusov z istega IP-ja v {m} min', ['n' => (int)setting('th_attack', '5'), 'm' => (int)setting('th_attack_min', '15')])) ?></span></div>
+  <?php if (!$fails): ?><div class="empty"><?= icon('shield', 28) ?><div><?= h(A('Ni neuspelih prijav.')) ?></div></div><?php else: ?>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th><?= h(A('Izvorni IP')) ?></th><th><?= h(A('Način')) ?></th><th><?= h(A('Uporabniška imena')) ?></th><th class="num"><?= h(A('Poskusov')) ?></th><th><?= h(A('Prvič')) ?></th><th><?= h(A('Zadnjič')) ?></th></tr></thead>
+    <tbody><?php foreach ($fails as $f): ?><tr>
+      <td class="mono"><?= h($f['src'] ?: '?') ?></td><td class="muted"><?= h(str_replace('via ', '', (string)$f['via'])) ?></td>
+      <td class="small"><?= h(mb_strimwidth((string)$f['users'], 0, 60, '…')) ?></td><td class="num"><b><?= (int)$f['n'] ?></b></td>
+      <td class="nowrap muted small"><?= h(fmt_dt($f['first'])) ?></td><td class="nowrap small"><?= h(fmt_ago($f['last'])) ?></td>
+    </tr><?php endforeach; ?></tbody>
+  </table></div><?php endif; ?>
+</section>
+<div class="grid g2">
+  <section class="panel">
+    <div class="panel-head"><h2><?= icon('alert', 18) ?><?= h(A('Zaznani napadi')) ?></h2></div>
+    <?php if (!$attacks): ?><div class="empty"><?= h(A('Ni zaznanih napadov.')) ?></div><?php else: ?>
+    <ul class="feed"><?php foreach ($attacks as $a): ?><li><span class="sev-bar warning"></span><div class="what"><?= h($a['message']) ?></div><span class="when"><?= h(fmt_dt($a['started_at'])) ?></span></li><?php endforeach; ?></ul><?php endif; ?>
+  </section>
+  <section class="panel">
+    <div class="panel-head"><h2><?= icon('user', 18) ?><?= h(A('Uspešne prijave')) ?></h2></div>
+    <?php if (!$logins): ?><div class="empty small"><?= h(A('Ni zapisov. Router jih pošilja, če ima tema "account" vklopljeno v filtru logov.')) ?></div><?php else: ?>
+    <ul class="feed"><?php foreach ($logins as $l): ?><li><span class="sev-bar info"></span><div class="what mono small"><?= h($l['message']) ?></div><span class="when"><?= h(fmt_dt($l['ts'])) ?></span></li><?php endforeach; ?></ul><?php endif; ?>
+  </section>
+</div>
 
 <?php elseif ($tab === 'wg'): $wg = $s['wg'] ?? []; ?>
 <section class="panel">
@@ -267,12 +345,17 @@ $upd = $s['upd'] ?? [];
 
 <?php elseif ($tab === 'settings'):
   $f = $d; $th = json_decode((string)$d['thresholds'], true) ?: [];
-  $thLabels = ['th_cpu' => ['CPU %', '%'], 'th_temp' => [A('Temperatura'), '°C'], 'th_gw_loss' => [A('Izguba do prehoda'), '%'], 'th_gw_ms' => [A('Latenca do prehoda'), 'ms'], 'th_ext_loss' => [A('Izguba do interneta'), '%'], 'th_ext_ms' => [A('Latenca do interneta'), 'ms'], 'th_offline_min' => [A('Brez pusha'), 'min'], 'th_host_gb_h' => [A('Naprava v LAN – GB/uro'), 'GB'], 'th_host_mbps' => [A('Naprava v LAN – Mb/s'), 'Mb/s']];
+  $thLabels = ['th_cpu' => ['CPU %', '%'], 'th_temp' => [A('Temperatura'), '°C'], 'th_gw_loss' => [A('Izguba do prehoda'), '%'], 'th_gw_ms' => [A('Latenca do prehoda'), 'ms'], 'th_ext_loss' => [A('Izguba do interneta'), '%'], 'th_ext_ms' => [A('Latenca do interneta'), 'ms'], 'th_offline_min' => [A('Brez pusha'), 'min'], 'th_host_gb_h' => [A('Naprava v LAN – GB/uro'), 'GB'], 'th_host_mbps' => [A('Naprava v LAN – Mb/s'), 'Mb/s'], 'th_attack' => [A('Napad: neuspelih prijav'), A('št.')], 'th_pool' => [A('Zasedenost IP poola'), '%'], 'th_backup_days' => [A('Brez backupa'), A('dni')]];
 ?>
 <form class="form" method="post" action="/devices/<?= $id ?>/save">
   <?= Auth::csrf() ?>
   <section class="panel"><div class="panel-head"><h2><?= icon('settings', 18) ?><?= h(A('Nastavitve naprave')) ?></h2></div>
     <div class="panel-body form"><?php $isNew = false; require __DIR__ . '/_device_form.php'; ?></div></section>
+  <section class="panel"><div class="panel-head"><h2><?= icon('laptop', 18) ?><?= h(A('Nove naprave v LAN-u')) ?></h2></div>
+    <div class="panel-body form">
+      <label class="check"><input type="checkbox" name="newdev_alert" value="1" <?= (int)($d['newdev_alert'] ?? 1) ? 'checked' : '' ?>> <?= h(A('Obvesti, ko se v LAN-u prvič pojavi nova naprava (nov MAC naslov)')) ?></label>
+      <label class="f"><?= h(A('Brez obvestil za DHCP strežnike')) ?><input type="text" name="newdev_ignore" value="<?= h($d['newdev_ignore'] ?? '') ?>" class="mono" placeholder="hs-dhcp, dhcpVlan50"><small><?= h(A('Npr. gostujoči WiFi, kjer so nove naprave nekaj običajnega. Ločeno z vejico.')) ?></small></label>
+    </div></section>
   <section class="panel"><div class="panel-head"><h2><?= icon('sliders', 18) ?><?= h(A('Pragovi za to napravo')) ?></h2><span class="small muted"><?= h(A('Prazno = globalna nastavitev')) ?></span></div>
     <div class="panel-body"><div class="form"><div class="row">
       <?php foreach ($thLabels as $k => [$l, $u]): ?><label class="f"><span><?= h($l) ?> <small>(<?= h($u) ?>)</small></span><input type="number" step="any" name="th[<?= $k ?>]" value="<?= h($th[$k] ?? '') ?>" placeholder="<?= h(setting($k)) ?>"></label><?php endforeach; ?>

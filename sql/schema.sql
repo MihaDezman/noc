@@ -7,6 +7,8 @@ CREATE TABLE tenants (
   name        VARCHAR(160) NOT NULL,
   contact     VARCHAR(255) NOT NULL DEFAULT '',
   notes       TEXT NULL,
+  report_enabled TINYINT(1) NOT NULL DEFAULT 0,
+  report_emails  VARCHAR(500) NOT NULL DEFAULT '',
   created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -59,6 +61,8 @@ CREATE TABLE devices (
   log_include    VARCHAR(255) NOT NULL DEFAULT 'critical|error|warning|system|account|interface|wireguard|health|script',
   log_exclude    VARCHAR(255) NOT NULL DEFAULT 'debug|packet|dhcp.info|hotspot.info',
   thresholds     TEXT NULL,                            -- JSON: odstopanja od globalnih pragov
+  newdev_alert   TINYINT(1) NOT NULL DEFAULT 1,        -- obvestilo o novi napravi v LAN-u
+  newdev_ignore  VARCHAR(255) NOT NULL DEFAULT '',     -- DHCP strežniki brez obvestil
   api_key_hash   CHAR(64) NULL UNIQUE,
   api_key_enc    TEXT NULL,
   export_raw     MEDIUMTEXT NULL,                      -- /export, iz katerega je bila naprava dodana
@@ -253,4 +257,5 @@ INSERT INTO settings (k, v) VALUES
  ('th_gw_loss', '20'), ('th_gw_ms', '50'), ('th_ext_loss', '20'), ('th_ext_ms', '120'), ('th_ping_min', '3'),
  ('th_offline_min', '3'), ('th_host_gb_h', '10'), ('th_host_mbps', '200'), ('th_host_min', '15'),
  ('notify_emails', ''), ('notify_mail_min', 'warning'), ('notify_tg_min', 'warning'), ('notify_resolved', '1'),
- ('tg_token_enc', ''), ('tg_chat_id', '');
+ ('tg_token_enc', ''), ('tg_chat_id', ''),
+ ('th_attack', '5'), ('th_attack_min', '15'), ('th_pool', '90'), ('th_backup_days', '2');
