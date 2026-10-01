@@ -4,6 +4,15 @@
 </div>
 
 <?php if (empty($an)): ?>
+<section class="panel enroll-card">
+  <div class="panel-body" style="display:flex;gap:18px;align-items:center;flex-wrap:wrap">
+    <span class="dev-icon" style="width:46px;height:46px"><?= icon('zap', 22) ?></span>
+    <div style="flex:1;min-width:240px"><b><?= h(A('Najhitreje: en ukaz na routerju')) ?></b>
+      <div class="small muted"><?= h(A('NOC ustvari enkratno kodo (velja 30 min). Router z enim ukazom pošlje svojo konfiguracijo, ti tukaj samo potrdiš predlog.')) ?></div></div>
+    <form method="post" action="/devices/enroll"><?= Auth::csrf() ?><button class="btn primary"><?= icon('key', 16) ?><?= h(A('Ustvari kodo in ukaz')) ?></button></form>
+  </div>
+</section>
+<p class="small muted" style="margin:14px 0"><?= h(A('… ali konfiguracijo naloži ročno:')) ?></p>
 <div class="grid g-main">
   <section class="panel">
     <div class="panel-head"><h2><?= icon('file', 18) ?><?= h(A('1. Konfiguracija routerja')) ?></h2></div>
@@ -36,6 +45,7 @@
   <section class="panel">
     <div class="panel-head"><h2><?= icon('router', 18) ?><?= h(A('2. Preveri in dopolni')) ?></h2></div>
     <div class="panel-body">
+      <?php if (!empty($enrolled)): ?><div class="note" style="margin-bottom:10px"><?= icon('check', 18) ?><span><?= h(A('Konfiguracija prejeta z routerja {ip}.', ['ip' => $enrolled['router_ip']])) ?></span></div><?php endif; ?>
       <?php foreach ($an['warnings'] as $wn): ?><div class="note warn" style="margin-bottom:10px"><?= icon('alert', 18) ?><span><?= h(A($wn)) ?></span></div><?php endforeach; ?>
       <form class="form" method="post" action="/devices/create">
         <?= Auth::csrf() ?>

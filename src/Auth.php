@@ -31,22 +31,52 @@ final class Auth
         return $r['a'] >= 5 || $r['b'] >= 15;
     }
 
-    public static function login(string $email, string $password): bool
+    /** Prijava z geslom: 'ok' (prijavljen), 'totp' (čaka na kodo 2FA) ali false */
+    public static function login(string $email, string $password): string|false
     {
         $email = mb_strtolower(trim($email));
         if (self::loginBlocked($email)) return false;
         $st = db()->prepare('SELECT * FROM users WHERE email=? AND active=1'); $st->execute([$email]); $u = $st->fetch();
-        if (!$u || !password_verify($password, $u['pass_hash'])) {
-            db()->prepare('INSERT INTO login_attempts (email, ip) VALUES (?, ?)')->execute([$email, client_ip()]);
-            error_log('noc-login-fail ip=' . client_ip() . ' email=' . $email);   // za fail2ban
-            return false;
+        if (!$u || !password_verify($password, $u['pass_hash'])) { self::fail($email); return false; }
+        if (!empty($u['totp_secret'])) {
+            session_regenerate_id(true);
+            $_SESSION['2fa_uid'] = (int)$u['id']; $_SESSION['2fa_at'] = time();
+            return 'totp';
         }
+        self::finish($u);
+        return 'ok';
+    }
+
+    /** Drugi korak: koda iz aplikacije (velja 5 min po geslu) */
+    public static function loginTotp(string $code): bool
+    {
+        $uid = (int)($_SESSION['2fa_uid'] ?? 0);
+        if (!$uid || time() - (int)($_SESSION['2fa_at'] ?? 0) > 300) { unset($_SESSION['2fa_uid'], $_SESSION['2fa_at']); return false; }
+        $st = db()->prepare('SELECT * FROM users WHERE id=? AND active=1'); $st->execute([$uid]); $u = $st->fetch();
+        if (!$u || self::loginBlocked($u['email'])) return false;
+        $step = Totp::verify(dec($u['totp_secret']), $code, $u['totp_last'] !== null ? (int)$u['totp_last'] : null);
+        if ($step === null) { self::fail($u['email']); return false; }
+        db()->prepare('UPDATE users SET totp_last=? WHERE id=?')->execute([$step, $uid]);
+        unset($_SESSION['2fa_uid'], $_SESSION['2fa_at']);
+        self::finish($u);
+        return true;
+    }
+
+    public static function pendingTotp(): bool { return !empty($_SESSION['2fa_uid']) && time() - (int)($_SESSION['2fa_at'] ?? 0) <= 300; }
+
+    private static function fail(string $email): void
+    {
+        db()->prepare('INSERT INTO login_attempts (email, ip) VALUES (?, ?)')->execute([$email, client_ip()]);
+        error_log('noc-login-fail ip=' . client_ip() . ' email=' . $email);   // za fail2ban
+    }
+
+    private static function finish(array $u): void
+    {
         session_regenerate_id(true);
         $_SESSION['uid'] = (int)$u['id']; $_SESSION['seen'] = time();
         db()->prepare('UPDATE users SET last_login=NOW() WHERE id=?')->execute([$u['id']]);
-        db()->prepare('DELETE FROM login_attempts WHERE email=?')->execute([$email]);
-        self::$user = $u; audit('login');
-        return true;
+        db()->prepare('DELETE FROM login_attempts WHERE email=?')->execute([$u['email']]);
+        self::$user = $u; audit('login', !empty($u['totp_secret']) ? '2FA' : '');
     }
 
     public static function logout(): void { $_SESSION = []; session_destroy(); self::$user = null; }

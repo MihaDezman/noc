@@ -20,6 +20,17 @@
     </div>
   </section>
   <section class="login-form">
+    <?php if (!empty($step2)): ?>
+    <form method="post" action="/login/2fa">
+      <?= Auth::csrf() ?>
+      <h2><?= h(A('Dvostopenjska prijava')) ?></h2>
+      <p class="muted" style="margin:0"><?= h(A('Vpiši 6-mestno kodo iz aplikacije za preverjanje (Google Authenticator, Aegis …).')) ?></p>
+      <?php if ($error): ?><div class="flash err"><?= icon('alert', 18) ?><span><?= h($error) ?></span></div><?php endif; ?>
+      <label class="f"><?= h(A('Koda')) ?><input type="text" name="code" required autofocus inputmode="numeric" autocomplete="one-time-code" pattern="[0-9 ]{6,7}" maxlength="7" class="mono" style="font-size:1.4rem;letter-spacing:.3em;text-align:center"></label>
+      <button class="btn primary" style="justify-content:center"><?= icon('shield', 16) ?><?= h(A('Potrdi')) ?></button>
+      <a class="small" href="/login"><?= h(A('Nazaj na prijavo')) ?></a>
+    </form>
+    <?php else: ?>
     <form method="post" action="/login">
       <?= Auth::csrf() ?>
       <h2><?= h(A('Prijava')) ?></h2>
@@ -29,6 +40,7 @@
       <button class="btn primary" style="justify-content:center"><?= icon('lock', 16) ?><?= h(A('Prijava')) ?></button>
       <p class="small faint">Računalniške storitve Miha Dežman s.p.</p>
     </form>
+    <?php endif; ?>
   </section>
 </div>
 </body>

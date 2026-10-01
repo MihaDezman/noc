@@ -6,7 +6,7 @@
       <thead><tr><th><?= h(A('Uporabnik')) ?></th><th><?= h(A('Vloga')) ?></th><th><?= h(A('Naročnik')) ?></th><th><?= h(A('Zadnja prijava')) ?></th><th></th></tr></thead>
       <tbody><?php foreach ($users as $x): ?><tr>
         <td><b><?= h($x['name'] ?: '–') ?></b><div class="small muted"><?= h($x['email']) ?></div></td>
-        <td><?= $x['role'] === 'superadmin' ? '<span class="tag violet">superadmin</span>' : '<span class="tag">' . h(A('bralni')) . '</span>' ?><?= !$x['active'] ? ' <span class="tag down">' . h(A('onemogočen')) . '</span>' : '' ?></td>
+        <td><?= $x['role'] === 'superadmin' ? '<span class="tag violet">superadmin</span>' : '<span class="tag">' . h(A('bralni')) . '</span>' ?><?= !$x['active'] ? ' <span class="tag down">' . h(A('onemogočen')) . '</span>' : '' ?><?= $x['totp_secret'] ? ' <span class="tag up" title="2FA">' . icon('shield', 12) . '2FA</span>' : '' ?></td>
         <td class="muted"><?= h($x['tenant_name'] ?? '–') ?></td>
         <td class="muted nowrap"><?= h(fmt_ago($x['last_login'])) ?></td>
         <td class="num"><a class="btn sm ghost" href="/users?id=<?= (int)$x['id'] ?>"><?= icon('edit', 14) ?></a></td>
@@ -28,6 +28,7 @@
         <label class="check"><input type="checkbox" name="active" value="1" <?= !$edit || $edit['active'] ? 'checked' : '' ?>> <?= h(A('Aktiven')) ?></label>
         <div class="actions"><button class="btn primary"><?= icon('check', 16) ?><?= h(A('Shrani')) ?></button><?php if ($edit): ?><a class="btn ghost" href="/users"><?= h(A('Prekliči')) ?></a><?php endif; ?></div>
       </form>
+      <?php if ($edit && $edit['totp_secret'] && (int)$edit['id'] !== (int)Auth::$user['id']): ?><form method="post" action="/users/2fa-reset" style="margin-top:16px" data-confirm="<?= h(A('Ponastavim 2FA za tega uporabnika (npr. izgubljen telefon)?')) ?>"><?= Auth::csrf() ?><input type="hidden" name="id" value="<?= (int)$edit['id'] ?>"><button class="btn sm"><?= icon('shield', 14) ?><?= h(A('Ponastavi 2FA')) ?></button></form><?php endif; ?>
       <?php if ($edit && (int)$edit['id'] !== (int)Auth::$user['id']): ?><form method="post" action="/users/delete" style="margin-top:16px" data-confirm="<?= h(A('Izbrišem uporabnika?')) ?>"><?= Auth::csrf() ?><input type="hidden" name="id" value="<?= (int)$edit['id'] ?>"><button class="btn sm danger"><?= icon('trash', 14) ?><?= h(A('Izbriši')) ?></button></form><?php endif; ?>
     </div>
   </section>

@@ -3,8 +3,8 @@ $id = (int)$d['id']; $s = $d['status']; $hh = $s['h'] ?? []; $res = $s['res'] ??
 $isSuper = Auth::isSuper();
 $ports = face_ports($ifaces, $d['wan_iface'], 40);
 $wanRow = null; foreach ($ifaces as $i) if ($i['name'] === $d['wan_iface']) $wanRow = $i;
-$tabs = ['overview' => ['dashboard', A('Pregled')], 'ifaces' => ['ethernet', A('Vmesniki')], 'clients' => ['laptop', A('Naprave v LAN')], 'sla' => ['gauge', A('Razpoložljivost')], 'security' => ['shield', A('Varnost')], 'wg' => ['lock', 'WireGuard'], 'logs' => ['scroll', A('Logi')], 'alerts' => ['bell', A('Alarmi')]];
-if ($isSuper) { $tabs['backups'] = ['archive', A('Konfiguracija')]; $tabs['settings'] = ['settings', A('Nastavitve')]; }
+$tabs = ['overview' => ['dashboard', A('Pregled')], 'ifaces' => ['ethernet', A('Vmesniki')], 'clients' => ['laptop', A('Naprave v LAN')], 'sla' => ['gauge', A('Razpoložljivost')], 'security' => ['shield', A('Varnost')], 'logs' => ['scroll', A('Logi')], 'alerts' => ['bell', A('Alarmi')]];
+$manage = in_array($tab, ['backups', 'settings'], true);   // upravljanje: odpre se z gumbom v glavi, ne kot zavihek
 $upd = $s['upd'] ?? [];
 ?>
 <div class="crumbs"><a href="/devices"><?= h(A('Naprave')) ?></a><?= icon('chev', 14) ?><?= h($d['tenant_name'] ?: '–') ?></div>
@@ -34,6 +34,8 @@ $upd = $s['upd'] ?? [];
         <button class="btn sm" title="<?= h(A('Vzdrževanje: alarmi se beležijo, obvestila ne gredo ven')) ?>"><?= icon('bell-off', 15) ?><?= h(A('Utišaj')) ?></button>
       <?php endif; ?>
     </form>
+    <a class="btn sm <?= $tab === 'backups' ? 'on' : '' ?>" href="/devices/<?= $id ?>?tab=backups"><?= icon('archive', 15) ?><?= h(A('Konfiguracija')) ?></a>
+    <a class="btn sm <?= $tab === 'settings' ? 'on' : '' ?>" href="/devices/<?= $id ?>?tab=settings"><?= icon('settings', 15) ?><?= h(A('Nastavitve')) ?></a>
     <a class="btn sm" href="/devices/<?= $id ?>/install"><?= icon('download', 15) ?><?= h(A('Paket')) ?></a>
   </div>
   <?php endif; ?>
@@ -47,9 +49,13 @@ $upd = $s['upd'] ?? [];
 </div>
 <?php else: ?><div style="height:18px"></div><?php endif; ?>
 
+<?php if ($manage): ?>
+<div class="manage-head"><a href="/devices/<?= $id ?>" class="small"><?= icon('chev', 14, 'flip') ?><?= h(A('Nazaj na pregled naprave')) ?></a><h2><?= icon($tab === 'backups' ? 'archive' : 'settings', 18) ?><?= h($tab === 'backups' ? A('Konfiguracija') : A('Nastavitve')) ?></h2></div>
+<?php else: ?>
 <nav class="tabs">
   <?php foreach ($tabs as $k => [$ic, $lbl]): ?><a href="/devices/<?= $id ?>?tab=<?= $k ?>" class="<?= $tab === $k ? 'on' : '' ?>"><?= icon($ic, 16) ?><?= h($lbl) ?><?= $k === 'alerts' && $alerts ? ' <span class="tag down">' . count($alerts) . '</span>' : '' ?></a><?php endforeach; ?>
 </nav>
+<?php endif; ?>
 
 <?php if ($tab === 'overview'): ?>
 <?php if (!$d['last_seen_at']): ?>
@@ -175,6 +181,22 @@ $upd = $s['upd'] ?? [];
   </table></div>
 </section>
 
+<?php $wg = $s['wg'] ?? []; if ($wg): ?>
+<section class="panel">
+  <div class="panel-head"><h2><?= icon('lock', 18) ?><?= h(A('WireGuard peerji')) ?></h2></div>
+  <?php if (true): ?>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th>Peer</th><th><?= h(A('Vmesnik')) ?></th><th>Endpoint</th><th><?= h(A('Zadnji handshake')) ?></th><th class="num">RX</th><th class="num">TX</th></tr></thead>
+    <tbody><?php foreach ($wg as $p): $hs = ros_seconds((string)($p['hs'] ?? '')); ?><tr>
+      <td><b><?= h(($p['n'] ?? '') ?: ($p['c'] ?? '') ?: '–') ?></b><?= !empty($p['dis']) ? ' <span class="tag">' . h(A('izklopljen')) . '</span>' : '' ?></td>
+      <td class="mono"><?= h($p['i'] ?? '') ?></td><td class="mono small"><?= h(($p['ep'] ?? '') ?: '–') ?></td>
+      <td><?= $hs === null ? '<span class="faint">' . h(A('nikoli')) . '</span>' : '<span class="tag ' . ($hs < 180 ? 'up' : ($hs < 900 ? 'warn' : '')) . '">' . h(A('pred {t}', ['t' => fmt_uptime($hs)])) . '</span>' ?></td>
+      <td class="num"><?= h(fmt_bytes($p['rx'] ?? 0)) ?></td><td class="num"><?= h(fmt_bytes($p['tx'] ?? 0)) ?></td>
+    </tr><?php endforeach; ?></tbody>
+  </table></div><?php endif; ?>
+</section>
+<?php endif; ?>
+
 <?php elseif ($tab === 'clients'): ?>
 <section class="panel">
   <div class="panel-head">
@@ -283,21 +305,6 @@ $upd = $s['upd'] ?? [];
     <ul class="feed"><?php foreach ($logins as $l): ?><li><span class="sev-bar info"></span><div class="what mono small"><?= h($l['message']) ?></div><span class="when"><?= h(fmt_dt($l['ts'])) ?></span></li><?php endforeach; ?></ul><?php endif; ?>
   </section>
 </div>
-
-<?php elseif ($tab === 'wg'): $wg = $s['wg'] ?? []; ?>
-<section class="panel">
-  <div class="panel-head"><h2><?= icon('lock', 18) ?><?= h(A('WireGuard peerji')) ?></h2></div>
-  <?php if (!$wg): ?><div class="empty"><?= h(A('Na tej napravi ni WireGuard peerjev.')) ?></div><?php else: ?>
-  <div class="tbl-wrap"><table class="tbl">
-    <thead><tr><th>Peer</th><th><?= h(A('Vmesnik')) ?></th><th>Endpoint</th><th><?= h(A('Zadnji handshake')) ?></th><th class="num">RX</th><th class="num">TX</th></tr></thead>
-    <tbody><?php foreach ($wg as $p): $hs = ros_seconds((string)($p['hs'] ?? '')); ?><tr>
-      <td><b><?= h(($p['n'] ?? '') ?: ($p['c'] ?? '') ?: '–') ?></b><?= !empty($p['dis']) ? ' <span class="tag">' . h(A('izklopljen')) . '</span>' : '' ?></td>
-      <td class="mono"><?= h($p['i'] ?? '') ?></td><td class="mono small"><?= h(($p['ep'] ?? '') ?: '–') ?></td>
-      <td><?= $hs === null ? '<span class="faint">' . h(A('nikoli')) . '</span>' : '<span class="tag ' . ($hs < 180 ? 'up' : ($hs < 900 ? 'warn' : '')) . '">' . h(A('pred {t}', ['t' => fmt_uptime($hs)])) . '</span>' ?></td>
-      <td class="num"><?= h(fmt_bytes($p['rx'] ?? 0)) ?></td><td class="num"><?= h(fmt_bytes($p['tx'] ?? 0)) ?></td>
-    </tr><?php endforeach; ?></tbody>
-  </table></div><?php endif; ?>
-</section>
 
 <?php elseif ($tab === 'logs'): ?>
 <section class="panel">

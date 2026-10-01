@@ -106,6 +106,22 @@ sudo /var/www/noc/bin/update.sh 1.5      # točno določena verzija
 Skripta naredi dump baze (`/var/backups/noc/pred-vX-….sql.gz`), commit trenutnega stanja, razširi zip, nastavi pravice,
 izvede nove `sql/update-*.sql` (vsakega samo enkrat, seznam v `/var/lib/noc/applied-sql.txt`) ter naredi commit in push na GitHub.
 
+## Dvostopenjska prijava (2FA)
+
+Moj račun → Dvostopenjska prijava → Vklopi 2FA → skeniraj QR kodo (Google Authenticator, Aegis, 2FAS …) → vpiši kodo.
+Izgubljen telefon: `sudo -u www-data php /var/www/noc/bin/user.php 2fa-off miha@dezman.net` (ali superadmin pri Uporabnikih → Ponastavi 2FA).
+
+## Telegram ukazi
+
+Alarmi in obvestila → Telegram → **Vklopi ukaze v Telegramu** (nastavi webhook). V Telegramu pošlji botu `/pomoc`.
+Ukazi: `/stanje`, `/alarmi`, `/naprava ime`, `/promet ime`, `/utisaj ime 2h`, `/porocilo ime`; pri alarmih gumba Potrdi in Utišaj 1 h.
+Bot upošteva samo sporočila iz nastavljenega chat ID-ja. Ko so ukazi vklopljeni, "Poišči chat ID" ne deluje (Telegram ne dovoli obojega hkrati).
+
+## Dodajanje routerja z enim ukazom
+
+Naprave → Dodaj napravo → **Ustvari kodo in ukaz** → ukaz prilepi v terminal routerja → stran se sama nadaljuje → potrdi predlog → namestitev z ukazom s strani Paket.
+Koda velja 30 minut in je enkratna.
+
 ## fail2ban (priporočeno)
 
 NOC v Apache error log piše `noc-login-fail ip=…` (napačna prijava) in `noc-api-badkey ip=…` (neveljaven API ključ).

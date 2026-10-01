@@ -237,7 +237,7 @@ ROS;
         }
         $s .= "# --- fetch,info ne polni loga (vsak push bi zapisal vrstico 'Download ... FINISHED'); napake fetcha se se vedno belezijo\n";
         $s .= ":foreach r in=[/system logging find] do={ :if ([:tostr [/system logging get \$r topics]] = \"info\") do={ /system logging set \$r topics=info,!fetch } }\n\n";
-        $s .= "# --- prvi zagon\n/system script run noc-push\n:log info \"noc: nameščeno – push vsako minuto, backup ob " . sprintf('%02d:%02d', $hour, $min) . "\"\n";
+        $s .= "# --- prvi zagon: push takoj, backup konfiguracije + preverjanje posodobitev v ozadju (traja ~20 s)\n/system script run noc-push\n:execute script=\"/system script run noc-backup\"\n:log info \"noc: nameščeno – push vsako minuto, backup zdaj in vsak dan ob " . sprintf('%02d:%02d', $hour, $min) . "\"\n";
         return $s;
     }
 

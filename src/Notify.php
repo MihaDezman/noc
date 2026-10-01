@@ -6,7 +6,7 @@ final class Notify
 {
     private const EMOJI = ['critical' => '🔴', 'warning' => '🟠', 'info' => 'ℹ️'];
 
-    public static function alert(array $d, string $sev, string $msg, bool $resolved): void
+    public static function alert(array $d, string $sev, string $msg, bool $resolved, ?int $alertId = null): void
     {
         if (!empty($d['mute_until']) && strtotime($d['mute_until']) > time()) return;
         $lvl = Alerts::LEVEL[$sev] ?? 1;
@@ -15,7 +15,8 @@ final class Notify
         $url = rtrim((string)cfg('base_url'), '/') . '/devices/' . $d['id'];
 
         if ($lvl >= (Alerts::LEVEL[setting('notify_tg_min', 'warning')] ?? 2)) {
-            self::telegram("$icon <b>" . htmlspecialchars($name) . "</b>\n" . htmlspecialchars($msg) . "\n<a href=\"$url\">" . A('Odpri v NOC') . '</a>');
+            $kb = (!$resolved && $alertId && setting('tg_webhook') === '1') ? TgBot::alertButtons($alertId, (int)$d['id']) : null;   // gumba delujeta samo z vklopljenimi ukazi
+            self::telegram("$icon <b>" . htmlspecialchars($name) . "</b>\n" . htmlspecialchars($msg) . "\n<a href=\"$url\">" . A('Odpri v NOC') . '</a>', null, null, $kb);
         }
         if ($lvl >= (Alerts::LEVEL[setting('notify_mail_min', 'warning')] ?? 2)) {
             $subj = ($resolved ? '[OK] ' : '[' . strtoupper($sev) . '] ') . $name . ': ' . $msg;
@@ -29,15 +30,18 @@ final class Notify
         return array_values(array_filter(array_map('trim', preg_split('/[\s,;]+/', setting('notify_emails', ''))), fn($e) => filter_var($e, FILTER_VALIDATE_EMAIL)));
     }
 
-    public static function telegram(string $html, ?string $token = null, ?string $chat = null): array
+    public static function telegram(string $html, ?string $token = null, ?string $chat = null, ?array $keyboard = null): array
     {
         $token ??= dec(setting('tg_token_enc', '')); $chat ??= setting('tg_chat_id', '');
         if ($token === '' || $chat === '') return ['ok' => false, 'description' => 'not configured'];
-        return self::tgApi($token, 'sendMessage', ['chat_id' => $chat, 'text' => $html, 'parse_mode' => 'HTML', 'disable_web_page_preview' => true]);
+        $p = ['chat_id' => $chat, 'text' => $html, 'parse_mode' => 'HTML', 'disable_web_page_preview' => true];
+        if ($keyboard) $p['reply_markup'] = ['inline_keyboard' => $keyboard];
+        return self::tgApi($token, 'sendMessage', $p);
     }
 
     public static function tgApi(string $token, string $method, array $params = []): array
     {
+        if ($f = (string)cfg('tg_debug_file', '')) { file_put_contents($f, json_encode([$method, $params], JSON_UNESCAPED_UNICODE) . "\n", FILE_APPEND); return ['ok' => true, 'result' => []]; }   // samo za testiranje
         $ctx = stream_context_create(['http' => ['method' => 'POST', 'header' => "Content-Type: application/json\r\n", 'content' => json_encode($params), 'timeout' => 8, 'ignore_errors' => true]]);
         $r = @file_get_contents('https://api.telegram.org/bot' . $token . '/' . $method, false, $ctx);
         return json_decode((string)$r, true) ?: ['ok' => false, 'description' => 'no response'];

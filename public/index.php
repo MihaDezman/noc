@@ -7,6 +7,20 @@ $method = $_SERVER['REQUEST_METHOD'];
 
 // ================================================================ API naprav (API ključ, brez seje)
 if (str_starts_with($path, '/api/')) {
+    // --- dodajanje routerja z enkratno kodo (brez API ključa – koda je ključ, velja 30 min, enkratna)
+    if (preg_match('#^/api/enroll/([a-z0-9]+)$#', $path, $m)) {
+        $e = Enroll::byCode($m[1]);
+        if (!$e) { error_log('noc-api-badkey ip=' . client_ip() . ' path=/api/enroll'); http_response_code(404); header('Content-Type: text/plain'); exit(":log warning \"noc: koda za dodajanje ni veljavna ali je potekla\"\n"); }
+        if ($method === 'GET') { header('Content-Type: text/plain; charset=utf-8'); header('Cache-Control: no-store'); echo Enroll::script($m[1]); exit; }
+        if ($method === 'POST') json_out(Enroll::part($e, (string)($_SERVER['HTTP_X_UPLOAD'] ?? ''), (int)($_SERVER['HTTP_X_PART'] ?? -1), (int)($_SERVER['HTTP_X_SIZE'] ?? 0), (string)file_get_contents('php://input')));
+        json_out(['error' => 'method'], 405);
+    }
+    // --- Telegram bot (webhook z lastnim skrivnim žetonom)
+    if (preg_match('#^/api/telegram/([a-f0-9]{32})$#', $path, $m) && $method === 'POST') {
+        TgBot::webhook($m[1], (string)($_SERVER['HTTP_X_TELEGRAM_BOT_API_SECRET_TOKEN'] ?? ''), (string)file_get_contents('php://input'));
+        json_out(['ok' => true]);
+    }
+
     $dev = Devices::byKey((string)($_SERVER['HTTP_X_API_KEY'] ?? ''));
     if (!$dev) { error_log('noc-api-badkey ip=' . client_ip() . ' path=' . $path); json_out(['error' => 'unauthorized'], 401); }   // za fail2ban
     if ($path === '/api/push' && $method === 'POST') {
@@ -54,11 +68,24 @@ function q(string $k, string $d = ''): string { return trim((string)($_GET[$k] ?
 if ($path === '/login') {
     if ($method === 'POST') {
         Auth::checkCsrf();
-        if (Auth::login(post('email'), post('password'))) redirect('/');
+        $r = Auth::login(post('email'), post('password'));
+        if ($r === 'ok') redirect('/');
+        if ($r === 'totp') redirect('/login/2fa');
         view('login', ['error' => Auth::loginBlocked(post('email')) ? A('Preveč neuspelih poskusov – počakaj 15 minut.') : A('Napačna e-pošta ali geslo.')]);
     }
     if (Auth::$user) redirect('/');
     view('login', ['error' => '']);
+}
+if ($path === '/login/2fa') {
+    if (Auth::$user) redirect('/');
+    if (!Auth::pendingTotp()) redirect('/login');
+    if ($method === 'POST') {
+        Auth::checkCsrf();
+        if (Auth::loginTotp(post('code'))) redirect('/');
+        if (!Auth::pendingTotp()) redirect('/login');
+        view('login', ['error' => A('Koda ni pravilna. Vpiši trenutno kodo iz aplikacije.'), 'step2' => true]);
+    }
+    view('login', ['error' => '', 'step2' => true]);
 }
 if (!Auth::$user) redirect('/login');
 if ($method === 'POST') Auth::checkCsrf();
@@ -108,7 +135,24 @@ if ($path === '/devices') {
 
 if ($path === '/devices/new') {
     Auth::requireSuper();
+    if (q('enroll') !== '') {   // konfiguracija je prišla z routerja (enkratna koda)
+        $e = Enroll::get((int)q('enroll'));
+        if (!$e || $e['status'] !== 'received' || !$e['export_raw']) back('/devices/new', A('Konfiguracija z routerja ni na voljo – koda je potekla ali že porabljena.'), 'err');
+        $_SESSION['pending_export'] = $e['export_raw']; $_SESSION['pending_enroll'] = (int)$e['id'];
+        view('device_new', ['tenants' => Devices::tenants(), 'an' => MikrotikExport::analyze($e['export_raw']), 'enrolled' => $e, 'title' => A('Dodaj napravo'), 'nav' => 'devices']);
+    }
     view('device_new', ['tenants' => Devices::tenants(), 'title' => A('Dodaj napravo'), 'nav' => 'devices']);
+}
+if ($path === '/devices/enroll' && $method === 'POST') {
+    Auth::requireSuper();
+    [$eid, $code] = Enroll::create();
+    audit('enroll.create', "#$eid");
+    view('device_enroll', ['eid' => $eid, 'cmd' => Enroll::oneLiner($code), 'title' => A('Dodaj napravo'), 'nav' => 'devices']);
+}
+if ($path === '/devices/enroll-status') {
+    Auth::requireSuper();
+    $e = Enroll::get((int)q('id'));
+    json_out(['status' => $e['status'] ?? 'missing', 'expired' => $e ? strtotime($e['expires_at']) < time() : true, 'ip' => $e['router_ip'] ?? '']);
 }
 if ($path === '/devices/analyze' && $method === 'POST') {
     Auth::requireSuper();
@@ -116,7 +160,7 @@ if ($path === '/devices/analyze' && $method === 'POST') {
     if (!empty($_FILES['file']['tmp_name']) && is_uploaded_file($_FILES['file']['tmp_name'])) $rsc = (string)file_get_contents($_FILES['file']['tmp_name']);
     if (strlen($rsc) < 50 || !str_contains($rsc, '/')) back('/devices/new', A('Prilepi ali naloži izpis ukaza /export.'), 'err');
     $an = MikrotikExport::analyze($rsc);
-    $_SESSION['pending_export'] = $rsc;
+    $_SESSION['pending_export'] = $rsc; unset($_SESSION['pending_enroll']);
     view('device_new', ['tenants' => Devices::tenants(), 'an' => $an, 'title' => A('Dodaj napravo'), 'nav' => 'devices']);
 }
 if ($path === '/devices/create' && $method === 'POST') {
@@ -133,7 +177,8 @@ if ($path === '/devices/create' && $method === 'POST') {
             $f['lan_networks'], $f['monitor_ifaces'], $f['down_ifaces'], $f['wan_down_mbps'], $f['wan_up_mbps'], $f['flow_enabled'], $rsc, json_encode($an, JSON_UNESCAPED_UNICODE), $f['notes']]);
     $id = (int)db()->lastInsertId();
     Devices::newKey($id);
-    unset($_SESSION['pending_export']);
+    if (!empty($_SESSION['pending_enroll'])) Enroll::markUsed((int)$_SESSION['pending_enroll'], $id);
+    unset($_SESSION['pending_export'], $_SESSION['pending_enroll']);
     Ufw::write();
     audit('device.create', $f['name']);
     back("/devices/$id/install", A('Naprava dodana – prenesi paket in ga naloži na router.'));
@@ -145,7 +190,8 @@ if (($seg[0] ?? '') === 'devices' && ctype_digit($seg[1] ?? '')) {
 
     if ($sub === '') {
         $tab = q('tab', 'overview');
-        $allowed = ['overview', 'ifaces', 'clients', 'sla', 'security', 'logs', 'alerts', 'wg'];
+        if ($tab === 'wg') $tab = 'ifaces';   // WireGuard je zdaj na zavihku Vmesniki
+        $allowed = ['overview', 'ifaces', 'clients', 'sla', 'security', 'logs', 'alerts'];
         if ($isSuper) array_push($allowed, 'backups', 'settings');
         if (!in_array($tab, $allowed, true)) $tab = 'overview';
         $vars = ['d' => $d, 'tab' => $tab, 'ifaces' => Devices::ifaces($id), 'alerts' => Alerts::openList($id), 'title' => $d['name'], 'nav' => 'devices', 'tenants' => Devices::tenants()];
@@ -403,7 +449,13 @@ if ($path === '/settings/test' && $method === 'POST') {
         $r = Notify::telegram('✅ <b>NOC</b> – ' . A('testno sporočilo') . ' (' . date('H:i:s') . ')');
         back('/settings', !empty($r['ok']) ? A('Telegram sporočilo poslano.') : A('Telegram napaka: {e}', ['e' => $r['description'] ?? '?']), !empty($r['ok']) ? 'ok' : 'err');
     }
+    if (post('what') === 'tg_hook_on') {
+        $r = TgBot::enable(); audit('telegram.webhook', 'on');
+        back('/settings#telegram', !empty($r['ok']) ? A('Ukazi so vklopljeni – v Telegramu pošlji botu /pomoc.') : A('Telegram napaka: {e}', ['e' => $r['description'] ?? '?']), !empty($r['ok']) ? 'ok' : 'err');
+    }
+    if (post('what') === 'tg_hook_off') { TgBot::disable(); audit('telegram.webhook', 'off'); back('/settings#telegram', A('Ukazi so izklopljeni.')); }
     if (post('what') === 'tg_find') {
+        if (setting('tg_webhook') === '1') back('/settings#telegram', A('Iskanje chat ID ne deluje, ko so ukazi vklopljeni – najprej jih izklopi.'), 'err');
         $tok = dec(setting('tg_token_enc', ''));
         if ($tok === '') back('/settings', A('Najprej shrani token bota.'), 'err');
         $_SESSION['tg_chats'] = Notify::tgFindChats($tok);
@@ -435,6 +487,33 @@ if ($path === '/system') {
 }
 
 // ---------------------------------------------------------------- moj račun
+if ($path === '/account/2fa' && $method === 'POST') {
+    $act = post('act');
+    if ($act === 'start') { $_SESSION['2fa_new'] = Totp::secret(); redirect('/account#tfa'); }
+    if ($act === 'confirm') {
+        $sec = (string)($_SESSION['2fa_new'] ?? '');
+        $step = $sec ? Totp::verify($sec, post('code')) : null;
+        if ($step === null) back('/account#tfa', A('Koda ni pravilna – preveri uro na telefonu in poskusi znova.'), 'err');
+        db()->prepare('UPDATE users SET totp_secret=?, totp_last=? WHERE id=?')->execute([enc($sec), $step, Auth::$user['id']]);
+        unset($_SESSION['2fa_new']); audit('2fa.on');
+        back('/account', A('Dvostopenjska prijava je vklopljena.'));
+    }
+    if ($act === 'cancel') { unset($_SESSION['2fa_new']); redirect('/account'); }
+    if ($act === 'off') {
+        $u = Auth::$user;
+        if (!password_verify(post('current'), $u['pass_hash']) || Totp::verify(dec($u['totp_secret']), post('code')) === null) back('/account#tfa', A('Geslo ali koda ni pravilna.'), 'err');
+        db()->prepare('UPDATE users SET totp_secret=NULL, totp_last=NULL WHERE id=?')->execute([$u['id']]);
+        audit('2fa.off'); back('/account', A('Dvostopenjska prijava je izklopljena.'));
+    }
+    redirect('/account');
+}
+if ($path === '/users/2fa-reset' && $method === 'POST') {
+    Auth::requireSuper();
+    if ((int)post('id') === (int)Auth::$user['id']) back('/users', A('Svojo 2FA izklopiš v Moj račun.'), 'err');
+    db()->prepare('UPDATE users SET totp_secret=NULL, totp_last=NULL WHERE id=?')->execute([(int)post('id')]);
+    audit('2fa.reset', post('id'));
+    back('/users?id=' . (int)post('id'), A('2FA za uporabnika je ponastavljena – ob naslednji prijavi jo lahko vklopi znova.'));
+}
 if ($path === '/account') {
     if ($method === 'POST') {
         if (!password_verify(post('current'), Auth::$user['pass_hash'])) back('/account', A('Trenutno geslo ni pravilno.'), 'err');
@@ -443,7 +522,7 @@ if ($path === '/account') {
         audit('account.password');
         back('/account', A('Geslo spremenjeno.'));
     }
-    view('account', ['title' => A('Moj račun'), 'nav' => 'account']);
+    view('account', ['title' => A('Moj račun'), 'nav' => 'account', 'newSecret' => $_SESSION['2fa_new'] ?? null]);
 }
 
 http_response_code(404);

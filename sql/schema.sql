@@ -20,7 +20,8 @@ CREATE TABLE users (
   role        ENUM('superadmin','viewer') NOT NULL DEFAULT 'viewer',
   tenant_id   INT UNSIGNED NULL,                -- bralni uporabnik vidi samo naprave tega naročnika
   lang        CHAR(2) NOT NULL DEFAULT 'sl',
-  totp_secret VARCHAR(255) NULL,                -- 2FA (vklop kasneje)
+  totp_secret VARCHAR(255) NULL,                -- 2FA (šifrirano)
+  totp_last   INT UNSIGNED NULL,
   active      TINYINT(1) NOT NULL DEFAULT 1,
   last_login  DATETIME NULL,
   created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -229,6 +230,28 @@ CREATE TABLE backup_parts (
   at         DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (device_id, upload_id, part),
   FOREIGN KEY (device_id) REFERENCES devices(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Dodajanje routerja z enkratno kodo
+CREATE TABLE IF NOT EXISTS enroll_codes (
+  id          INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  code_hash   CHAR(64) NOT NULL UNIQUE,
+  created_by  INT UNSIGNED NULL,
+  created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  expires_at  DATETIME NOT NULL,
+  status      ENUM('new','receiving','received','used') NOT NULL DEFAULT 'new',
+  router_ip   VARCHAR(45) NOT NULL DEFAULT '',
+  export_raw  MEDIUMTEXT NULL,
+  device_id   INT UNSIGNED NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS enroll_parts (
+  enroll_id  INT UNSIGNED NOT NULL,
+  upload_id  VARCHAR(32) NOT NULL,
+  part       SMALLINT UNSIGNED NOT NULL,
+  data       MEDIUMTEXT NOT NULL,
+  PRIMARY KEY (enroll_id, upload_id, part),
+  FOREIGN KEY (enroll_id) REFERENCES enroll_codes(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE settings (

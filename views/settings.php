@@ -42,6 +42,10 @@ $num = function (string $k, string $label, string $unit, string $hint = '') {
       <?php if ($chats): ?><div class="note"><?= icon('info', 18) ?><div><?php foreach ($chats as $cid => $cn): ?><div><code><?= h($cid) ?></code> – <?= h($cn) ?> <button type="button" class="btn sm ghost" data-fill="tg_chat_id" data-value="<?= h($cid) ?>"><?= h(A('Uporabi')) ?></button></div><?php endforeach; ?></div></div><?php endif; ?>
       <label class="f"><?= h(A('Pošlji')) ?><select name="notify_tg_min"><?php foreach ($lv as $k => $l): ?><option value="<?= $k ?>" <?= setting('notify_tg_min', 'warning') === $k ? 'selected' : '' ?>><?= h($l) ?></option><?php endforeach; ?></select></label>
       <?php if ($tgSet): ?><label class="check"><input type="checkbox" name="tg_token_clear" value="1"> <?= h(A('Odstrani token')) ?></label><?php endif; ?>
+      <div class="note" style="margin-top:4px"><?= icon('send', 18) ?><div>
+        <b><?= h(A('Ukazi v Telegramu')) ?></b> <?= setting('tg_webhook') === '1' ? '<span class="tag up">' . h(A('vklopljeni')) . '</span>' : '<span class="tag">' . h(A('izklopljeni')) . '</span>' ?>
+        <div class="small muted"><?= h(A('/stanje, /alarmi, /naprava, /promet, /utisaj, /porocilo ter gumba Potrdi in Utišaj pri alarmih. Bot upošteva samo sporočila iz zgornjega chat ID-ja.')) ?></div>
+      </div></div>
     </div></section>
   </div>
   <label class="check"><input type="checkbox" name="notify_resolved" value="1" <?= setting('notify_resolved', '1') === '1' ? 'checked' : '' ?>> <?= h(A('Obvesti tudi, ko se težava razreši')) ?></label>
@@ -52,4 +56,9 @@ $num = function (string $k, string $label, string $unit, string $hint = '') {
   <form method="post" action="/settings/test"><?= Auth::csrf() ?><input type="hidden" name="what" value="mail"><button class="btn"><?= icon('mail', 16) ?><?= h(A('Testni e-mail')) ?></button></form>
   <form method="post" action="/settings/test"><?= Auth::csrf() ?><input type="hidden" name="what" value="tg_find"><button class="btn"><?= icon('search', 16) ?><?= h(A('Poišči chat ID')) ?></button></form>
   <form method="post" action="/settings/test"><?= Auth::csrf() ?><input type="hidden" name="what" value="tg"><button class="btn"><?= icon('send', 16) ?><?= h(A('Testno Telegram sporočilo')) ?></button></form>
+  <?php if (setting('tg_webhook') === '1'): ?>
+  <form method="post" action="/settings/test"><?= Auth::csrf() ?><input type="hidden" name="what" value="tg_hook_off"><button class="btn"><?= icon('x', 16) ?><?= h(A('Izklopi ukaze')) ?></button></form>
+  <?php else: ?>
+  <form method="post" action="/settings/test"><?= Auth::csrf() ?><input type="hidden" name="what" value="tg_hook_on"><button class="btn primary"><?= icon('zap', 16) ?><?= h(A('Vklopi ukaze v Telegramu')) ?></button></form>
+  <?php endif; ?>
 </div></section>

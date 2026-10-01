@@ -14,12 +14,12 @@ final class Alerts
         if ($open) {
             if (self::LEVEL[$sev] > self::LEVEL[$open['severity']]) {   // stopnjevanje (npr. warning -> critical)
                 db()->prepare('UPDATE alerts SET severity=?, message=? WHERE id=?')->execute([$sev, $msg, $open['id']]);
-                Notify::alert($d, $sev, $msg, false);
+                Notify::alert($d, $sev, $msg, false, (int)$open['id']);
             }
             return;
         }
         db()->prepare('INSERT INTO alerts (device_id, akey, severity, message, started_at) VALUES (?,?,?,?,NOW())')->execute([$d['id'], $key, $sev, mb_substr($msg, 0, 500)]);
-        Notify::alert($d, $sev, $msg, false);
+        Notify::alert($d, $sev, $msg, false, (int)db()->lastInsertId());
     }
 
     /** Zapre odprt alarm (in obvesti o razrešitvi) */

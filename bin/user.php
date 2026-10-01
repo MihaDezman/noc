@@ -2,6 +2,7 @@
 // Uporabnik iz ukazne vrstice (prvi superadmin, ponastavitev gesla):
 //   php bin/user.php add miha@dezman.net "Miha Dežman"     -> vpraša za geslo, ustvari superadmina
 //   php bin/user.php passwd miha@dezman.net                -> novo geslo
+//   php bin/user.php 2fa-off miha@dezman.net               -> izklopi 2FA (izgubljen telefon)
 //   php bin/user.php list
 declare(strict_types=1);
 if (PHP_SAPI !== 'cli') exit;
@@ -26,8 +27,11 @@ switch ($cmd) {
         $st = db()->prepare('UPDATE users SET pass_hash=?, active=1 WHERE email=?'); $st->execute([password_hash($p, PASSWORD_DEFAULT), $email]);
         echo $st->rowCount() ? "Geslo spremenjeno.\n" : "Uporabnik ne obstaja.\n";
         db()->prepare('DELETE FROM login_attempts WHERE email=?')->execute([$email]); break;
+    case '2fa-off':   // izgubljen telefon: izklopi 2FA za uporabnika
+        $st = db()->prepare('UPDATE users SET totp_secret=NULL, totp_last=NULL WHERE email=?'); $st->execute([$email]);
+        echo $st->rowCount() ? "2FA izklopljena za $email.\n" : "Uporabnik ne obstaja ali 2FA ni bila vklopljena.\n"; break;
     case 'list':
         foreach (db()->query('SELECT id, email, name, role, active FROM users') as $u) printf("%3d  %-30s %-25s %-10s %s\n", $u['id'], $u['email'], $u['name'], $u['role'], $u['active'] ? '' : '(onemogočen)');
         break;
-    default: echo "Uporaba: php bin/user.php add|passwd|list ...\n";
+    default: echo "Uporaba: php bin/user.php add|passwd|2fa-off|list ...\n";
 }
