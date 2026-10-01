@@ -19,10 +19,16 @@
           <div class="cmd"><code>/system/device-mode/print</code><button type="button" data-copy="/system/device-mode/print"><?= icon('copy', 14) ?></button></div>
           <p><?= h(A('Če nista "yes", poženi spodnji ukaz in ga v 5 minutah potrdi z reset gumbom ali izklopom napajanja:')) ?></p>
           <div class="cmd"><code>/system/device-mode/update scheduler=yes fetch=yes</code><button type="button" data-copy="/system/device-mode/update scheduler=yes fetch=yes"><?= icon('copy', 14) ?></button></div></div></li>
-        <li><div><b><?= h(A('Naloži noc-install.rsc')) ?></b><p><?= h(A('Razširi zip in datoteko povleci v Winbox → Files.')) ?></p></div></li>
-        <li><div><b><?= h(A('Uvozi')) ?></b>
-          <div class="cmd"><code>/import noc-install.rsc</code><button type="button" data-copy="/import noc-install.rsc"><?= icon('copy', 14) ?></button></div>
-          <p><?= h(A('Preveri log:')) ?></p><div class="cmd"><code>/log print where message~"noc"</code><button type="button" data-copy='/log print where message~"noc"'><?= icon('copy', 14) ?></button></div></div></li>
+        <li><div><b><?= h(A('Namesti ali posodobi z enim ukazom')) ?></b>
+          <p><?= h(A('Prilepi v terminal routerja (Winbox → New Terminal ali SSH). Router sam prenese svoj paket z NOC, ga uvozi in pobriše. Isti ukaz uporabiš tudi za vsako kasnejšo posodobitev.')) ?></p>
+          <?php $one = MikrotikScript::oneLiner($d); ?>
+          <div class="cmd"><code><?= h($one) ?></code><button type="button" data-copy="<?= h($one) ?>" title="<?= h(A('Kopiraj')) ?>"><?= icon('copy', 14) ?></button></div>
+          <p><?= h(A('Ukaz vsebuje API ključ te naprave – ne pošiljaj ga naprej.')) ?></p>
+          <p><?= h(A('Preveri log:')) ?></p><div class="cmd"><code>/log print where message~"noc"</code><button type="button" data-copy='/log print where message~"noc"'><?= icon('copy', 14) ?></button></div>
+          <details style="margin-top:10px"><summary class="small muted" style="cursor:pointer"><?= h(A('Ročna namestitev iz zipa')) ?></summary>
+            <p><?= h(A('Prenesi paket (.zip), razširi ga in noc-install.rsc povleci v Winbox → Files. Nato:')) ?></p>
+            <div class="cmd"><code>/import noc-install.rsc</code><button type="button" data-copy="/import noc-install.rsc"><?= icon('copy', 14) ?></button></div>
+          </details></div></li>
         <li><div><b><?= h(A('Počakaj minuto')) ?></b><p><?= h(A('Naprava se v NOC obarva zeleno. Prvi backup konfiguracije sprožiš takoj z:')) ?></p>
           <div class="cmd"><code>/system script run noc-backup</code><button type="button" data-copy="/system script run noc-backup"><?= icon('copy', 14) ?></button></div></div></li>
       </ol>
@@ -33,6 +39,7 @@
       <div class="panel-head"><h2><?= icon('box', 18) ?><?= h(A('Vsebina paketa')) ?></h2></div>
       <div class="panel-body"><dl class="kv">
         <dt class="mono">noc-install.rsc</dt><dd><?= h(A('vse v enem')) ?></dd>
+        <dt class="mono">/api/install</dt><dd><?= h(A('isto, prenese router sam')) ?></dd>
         <dt class="mono">noc-push.rsc</dt><dd><?= h(A('za ročno lepljenje')) ?></dd>
         <dt class="mono">noc-backup.rsc</dt><dd><?= h(A('za ročno lepljenje')) ?></dd>
         <dt class="mono">noc-remove.rsc</dt><dd><?= h(A('odstranitev')) ?></dd>

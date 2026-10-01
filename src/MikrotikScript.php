@@ -257,9 +257,11 @@ ROS;
            . "   Če scheduler ali fetch nista \"yes\":\n"
            . "     /system/device-mode/update scheduler=yes fetch=yes\n"
            . "   in v 5 minutah potrdi s pritiskom na reset gumb ali izklopom/vklopom napajanja.\n"
-           . "2. Naloži noc-install.rsc v Files (Winbox: povleci datoteko v okno Files).\n"
-           . "3. Terminal:  /import noc-install.rsc\n"
-           . "   Preveri:   /log print where message~\"noc\"\n"
+           . "2. V terminal routerja prilepi en ukaz (prenese, uvozi in pobriše namestitveno datoteko):\n"
+           . "     " . self::oneLiner($d) . "\n"
+           . "   ali ročno: noc-install.rsc povleci v Files in poženi  /import noc-install.rsc\n"
+           . "3. Preveri:\n"
+           . "     /log print where message~\"noc\"\n"
            . "4. V NOC se naprava v 1–2 minutah obarva zeleno. Prvi backup konfiguracije pride ponoči,\n"
            . "   takoj ga sprožiš z:  /system script run noc-backup\n"
            . "5. Promet po napravah (traffic-flow) se pokaže v 5–10 minutah, ko bin/ufw-sync.sh na strežniku odpre UDP $GLOBALS[__port] za ta IP.\n\n"
@@ -275,6 +277,14 @@ ROS;
         $s = strtr($s, ['–' => '-', '—' => '-', '→' => '->', '…' => '...', '„' => '"', '“' => '"', '”' => '"', '’' => "'"]);
         $t = @iconv('UTF-8', 'ASCII//TRANSLIT//IGNORE', $s);
         return $t === false ? $s : $t;
+    }
+
+    /** En ukaz za terminal routerja: prenese namestitveni paket z NOC, ga uvozi in pobriše */
+    public static function oneLiner(array $d): string
+    {
+        $key = dec($d['api_key_enc'] ?? null);
+        $url = rtrim((string)cfg('base_url'), '/') . '/api/install';
+        return '/tool fetch url="' . $url . '" http-header-field="X-Api-Key: ' . $key . '" dst-path=noc-install.rsc; :delay 1s; /import noc-install.rsc; /file remove noc-install.rsc';
     }
 
     public static function zip(array $files, string $prefix): string

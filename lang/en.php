@@ -564,4 +564,10 @@ return [
     'še ni podatka' => 'no data yet',
     'št.' => 'no.',
     '… v' => '… in',
+    'Namesti ali posodobi z enim ukazom' => 'Install or update with one command',
+    'Prilepi v terminal routerja (Winbox → New Terminal ali SSH). Router sam prenese svoj paket z NOC, ga uvozi in pobriše. Isti ukaz uporabiš tudi za vsako kasnejšo posodobitev.' => 'Paste into the router terminal (Winbox → New Terminal or SSH). The router downloads its own package from NOC, imports it and deletes it. Use the same command for every later update.',
+    'Ukaz vsebuje API ključ te naprave – ne pošiljaj ga naprej.' => 'The command contains this device\'s API key – do not share it.',
+    'Ročna namestitev iz zipa' => 'Manual installation from the zip',
+    'Prenesi paket (.zip), razširi ga in noc-install.rsc povleci v Winbox → Files. Nato:' => 'Download the package (.zip), unzip it and drag noc-install.rsc into Winbox → Files. Then:',
+    'isto, prenese router sam' => 'same, fetched by the router',
 ];

@@ -17,6 +17,15 @@ if (str_starts_with($path, '/api/')) {
         if (is_dir($dir) || @mkdir($dir, 0750, true)) @file_put_contents($dir . '/' . (int)$dev['id'] . '.json', $raw);
         json_out(Ingest::push($dev, $body));
     }
+    if ($path === '/api/install' && $method === 'GET') {   // router sam prenese svoj namestitveni paket (en ukaz v terminalu)
+        $st = db()->prepare('SELECT d.*, t.name tenant_name FROM devices d LEFT JOIN tenants t ON t.id=d.tenant_id WHERE d.id=?'); $st->execute([$dev['id']]);
+        $full = $st->fetch();
+        db()->prepare('INSERT INTO audit (user_id, action, detail, ip) VALUES (NULL, ?, ?, ?)')->execute(['device.install-fetch', $full['name'], client_ip()]);
+        header('Content-Type: text/plain; charset=utf-8');
+        header('Cache-Control: no-store');
+        echo MikrotikScript::ascii(MikrotikScript::package($full)['noc-install.rsc']);
+        exit;
+    }
     if ($path === '/api/backup' && $method === 'POST') {
         json_out(Ingest::backupPart($dev, (string)($_SERVER['HTTP_X_UPLOAD'] ?? ''), (int)($_SERVER['HTTP_X_PART'] ?? -1), (int)($_SERVER['HTTP_X_SIZE'] ?? 0), (string)file_get_contents('php://input')));
     }
