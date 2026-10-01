@@ -149,9 +149,11 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: .9rem; }
 
 /* obrazci */
 .form { display: grid; gap: 16px; }
-.form .row { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
-label.f { display: grid; gap: 6px; font-size: .86rem; font-weight: 500; }
-label.f small { font-weight: 400; color: var(--muted); }
+.form .row { display: grid; gap: 16px; grid-template-columns: repeat(var(--cols, 2), minmax(0, 1fr)); align-items: start; }   /* stalna mreža: polja poravnana vodoravno in navpično */
+.form .row.c3 { --cols: 3; }
+label.f { display: grid; gap: 6px; font-size: .86rem; font-weight: 500; align-content: start; }   /* polja v vrstici poravnana, tudi če ima le eno opis pod sabo */
+label.f small { font-weight: 400; color: var(--muted); line-height: 1.35; }
+label.f > span:first-child, label.f { min-width: 0; }
 input[type=text], input[type=email], input[type=password], input[type=number], input[type=search], input[type=date], select, textarea {
   width: 100%; padding: 9px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); color: var(--text); font: inherit; font-size: .93rem;
 }
@@ -214,7 +216,7 @@ textarea.code { font-family: var(--mono); font-size: .82rem; min-height: 260px; 
 .badge.b-violet { background: var(--violet-soft); color: var(--violet); }
 .badge.b-yellow { background: #fdf3cf; color: #b58a00; }
 :root[data-theme="dark"] .badge.b-yellow { background: #3a3010; color: #e8b100; }
-.fleet-stats .k { gap: 10px; }
+.fleet-stats .k { gap: 10px; white-space: nowrap; }
 .unit-name { display: flex; gap: 10px; align-items: center; min-width: 0; }
 .unit-art { flex: none; display: grid; place-items: center; width: 40px; height: 40px; border-radius: 10px; background: var(--rack); }
 .dev-link { display: inline-flex; align-items: center; gap: 10px; }
@@ -379,6 +381,7 @@ pre.raw { margin: 0; padding: 16px 20px; font-family: var(--mono); font-size: .8
   .g-main { grid-template-columns: 1fr; }
 }
 @media (max-width: 900px) {
+  .form .row, .form .row.c3 { --cols: 1; }
   .shell { grid-template-columns: 1fr; background: none; }
   .side { position: fixed; left: 0; top: 0; bottom: 0; width: 260px; z-index: 50; transform: translateX(-100%); transition: transform .2s; }
   body.nav-open .side { transform: none; box-shadow: 0 0 0 100vmax rgba(10,12,20,.45); }

@@ -87,7 +87,7 @@ final class TgBot
             . "/promet <i>" . A('ime') . "</i> – " . A('promet in največji porabniki') . "\n"
             . "/utisaj <i>" . A('ime') . "</i> 2h – " . A('utišaj obvestila (0 = vklopi)') . "\n"
             . "/porocilo <i>" . A('ime') . "</i> – " . A('povezava do mesečnega poročila') . "\n\n"
-            . A('Ime je lahko del imena naprave ali naročnika, npr. /naprava donat'));
+            . A('Ime je lahko del imena naprave ali naročnika, npr. /naprava office'));
     }
 
     private static function status(): void
@@ -208,7 +208,7 @@ final class TgBot
     private static function find(string $q): ?array
     {
         $q = mb_strtolower(trim($q));
-        if ($q === '') { self::reply(A('Dodaj ime naprave, npr. /naprava donat')); return null; }
+        if ($q === '') { self::reply(A('Dodaj ime naprave, npr. /naprava office')); return null; }
         $all = self::devices();
         $hit = array_values(array_filter($all, fn($d) => mb_strtolower($d['name']) === $q));
         if (!$hit) $hit = array_values(array_filter($all, fn($d) => str_contains(mb_strtolower($d['name'] . ' ' . $d['tenant_name'] . ' ' . $d['site']), $q)));

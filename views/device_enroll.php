@@ -7,8 +7,11 @@
     <div class="panel-head"><h2><?= icon('list', 18) ?><?= h(A('Postopek')) ?></h2></div>
     <div class="panel-body">
       <ol class="steps">
-        <li><div><b><?= h(A('Device-mode')) ?></b><p><?= h(A('Fetch mora biti dovoljen. Preveri:')) ?></p>
-          <div class="cmd"><code>/system/device-mode/print</code><button type="button" data-copy="/system/device-mode/print"><?= icon('copy', 14) ?></button></div></div></li>
+        <li><div><b><?= h(A('Device-mode')) ?></b><p><?= h(A('Scheduler in fetch morata biti dovoljena. Preveri:')) ?></p>
+          <div class="cmd"><code>/system/device-mode/print</code><button type="button" data-copy="/system/device-mode/print" title="<?= h(A('Kopiraj')) ?>"><?= icon('copy', 14) ?></button></div>
+          <p><?= h(A('Če nista "yes", poženi spodnji ukaz in ga v 5 minutah potrdi z reset gumbom ali izklopom napajanja:')) ?></p>
+          <div class="cmd"><code>/system/device-mode/update scheduler=yes fetch=yes</code><button type="button" data-copy="/system/device-mode/update scheduler=yes fetch=yes" title="<?= h(A('Kopiraj')) ?>"><?= icon('copy', 14) ?></button></div>
+          <p class="small"><?= h(A('Če bo na routerju tudi WiFi portal, na konec ukaza dodaj hotspot=yes.')) ?></p></div></li>
         <li><div><b><?= h(A('Prilepi ukaz v terminal routerja')) ?></b>
           <div class="cmd"><code><?= h($cmd) ?></code><button type="button" data-copy="<?= h($cmd) ?>" title="<?= h(A('Kopiraj')) ?>"><?= icon('copy', 14) ?></button></div>
           <p><?= h(A('Router izvozi konfiguracijo (brez gesel) in jo pošlje v NOC. Na routerju se ne spremeni nič.')) ?></p></div></li>

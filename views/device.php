@@ -364,7 +364,7 @@ $upd = $s['upd'] ?? [];
       <label class="f"><?= h(A('Brez obvestil za DHCP strežnike')) ?><input type="text" name="newdev_ignore" value="<?= h($d['newdev_ignore'] ?? '') ?>" class="mono" placeholder="hs-dhcp, dhcpVlan50"><small><?= h(A('Npr. gostujoči WiFi, kjer so nove naprave nekaj običajnega. Ločeno z vejico.')) ?></small></label>
     </div></section>
   <section class="panel"><div class="panel-head"><h2><?= icon('sliders', 18) ?><?= h(A('Pragovi za to napravo')) ?></h2><span class="small muted"><?= h(A('Prazno = globalna nastavitev')) ?></span></div>
-    <div class="panel-body"><div class="form"><div class="row">
+    <div class="panel-body"><div class="form"><div class="row c3">
       <?php foreach ($thLabels as $k => [$l, $u]): ?><label class="f"><span><?= h($l) ?> <small>(<?= h($u) ?>)</small></span><input type="number" step="any" name="th[<?= $k ?>]" value="<?= h($th[$k] ?? '') ?>" placeholder="<?= h(setting($k)) ?>"></label><?php endforeach; ?>
     </div></div></div></section>
   <div class="actions"><button class="btn primary"><?= icon('check', 16) ?><?= h(A('Shrani')) ?></button></div>

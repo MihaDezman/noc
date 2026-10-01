@@ -49,10 +49,10 @@ $pct = fn($k) => $n ? round($cnt[$k] / $n * 100, 2) : 0;
     </div>
   </div>
   <div class="fleet-stats">
-    <div><span class="k"><span class="badge b-red"><?= icon('bell', 17) ?></span><?= h(A('Odprti alarmi')) ?></span><span class="v" style="color:<?= $crit ? 'var(--down)' : ($warnN ? 'var(--warn)' : 'inherit') ?>"><?= $crit + $warnN ?></span><span class="s"><?= $crit ?> <?= h(plural($crit, A('kritičen'), A('kritična'), A('kritični'), A('kritičnih'))) ?>, <?= $warnN ?> <?= h(plural($warnN, A('opozorilo'), A('opozorili'), A('opozorila'), A('opozoril'))) ?></span></div>
-    <div><span class="k"><span class="badge b-aqua"><?= icon('arrow-down', 17) ?></span><?= h(A('WAN download zdaj')) ?></span><span class="v down-c"><?= h(fmt_bps($rx)) ?></span><span class="s"><?= h(A('vsota vseh naprav')) ?></span></div>
-    <div><span class="k"><span class="badge b-violet"><?= icon('arrow-up', 17) ?></span><?= h(A('WAN upload zdaj')) ?></span><span class="v up-c"><?= h(fmt_bps($tx)) ?></span><span class="s"><?= h(A('vsota vseh naprav')) ?></span></div>
-    <div><span class="k"><span class="badge b-yellow"><?= icon('ping', 17) ?></span><?= h(A('Latenca do prehoda')) ?></span><span class="v"><?= $lat ? number_format(array_sum($lat) / count($lat), 1, ',', '') . ' ms' : '–' ?></span><span class="s"><?= $lat ? h(A('najslabša {m} ms', ['m' => number_format(max($lat), 1, ',', '')])) : h(A('ni podatkov')) ?></span></div>
+    <div><span class="k"><span class="badge b-red"><?= icon('bell', 17) ?></span><?= h(A('Alarmi')) ?></span><span class="v" style="color:<?= $crit ? 'var(--down)' : ($warnN ? 'var(--warn)' : 'inherit') ?>"><?= $crit + $warnN ?></span><span class="s"><?= $crit ?> <?= h(plural($crit, A('kritičen'), A('kritična'), A('kritični'), A('kritičnih'))) ?>, <?= $warnN ?> <?= h(plural($warnN, A('opozorilo'), A('opozorili'), A('opozorila'), A('opozoril'))) ?></span></div>
+    <div><span class="k"><span class="badge b-aqua"><?= icon('arrow-down', 17) ?></span><?= h(A('Download')) ?></span><span class="v down-c"><?= h(fmt_bps($rx)) ?></span><span class="s"><?= h(A('WAN zdaj · vsota vseh naprav')) ?></span></div>
+    <div><span class="k"><span class="badge b-violet"><?= icon('arrow-up', 17) ?></span><?= h(A('Upload')) ?></span><span class="v up-c"><?= h(fmt_bps($tx)) ?></span><span class="s"><?= h(A('WAN zdaj · vsota vseh naprav')) ?></span></div>
+    <div><span class="k"><span class="badge b-yellow"><?= icon('ping', 17) ?></span><?= h(A('Latenca')) ?></span><span class="v"><?= $lat ? number_format(array_sum($lat) / count($lat), 1, ',', '') . ' ms' : '–' ?></span><span class="s"><?= $lat ? h(A('do prehoda · najslabša {m} ms', ['m' => number_format(max($lat), 1, ',', '')])) : h(A('do prehoda · ni podatkov')) ?></span></div>
   </div>
 </section>
 

@@ -18,7 +18,8 @@
         <li><div><b><?= h(A('Device-mode')) ?></b><p><?= h(A('Scheduler in fetch morata biti dovoljena. Preveri:')) ?></p>
           <div class="cmd"><code>/system/device-mode/print</code><button type="button" data-copy="/system/device-mode/print"><?= icon('copy', 14) ?></button></div>
           <p><?= h(A('Če nista "yes", poženi spodnji ukaz in ga v 5 minutah potrdi z reset gumbom ali izklopom napajanja:')) ?></p>
-          <div class="cmd"><code>/system/device-mode/update scheduler=yes fetch=yes</code><button type="button" data-copy="/system/device-mode/update scheduler=yes fetch=yes"><?= icon('copy', 14) ?></button></div></div></li>
+          <div class="cmd"><code>/system/device-mode/update scheduler=yes fetch=yes</code><button type="button" data-copy="/system/device-mode/update scheduler=yes fetch=yes"><?= icon('copy', 14) ?></button></div>
+          <p class="small"><?= h(A('Če bo na routerju tudi WiFi portal, na konec ukaza dodaj hotspot=yes.')) ?></p></div></li>
         <li><div><b><?= h(A('Namesti ali posodobi z enim ukazom')) ?></b>
           <p><?= h(A('Prilepi v terminal routerja (Winbox → New Terminal ali SSH). Router sam prenese svoj paket z NOC, ga uvozi in pobriše. Isti ukaz uporabiš tudi za vsako kasnejšo posodobitev.')) ?></p>
           <?php $one = MikrotikScript::oneLiner($d); ?>
