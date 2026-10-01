@@ -7,7 +7,7 @@ declare(strict_types=1);
  */
 final class MikrotikScript
 {
-    public const POLICY = 'read,write,test,ftp';
+    public const POLICY = 'read,write,test,ftp,policy';   // RouterOS 7.24+: brez "policy" fetch iz schedulerja odpove
 
     /** [ime datoteke => vsebina] */
     public static function package(array $d): array
@@ -151,10 +151,11 @@ final class MikrotikScript
 
 :local body [:serialize to=json value={"v"=1;"tick"=\$nocTick;"ident"=\$ident;"res"=\$res;"rb"=\$rb;"health"=\$hl;"ifs"=\$ifs;"rates"=\$rates;"ping"=\$ping;"conns"=\$conns;"nLeases"=\$nLeases;"leases"=\$leases;"pools"=\$pools;"wg"=\$wg;"logs"=\$logs;"upd"=\$nocUpd}]
 
-:do {
+# :onerror zapiše dejansko sporočilo RouterOS (npr. "not enough permissions", "failure: ... 401")
+:onerror e in={
     :local out [/tool fetch url=\$url http-method=post http-data=\$body http-header-field=("Content-Type: application/json,X-Api-Key: " . \$key) output=user as-value]
     :if ((\$out->"status") = "finished") do={ :set nocLastLog \$maxid }
-} on-error={ :log warning "noc: push ni uspel (NOC nedosegljiv)" }
+} do={ :log warning ("noc: push ni uspel - " . \$e) }
 ROS;
     }
 
@@ -184,9 +185,9 @@ ROS;
 :local part 0
 :while (\$off < \$size) do={
     :local chunk ([/file read file=\$f offset=\$off chunk-size=30000 as-value]->"data")
-    :do {
+    :onerror e in={
         /tool fetch url=\$url http-method=post http-data=\$chunk http-header-field=("Content-Type: text/plain,X-Api-Key: " . \$key . ",X-Upload: " . \$uid . ",X-Part: " . \$part . ",X-Size: " . \$size) output=none
-    } on-error={ :log warning "noc: backup ni uspel"; :set off \$size }
+    } do={ :log warning ("noc: backup ni uspel - " . \$e); :set off \$size }
     :set off (\$off + 30000)
     :set part (\$part + 1)
 }
