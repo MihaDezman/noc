@@ -1,0 +1,1 @@
+<div class="panel"><div class="empty"><?= icon('help', 32) ?><h2><?= h($title) ?></h2><p><?= h($text) ?></p><p><a class="btn" href="/"><?= icon('dashboard', 16) ?><?= h(A('Na pregled')) ?></a></p></div></div>

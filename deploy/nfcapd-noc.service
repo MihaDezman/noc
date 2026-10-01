@@ -1,0 +1,13 @@
+# /etc/systemd/system/nfcapd-noc.service
+[Unit]
+Description=nfcapd – traffic-flow kolektor za NOC
+After=network.target
+
+[Service]
+User=www-data
+Group=www-data
+ExecStart=/usr/bin/nfcapd -w /var/lib/noc/nfcapd -p 2055 -t 300
+Restart=always
+
+[Install]
+WantedBy=multi-user.target

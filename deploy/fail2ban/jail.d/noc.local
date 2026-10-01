@@ -1,0 +1,11 @@
+# NOC – po 8 napakah v 10 minutah blokada za 1 uro (prek ufw)
+[noc]
+enabled   = true
+filter    = noc
+logpath   = /var/log/apache2/noc-error.log
+maxretry  = 8
+findtime  = 600
+bantime   = 3600
+banaction = ufw
+# tvoji statični naslovi se nikoli ne blokirajo
+ignoreip  = 127.0.0.1/8 109.123.0.2 109.123.4.2 109.123.4.3 109.123.10.10 109.123.19.19

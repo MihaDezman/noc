@@ -1,0 +1,7 @@
+# sudo crontab -u www-data -e
+* * * * *    php /var/www/noc/cron/minute.php
+*/5 * * * *  php /var/www/noc/cron/flows.php
+15 3 * * *   php /var/www/noc/cron/daily.php
+
+# sudo crontab -e   (root)
+*/5 * * * *  /var/www/noc/bin/ufw-sync.sh
