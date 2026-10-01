@@ -2,7 +2,7 @@
 
 <section class="panel">
   <div class="panel-head"><h2><?= icon('bell', 18) ?><?= h(A('Odprti')) ?> <span class="tag"><?= count($open) ?></span></h2></div>
-  <?php if (!$open): ?><div class="empty"><?= icon('shield', 32) ?><div><?= h(A('Ni odprtih alarmov – vse deluje.')) ?></div></div><?php else: ?>
+  <?php if (!$open): ?><div class="empty"><?= empty_art('ok', 130) ?><div><?= h(A('Ni odprtih alarmov – vse deluje.')) ?></div></div><?php else: ?>
   <div class="tbl-wrap"><table class="tbl">
     <thead><tr><th><?= h(A('Stopnja')) ?></th><th><?= h(A('Naprava')) ?></th><th><?= h(A('Opis')) ?></th><th><?= h(A('Od')) ?></th><th></th></tr></thead>
     <tbody><?php foreach ($open as $a): ?><tr>

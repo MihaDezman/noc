@@ -658,4 +658,9 @@ return [
     '{n}: obvestila utišana za {h} h.' => '{n}: notifications muted for {h} h.',
     'Čakam na router …' => 'Waiting for the router …',
     '… ali konfiguracijo naloži ročno:' => '… or upload the configuration manually:',
+    'Napačen uporabnik ali geslo.' => 'Wrong username or password.',
+    'Dobro jutro' => 'Good morning',
+    'Dober dan' => 'Good afternoon',
+    'Dober večer' => 'Good evening',
+    'Lahko noč' => 'Good night',
 ];

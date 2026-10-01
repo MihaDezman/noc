@@ -127,3 +127,75 @@ function racks_svg(): string {
     mt_srand();
     return $s . '</svg>';
 }
+
+/** Vrsta naprave po modelu: rack | small | wifi | switch | ap */
+function device_family(string $model, string $kind = 'router'): string {
+    if ($kind === 'switch' || preg_match('/^(CRS|CSS)/i', $model)) return 'switch';
+    if ($kind === 'ap' || preg_match('/^(cAP|wAP|mAP|SXT|LHG|Disc|NetMetal|Audience|Groove)/i', $model)) return 'ap';
+    if (preg_match('/^(hAP|Chateau|RB9|RB2011.*-2HnD|L009.*-2HaxD)/i', $model)) return 'wifi';
+    if (preg_match('/^(RB5009|RB4011|CCR|RB3011|RB1100|CHR|x86)/i', $model)) return 'rack';
+    return 'small';
+}
+
+/** Silhueta naprave (lastna ilustracija, ne logotip proizvajalca) */
+function device_art(string $model, string $kind = 'router', int $size = 40): string {
+    $f = device_family($model, $kind);
+    $body = '#2f3450'; $edge = '#4b5276'; $port = '#141724'; $on = '#2ee59d'; $acc = '#8b72ff';
+    $s = '<svg width="' . $size . '" height="' . $size . '" viewBox="0 0 64 64" fill="none" aria-hidden="true">';
+    $ports = function (float $x, float $y, int $n, float $gap = 6.2, float $w = 4.6) use ($port, $on) {
+        $o = ''; for ($i = 0; $i < $n; $i++) $o .= '<rect x="' . ($x + $i * $gap) . '" y="' . $y . '" width="' . $w . '" height="4" rx=".6" fill="' . $port . '"/>' . ($i % 3 !== 2 ? '<circle cx="' . ($x + $i * $gap + 1.2) . '" cy="' . ($y + 1) . '" r=".7" fill="' . $on . '"/>' : '');
+        return $o;
+    };
+    switch ($f) {
+        case 'rack':
+            $s .= '<rect x="4" y="22" width="56" height="20" rx="3" fill="' . $body . '" stroke="' . $edge . '"/><rect x="4" y="22" width="56" height="4" rx="2" fill="' . $acc . '" opacity=".55"/>'
+                . $ports(9, 32, 6) . '<rect x="47" y="31" width="8" height="6" rx="1" fill="' . $port . '"/><circle cx="51" cy="34" r="1" fill="#e8b100"/>';
+            break;
+        case 'switch':
+            $s .= '<rect x="2" y="23" width="60" height="18" rx="2.5" fill="' . $body . '" stroke="' . $edge . '"/>'
+                . $ports(6, 27, 8, 6.4, 4.4) . $ports(6, 33, 8, 6.4, 4.4) . '<rect x="55" y="27" width="4" height="10" rx=".8" fill="' . $port . '"/><circle cx="57" cy="29" r=".8" fill="#e8b100"/>';
+            break;
+        case 'ap':
+            $s .= '<rect x="14" y="20" width="36" height="28" rx="12" fill="' . $body . '" stroke="' . $edge . '"/><circle cx="32" cy="36" r="2.2" fill="' . $on . '"/>'
+                . '<path d="M24 28a11 11 0 0 1 16 0M27.5 31.5a6 6 0 0 1 9 0" stroke="' . $acc . '" stroke-width="2.2" stroke-linecap="round"/>';
+            break;
+        case 'wifi':
+            $s .= '<path d="M18 26 15 10M46 26l3-16" stroke="' . $edge . '" stroke-width="3" stroke-linecap="round"/><circle cx="15" cy="10" r="2" fill="' . $acc . '"/><circle cx="49" cy="10" r="2" fill="' . $acc . '"/>'
+                . '<rect x="9" y="25" width="46" height="20" rx="5" fill="' . $body . '" stroke="' . $edge . '"/>' . $ports(15, 36, 5) . '<circle cx="48" cy="31" r="1.4" fill="' . $on . '"/>';
+            break;
+        default:   // small: hEX, RB750 …
+            $s .= '<rect x="10" y="24" width="44" height="20" rx="5" fill="' . $body . '" stroke="' . $edge . '"/><rect x="10" y="24" width="44" height="3.5" rx="1.8" fill="' . $acc . '" opacity=".55"/>'
+                . $ports(15, 35, 5) . '<circle cx="48" cy="31" r="1.4" fill="' . $on . '"/>';
+    }
+    return $s . '</svg>';
+}
+
+/** Ilustracije praznih stanj: ok (vse v redu) | empty (nič še ni) | archive | search */
+function empty_art(string $type = 'ok', int $size = 112): string {
+    $s = '<svg class="empty-art" width="' . $size . '" height="' . round($size * 0.75) . '" viewBox="0 0 160 120" fill="none" aria-hidden="true">'
+       . '<ellipse cx="80" cy="104" rx="52" ry="7" fill="var(--line-2)"/>';
+    if ($type === 'ok') {
+        $s .= '<path d="M80 18 112 30v24c0 22-14 36-32 44-18-8-32-22-32-44V30z" fill="var(--up-soft)" stroke="var(--up)" stroke-width="3" stroke-linejoin="round"/>'
+            . '<path d="m66 58 10 10 20-22" stroke="var(--up)" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>'
+            . '<path d="M128 22v10M123 27h10M34 40v8M30 44h8M122 70v6M119 73h6" stroke="#e8b100" stroke-width="2.4" stroke-linecap="round"/>';
+    } elseif ($type === 'archive') {
+        $s .= '<rect x="44" y="34" width="72" height="56" rx="6" fill="var(--violet-soft)" stroke="var(--violet)" stroke-width="3"/><rect x="38" y="22" width="84" height="16" rx="4" fill="var(--panel)" stroke="var(--violet)" stroke-width="3"/>'
+            . '<path d="M70 56h20" stroke="var(--violet)" stroke-width="4" stroke-linecap="round"/><path d="M80 66v14m-6-6 6 6 6-6" stroke="var(--aqua)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>';
+    } elseif ($type === 'search') {
+        $s .= '<circle cx="72" cy="54" r="26" fill="var(--aqua-soft)" stroke="var(--aqua)" stroke-width="4"/><path d="m91 73 22 22" stroke="var(--aqua)" stroke-width="7" stroke-linecap="round"/>'
+            . '<path d="M62 54h20" stroke="var(--aqua)" stroke-width="4" stroke-linecap="round" opacity=".6"/>';
+    } else {   // empty: prazna omara z enim prostim mestom
+        $s .= '<rect x="50" y="14" width="60" height="84" rx="5" fill="var(--panel)" stroke="var(--faint)" stroke-width="3"/>'
+            . '<rect x="58" y="24" width="44" height="12" rx="2" fill="var(--line-2)"/><rect x="58" y="42" width="44" height="12" rx="2" fill="none" stroke="var(--violet)" stroke-width="2.4" stroke-dasharray="4 4"/>'
+            . '<path d="M80 44v8m-4-4h8" stroke="var(--violet)" stroke-width="2.4" stroke-linecap="round"/><rect x="58" y="60" width="44" height="12" rx="2" fill="var(--line-2)"/><circle cx="96" cy="30" r="1.8" fill="var(--up)"/><circle cx="96" cy="66" r="1.8" fill="var(--up)"/>';
+    }
+    return $s . '</svg>';
+}
+
+/** Pozdrav glede na čas dneva in ime */
+function greeting(): string {
+    $h = (int)date('G');
+    $g = $h >= 5 && $h < 10 ? A('Dobro jutro') : ($h < 18 && $h >= 10 ? A('Dober dan') : ($h >= 18 && $h < 23 ? A('Dober večer') : A('Lahko noč')));
+    $first = preg_split('/\s+/', trim((string)(Auth::$user['name'] ?? '')))[0] ?? '';
+    return $g . ($first !== '' ? ', ' . $first : '');
+}

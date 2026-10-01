@@ -35,7 +35,7 @@
       <?= Auth::csrf() ?>
       <h2><?= h(A('Prijava')) ?></h2>
       <?php if ($error): ?><div class="flash err"><?= icon('alert', 18) ?><span><?= h($error) ?></span></div><?php endif; ?>
-      <label class="f"><?= h(A('E-pošta')) ?><input type="email" name="email" required autofocus autocomplete="username" value="<?= h($_POST['email'] ?? '') ?>"></label>
+      <label class="f"><?= h(A('Uporabnik')) ?><input type="text" name="email" required autofocus autocomplete="username" autocapitalize="none" spellcheck="false" value="<?= h($_POST['email'] ?? '') ?>"></label>
       <label class="f"><?= h(A('Geslo')) ?><input type="password" name="password" required autocomplete="current-password"></label>
       <button class="btn primary" style="justify-content:center"><?= icon('lock', 16) ?><?= h(A('Prijava')) ?></button>
       <p class="small faint">Računalniške storitve Miha Dežman s.p.</p>

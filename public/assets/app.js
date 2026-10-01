@@ -68,17 +68,23 @@
 
   function seriesFor(kind) {
     var aqua = css('--aqua'), violet = css('--violet'), yellow = css('--yellow'), down = css('--down');
-    var fill = function (c, a) { return c + (a || '26'); };
+    // mehak preliv pod črto: od barve pri vrhu do prosojne pri osi
+    var fill = function (c, a) {
+      return function (u) {
+        var g = u.ctx.createLinearGradient(0, u.bbox.top, 0, u.bbox.top + u.bbox.height);
+        g.addColorStop(0, c + (a || '40')); g.addColorStop(1, c + '00'); return g;
+      };
+    };
     if (kind === 'traffic') return {
-      series: [{ label: T.rx, stroke: aqua, fill: fill(aqua, '30'), width: 1.6, fmt: fmtBps }, { label: T.tx, stroke: violet, fill: fill(violet, '14'), width: 1.6, fmt: fmtBps }],
+      series: [{ label: T.rx, stroke: aqua, fill: fill(aqua, '55'), width: 1.8, fmt: fmtBps }, { label: T.tx, stroke: violet, fill: fill(violet, '30'), width: 1.8, fmt: fmtBps }],
       axisFmt: fmtBps, scale: {}
     };
     if (kind === 'cpu') return {
-      series: [{ label: T.cpu, stroke: violet, fill: fill(violet, '22'), width: 1.5, fmt: function (v) { return fmtNum(v, ' %'); } }, { label: T.mem, stroke: yellow, width: 1.5, fmt: function (v) { return fmtNum(v, ' %'); } }],
+      series: [{ label: T.cpu, stroke: violet, fill: fill(violet, '45'), width: 1.6, fmt: function (v) { return fmtNum(v, ' %'); } }, { label: T.mem, stroke: yellow, width: 1.5, fmt: function (v) { return fmtNum(v, ' %'); } }],
       axisFmt: function (v) { return v + ' %'; }, scale: { range: [0, 100] }
     };
     if (kind === 'temp') return { series: [{ label: T.temp, stroke: down, width: 1.6, fmt: function (v) { return fmtNum(v, ' °C', 1); } }], axisFmt: function (v) { return v + ' °'; }, scale: {} };
-    if (kind === 'conns') return { series: [{ label: T.conns, stroke: violet, fill: fill(violet, '1c'), width: 1.5, fmt: function (v) { return fmtNum(v); } }], axisFmt: function (v) { return v; }, scale: {} };
+    if (kind === 'conns') return { series: [{ label: T.conns, stroke: violet, fill: fill(violet, '35'), width: 1.5, fmt: function (v) { return fmtNum(v); } }], axisFmt: function (v) { return v; }, scale: {} };
     if (kind === 'ping') return {
       series: [
         { label: T.gw, stroke: violet, width: 1.5, fmt: function (v) { return fmtNum(v, ' ms', 1); } },

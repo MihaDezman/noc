@@ -206,6 +206,32 @@ textarea.code { font-family: var(--mono); font-size: .82rem; min-height: 260px; 
 .fleet-stats .v { font-size: 1.5rem; font-weight: 600; letter-spacing: -.01em; }
 .fleet-stats .s { font-size: .8rem; color: var(--faint); }
 
+/* ------------------------------------------------------------------ živahnejši elementi (v1.6) */
+.greet { font-size: .95rem; color: #d6d9ea; margin-bottom: 6px; font-weight: 500; }
+.badge { width: 30px; height: 30px; border-radius: 9px; display: inline-grid; place-items: center; flex: none; }
+.badge.b-red { background: var(--down-soft); color: var(--down); }
+.badge.b-aqua { background: var(--aqua-soft); color: var(--aqua); }
+.badge.b-violet { background: var(--violet-soft); color: var(--violet); }
+.badge.b-yellow { background: #fdf3cf; color: #b58a00; }
+:root[data-theme="dark"] .badge.b-yellow { background: #3a3010; color: #e8b100; }
+.fleet-stats .k { gap: 10px; }
+.unit-name { display: flex; gap: 10px; align-items: center; min-width: 0; }
+.unit-art { flex: none; display: grid; place-items: center; width: 40px; height: 40px; border-radius: 10px; background: var(--rack); }
+.dev-link { display: inline-flex; align-items: center; gap: 10px; }
+.dev-link svg { background: var(--rack); border-radius: 7px; padding: 2px; flex: none; }
+.empty-art { display: block; margin: 0 auto 10px; }
+.nav a .ico { transition: color .15s; }
+.nav a[data-k="dash"] .ico { color: #8b72ff; }
+.nav a[data-k="devices"] .ico { color: #19c0d8; }
+.nav a[data-k="alerts"] .ico { color: #ff6b7d; }
+.nav a[data-k="logs"] .ico { color: #e8b100; }
+.nav a[data-k="reports"] .ico { color: #2ee59d; }
+.nav a[data-k="backups"] .ico { color: #f5a35c; }
+.nav a[data-k="updates"] .ico { color: #19c0d8; }
+.nav a[data-k="tenants"] .ico, .nav a[data-k="users"] .ico, .nav a[data-k="settings"] .ico, .nav a[data-k="system"] .ico { color: #a4a9c6; }
+.nav-group > span { display: flex; align-items: center; gap: 8px; }
+.nav-group > span::before { content: ""; width: 14px; height: 2px; border-radius: 2px; background: linear-gradient(90deg, #8b72ff, #19c0d8); }
+
 /* ------------------------------------------------------------------ sprednje plošče naprav (podpis vmesnika) */
 .racks { display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); gap: 16px; }
 .unit { display: block; color: var(--text); background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-lg); box-shadow: var(--shadow); overflow: hidden; transition: border-color .15s; }
@@ -230,6 +256,7 @@ textarea.code { font-family: var(--mono); font-size: .82rem; min-height: 260px; 
 .unit-body { padding: 14px 16px 15px; }
 .unit-title { display: flex; justify-content: space-between; gap: 10px; align-items: flex-start; }
 .unit-title b { font-size: 1rem; }
+.unit-title .sub { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .unit-title .sub { font-size: .82rem; color: var(--muted); }
 .unit-metrics { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-top: 12px; }
 .unit-metrics div { font-size: .76rem; color: var(--muted); }

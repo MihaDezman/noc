@@ -9,7 +9,7 @@
       <button class="btn sm"><?= icon('search', 15) ?><?= h(A('Išči')) ?></button>
     </form>
   </div>
-  <?php if (!$logs): ?><div class="empty"><?= icon('scroll', 30) ?><div><?= h(A('Ni zapisov za izbrane filtre.')) ?></div></div><?php else: ?>
+  <?php if (!$logs): ?><div class="empty"><?= empty_art('search') ?><div><?= h(A('Ni zapisov za izbrane filtre.')) ?></div></div><?php else: ?>
   <div class="tbl-wrap"><table class="tbl log-tbl"><tbody>
   <?php foreach ($logs as $l): ?><tr>
     <td class="nowrap muted"><?= h(date('d.m. H:i:s', strtotime($l['ts']))) ?></td>

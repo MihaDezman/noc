@@ -7,7 +7,7 @@ $nav ??= ''; $title ??= 'NOC';
 $st = db()->prepare("SELECT SUM(a.severity='critical') c, SUM(a.severity='warning') w FROM alerts a JOIN devices d ON d.id=a.device_id WHERE a.ended_at IS NULL AND a.acked_at IS NULL AND $w");
 $st->execute($p); $ac = $st->fetch();
 $navItem = function (string $key, string $href, string $ico, string $label, string $extra = '') use ($nav) {
-    return '<a href="' . $href . '" class="' . ($nav === $key ? 'on' : '') . '"' . ($nav === $key ? ' aria-current="page"' : '') . '>' . icon($ico, 18) . '<span>' . h($label) . '</span>' . $extra . '</a>';
+    return '<a href="' . $href . '" data-k="' . $key . '" class="' . ($nav === $key ? 'on' : '') . '"' . ($nav === $key ? ' aria-current="page"' : '') . '>' . icon($ico, 18) . '<span>' . h($label) . '</span>' . $extra . '</a>';
 };
 $initials = mb_strtoupper(implode('', array_map(fn($x) => mb_substr($x, 0, 1), array_slice(preg_split('/\s+/', trim($u['name'] ?: $u['email'])), 0, 2))));
 $flash = Auth::flash();

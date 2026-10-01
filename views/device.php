@@ -10,7 +10,7 @@ $upd = $s['upd'] ?? [];
 <div class="crumbs"><a href="/devices"><?= h(A('Naprave')) ?></a><?= icon('chev', 14) ?><?= h($d['tenant_name'] ?: '–') ?></div>
 <div class="dev-hero">
   <div class="dev-title">
-    <span class="dev-icon"><?= icon(kind_icon($d['kind']), 26) ?></span>
+    <span class="dev-icon"><?= device_art((string)$d['model'], (string)$d['kind'], 46) ?></span>
     <div>
       <h1><?= h($d['name']) ?> <?= state_tag($d) ?></h1>
       <div class="dev-meta">
@@ -268,7 +268,7 @@ $upd = $s['upd'] ?? [];
 </section>
 <section class="panel">
   <div class="panel-head"><h2><?= icon('history', 18) ?><?= h(A('Izpadi v mesecu')) ?></h2><span class="small muted"><?= h(A('Šteje nedosegljiva naprava in izpad interneta.')) ?></span></div>
-  <?php if (!$slaMonth['outages']): ?><div class="empty"><?= icon('shield', 28) ?><div><?= h(A('V tem mesecu ni bilo izpadov.')) ?></div></div><?php else: ?>
+  <?php if (!$slaMonth['outages']): ?><div class="empty"><?= empty_art('ok') ?><div><?= h(A('V tem mesecu ni bilo izpadov.')) ?></div></div><?php else: ?>
   <div class="tbl-wrap"><table class="tbl">
     <thead><tr><th><?= h(A('Vrsta')) ?></th><th><?= h(A('Začetek')) ?></th><th><?= h(A('Konec')) ?></th><th class="num"><?= h(A('Trajanje')) ?></th></tr></thead>
     <tbody><?php foreach ($slaMonth['outages'] as $o): ?><tr>
@@ -283,7 +283,7 @@ $upd = $s['upd'] ?? [];
 <?php elseif ($tab === 'security'): ?>
 <section class="panel">
   <div class="panel-head"><h2><?= icon('shield', 18) ?><?= h(A('Neuspele prijave na router (30 dni)')) ?></h2><span class="small muted"><?= h(A('Alarm: {n} poskusov z istega IP-ja v {m} min', ['n' => (int)setting('th_attack', '5'), 'm' => (int)setting('th_attack_min', '15')])) ?></span></div>
-  <?php if (!$fails): ?><div class="empty"><?= icon('shield', 28) ?><div><?= h(A('Ni neuspelih prijav.')) ?></div></div><?php else: ?>
+  <?php if (!$fails): ?><div class="empty"><?= empty_art('ok') ?><div><?= h(A('Ni neuspelih prijav.')) ?></div></div><?php else: ?>
   <div class="tbl-wrap"><table class="tbl">
     <thead><tr><th><?= h(A('Izvorni IP')) ?></th><th><?= h(A('Način')) ?></th><th><?= h(A('Uporabniška imena')) ?></th><th class="num"><?= h(A('Poskusov')) ?></th><th><?= h(A('Prvič')) ?></th><th><?= h(A('Zadnjič')) ?></th></tr></thead>
     <tbody><?php foreach ($fails as $f): ?><tr>
@@ -316,7 +316,7 @@ $upd = $s['upd'] ?? [];
     </form>
     <span class="small muted"><?= h(A('Zadnjih 500 vrstic, hramba 90 dni')) ?></span>
   </div>
-  <?php if (!$logs): ?><div class="empty"><?= icon('scroll', 28) ?><div><?= h(A('Ni zapisov.')) ?></div></div><?php else: ?>
+  <?php if (!$logs): ?><div class="empty"><?= empty_art('search') ?><div><?= h(A('Ni zapisov.')) ?></div></div><?php else: ?>
   <div class="tbl-wrap"><table class="tbl log-tbl"><tbody>
     <?php foreach ($logs as $l): ?><tr><td class="nowrap muted"><?= h(date('d.m. H:i:s', strtotime($l['ts']))) ?></td><td><?= sev_tag($l['severity']) ?></td><td class="small muted nowrap"><?= h($l['topics']) ?></td><td class="msg"><?= h($l['message']) ?></td></tr><?php endforeach; ?>
   </tbody></table></div><?php endif; ?>
@@ -325,7 +325,7 @@ $upd = $s['upd'] ?? [];
 <?php elseif ($tab === 'alerts'): ?>
 <section class="panel">
   <div class="panel-head"><h2><?= icon('history', 18) ?><?= h(A('Zgodovina alarmov')) ?></h2></div>
-  <?php if (!$history): ?><div class="empty"><?= icon('shield', 28) ?><div><?= h(A('Še ni bilo alarmov.')) ?></div></div><?php else: ?>
+  <?php if (!$history): ?><div class="empty"><?= empty_art('ok') ?><div><?= h(A('Še ni bilo alarmov.')) ?></div></div><?php else: ?>
   <div class="tbl-wrap"><table class="tbl">
     <thead><tr><th><?= h(A('Stopnja')) ?></th><th><?= h(A('Opis')) ?></th><th><?= h(A('Začetek')) ?></th><th><?= h(A('Konec')) ?></th><th><?= h(A('Trajanje')) ?></th></tr></thead>
     <tbody><?php foreach ($history as $a): $dur = ($a['ended_at'] ? strtotime($a['ended_at']) : time()) - strtotime($a['started_at']); ?><tr>
@@ -338,7 +338,7 @@ $upd = $s['upd'] ?? [];
 <?php elseif ($tab === 'backups'): ?>
 <section class="panel">
   <div class="panel-head"><h2><?= icon('archive', 18) ?><?= h(A('Zgodovina konfiguracije')) ?></h2><span class="small muted"><?= h(A('Nov vnos samo, ko se /export spremeni; hrani se zadnjih 60.')) ?></span></div>
-  <?php if (!$backups): ?><div class="empty"><?= icon('archive', 28) ?><div><?= h(A('Še ni backupa. Router ga pošlje ponoči; takoj ga sprožiš z /system script run noc-backup.')) ?></div></div><?php else: ?>
+  <?php if (!$backups): ?><div class="empty"><?= empty_art('archive') ?><div><?= h(A('Še ni backupa. Router ga pošlje ponoči; takoj ga sprožiš z /system script run noc-backup.')) ?></div></div><?php else: ?>
   <div class="tbl-wrap"><table class="tbl">
     <thead><tr><th><?= h(A('Datum')) ?></th><th><?= h(A('Spremembe')) ?></th><th class="num"><?= h(A('Velikost')) ?></th><th></th></tr></thead>
     <tbody><?php foreach ($backups as $i => $b): ?><tr>

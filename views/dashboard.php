@@ -21,7 +21,7 @@ $pct = fn($k) => $n ? round($cnt[$k] / $n * 100, 2) : 0;
 
 <?php if (!$n): ?>
 <div class="panel"><div class="empty">
-  <?= icon('router', 40) ?>
+  <?= empty_art('empty', 140) ?>
   <h2><?= h(A('Še nobena naprava ni povezana')) ?></h2>
   <p><?= h(A('Dodaj prvi router: naloži njegov /export, NOC pripravi skripto, ti jo uvoziš na router.')) ?></p>
   <?php if (Auth::isSuper()): ?><p><a class="btn primary" href="/devices/new"><?= icon('plus', 16) ?><?= h(A('Dodaj napravo')) ?></a></p><?php endif; ?>
@@ -32,6 +32,7 @@ $pct = fn($k) => $n ? round($cnt[$k] / $n * 100, 2) : 0;
   <div class="fleet-state">
     <?= fibres_svg('fibres', 360, 210) ?>
     <div style="position:relative">
+      <div class="greet"><?= h(greeting()) ?></div>
       <div class="big"><?= $working ?><small> / <?= $n ?></small></div>
       <p><?= $cnt['down'] ? h($cnt['down'] . ' ' . plural($cnt['down'], A('naprava ne deluje'), A('napravi ne delujeta'), A('naprave ne delujejo'), A('naprav ne deluje')) . ' – ' . A('poglej alarme.')) : ($cnt['warn'] ? h(A('Vse naprave so dosegljive, nekatere z opozorili.')) : h(A('Vse naprave delujejo brez težav.'))) ?></p>
     </div>
@@ -48,10 +49,10 @@ $pct = fn($k) => $n ? round($cnt[$k] / $n * 100, 2) : 0;
     </div>
   </div>
   <div class="fleet-stats">
-    <div><span class="k"><?= icon('bell', 15) ?><?= h(A('Odprti alarmi')) ?></span><span class="v" style="color:<?= $crit ? 'var(--down)' : ($warnN ? 'var(--warn)' : 'inherit') ?>"><?= $crit + $warnN ?></span><span class="s"><?= $crit ?> <?= h(plural($crit, A('kritičen'), A('kritična'), A('kritični'), A('kritičnih'))) ?>, <?= $warnN ?> <?= h(plural($warnN, A('opozorilo'), A('opozorili'), A('opozorila'), A('opozoril'))) ?></span></div>
-    <div><span class="k"><?= icon('arrow-down', 15) ?><?= h(A('WAN download zdaj')) ?></span><span class="v down-c"><?= h(fmt_bps($rx)) ?></span><span class="s"><?= h(A('vsota vseh naprav')) ?></span></div>
-    <div><span class="k"><?= icon('arrow-up', 15) ?><?= h(A('WAN upload zdaj')) ?></span><span class="v up-c"><?= h(fmt_bps($tx)) ?></span><span class="s"><?= h(A('vsota vseh naprav')) ?></span></div>
-    <div><span class="k"><?= icon('ping', 15) ?><?= h(A('Latenca do prehoda')) ?></span><span class="v"><?= $lat ? number_format(array_sum($lat) / count($lat), 1, ',', '') . ' ms' : '–' ?></span><span class="s"><?= $lat ? h(A('najslabša {m} ms', ['m' => number_format(max($lat), 1, ',', '')])) : h(A('ni podatkov')) ?></span></div>
+    <div><span class="k"><span class="badge b-red"><?= icon('bell', 17) ?></span><?= h(A('Odprti alarmi')) ?></span><span class="v" style="color:<?= $crit ? 'var(--down)' : ($warnN ? 'var(--warn)' : 'inherit') ?>"><?= $crit + $warnN ?></span><span class="s"><?= $crit ?> <?= h(plural($crit, A('kritičen'), A('kritična'), A('kritični'), A('kritičnih'))) ?>, <?= $warnN ?> <?= h(plural($warnN, A('opozorilo'), A('opozorili'), A('opozorila'), A('opozoril'))) ?></span></div>
+    <div><span class="k"><span class="badge b-aqua"><?= icon('arrow-down', 17) ?></span><?= h(A('WAN download zdaj')) ?></span><span class="v down-c"><?= h(fmt_bps($rx)) ?></span><span class="s"><?= h(A('vsota vseh naprav')) ?></span></div>
+    <div><span class="k"><span class="badge b-violet"><?= icon('arrow-up', 17) ?></span><?= h(A('WAN upload zdaj')) ?></span><span class="v up-c"><?= h(fmt_bps($tx)) ?></span><span class="s"><?= h(A('vsota vseh naprav')) ?></span></div>
+    <div><span class="k"><span class="badge b-yellow"><?= icon('ping', 17) ?></span><?= h(A('Latenca do prehoda')) ?></span><span class="v"><?= $lat ? number_format(array_sum($lat) / count($lat), 1, ',', '') . ' ms' : '–' ?></span><span class="s"><?= $lat ? h(A('najslabša {m} ms', ['m' => number_format(max($lat), 1, ',', '')])) : h(A('ni podatkov')) ?></span></div>
   </div>
 </section>
 
@@ -71,7 +72,7 @@ $pct = fn($k) => $n ? round($cnt[$k] / $n * 100, 2) : 0;
     </div>
     <div class="unit-body">
       <div class="unit-title">
-        <div><b><?= h($d['name']) ?></b><div class="sub"><?= h($d['tenant_name'] ?: '–') ?><?= $d['site'] ? ' · ' . h($d['site']) : '' ?></div></div>
+        <div class="unit-name"><span class="unit-art"><?= device_art((string)$d['model'], (string)$d['kind'], 34) ?></span><div><b><?= h($d['name']) ?></b><div class="sub"><?= h($d['tenant_name'] ?: '–') ?><?= $d['site'] ? ' · ' . h($d['site']) : '' ?></div></div></div>
         <?= state_tag($d) ?>
       </div>
       <div class="unit-metrics">
@@ -91,7 +92,7 @@ $pct = fn($k) => $n ? round($cnt[$k] / $n * 100, 2) : 0;
 <div class="grid g2" style="margin-top:28px">
   <section class="panel">
     <div class="panel-head"><h2><?= icon('bell', 18) ?><?= h(A('Odprti alarmi')) ?></h2><a class="small" href="/alerts"><?= h(A('Vsi alarmi')) ?></a></div>
-    <?php if (!$alerts): ?><div class="empty"><?= icon('shield', 30) ?><div><?= h(A('Ni odprtih alarmov.')) ?></div></div>
+    <?php if (!$alerts): ?><div class="empty"><?= empty_art('ok') ?><div><?= h(A('Ni odprtih alarmov.')) ?></div></div>
     <?php else: ?><ul class="feed">
       <?php foreach (array_slice($alerts, 0, 10) as $a): ?>
       <li><span class="sev-bar <?= h($a['severity']) ?>"></span><div class="what"><b><a href="/devices/<?= (int)$a['device_id'] ?>"><?= h($a['device_name']) ?></a></b><div><?= h($a['message']) ?></div></div><span class="when"><?= h(fmt_ago($a['started_at'])) ?></span></li>
@@ -100,7 +101,7 @@ $pct = fn($k) => $n ? round($cnt[$k] / $n * 100, 2) : 0;
   </section>
   <section class="panel">
     <div class="panel-head"><h2><?= icon('scroll', 18) ?><?= h(A('Opozorila v logih (24 h)')) ?></h2><a class="small" href="/logs?sev=warning"><?= h(A('Vsi logi')) ?></a></div>
-    <?php if (!$logs): ?><div class="empty"><?= icon('check', 30) ?><div><?= h(A('V zadnjih 24 urah ni opozoril ali napak.')) ?></div></div>
+    <?php if (!$logs): ?><div class="empty"><?= empty_art('ok') ?><div><?= h(A('V zadnjih 24 urah ni opozoril ali napak.')) ?></div></div>
     <?php else: ?><ul class="feed">
       <?php foreach ($logs as $l): ?>
       <li><span class="sev-bar <?= h($l['severity']) ?>"></span><div class="what"><b><a href="/devices/<?= (int)$l['device_id'] ?>?tab=logs"><?= h($l['device_name']) ?></a></b> <span class="faint small"><?= h($l['topics']) ?></span><div class="mono small"><?= h($l['message']) ?></div></div><span class="when"><?= h(fmt_dt($l['ts'])) ?></span></li>

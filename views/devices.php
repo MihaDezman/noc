@@ -18,7 +18,7 @@
       <button class="btn sm"><?= icon('filter', 15) ?><?= h(A('Filtriraj')) ?></button>
     </form>
   </div>
-  <?php if (!$devs): ?><div class="empty"><?= icon('router', 32) ?><div><?= h(A('Ni naprav, ki bi ustrezale filtru.')) ?></div></div>
+  <?php if (!$devs): ?><div class="empty"><?= empty_art('search') ?><div><?= h(A('Ni naprav, ki bi ustrezale filtru.')) ?></div></div>
   <?php else: ?>
   <div class="tbl-wrap"><table class="tbl dev-tbl">
     <thead><tr><th><?= h(A('Naprava')) ?></th><th><?= h(A('Naročnik')) ?></th><th><?= h(A('Stanje')) ?></th><th class="col-model"><?= h(A('Model')) ?></th><th class="col-ip"><?= h(A('Javni IP')) ?></th><th class="num"><?= h(A('Promet WAN')) ?></th><th style="width:96px">CPU</th><th class="num"><?= h(A('Ping')) ?></th></tr></thead>
@@ -28,7 +28,7 @@
         $st = db()->prepare('SELECT rx_bps, tx_bps FROM device_ifaces WHERE device_id=? AND name=?'); $st->execute([$d['id'], $d['wan_iface']]); $wan = $st->fetch();
     ?>
       <tr>
-        <td class="nowrap"><a class="rowlink" href="/devices/<?= (int)$d['id'] ?>"><?= icon(kind_icon($d['kind']), 16) ?> <?= h($d['name']) ?></a></td>
+        <td class="nowrap"><a class="rowlink dev-link" href="/devices/<?= (int)$d['id'] ?>"><?= device_art((string)$d['model'], (string)$d['kind'], 26) ?><?= h($d['name']) ?></a></td>
         <td><?= h($d['tenant_name'] ?: '–') ?><?php if ($d['site']): ?><div class="small muted"><?= h($d['site']) ?></div><?php endif; ?></td>
         <td class="nowrap"><?= state_tag($d) ?><?php if ($d['alert_count']): ?> <span class="tag"><?= icon('bell', 12) ?><?= (int)$d['alert_count'] ?></span><?php endif; ?><div class="small muted"><?= h(fmt_ago($d['last_seen_at'])) ?></div></td>
         <td class="col-model nowrap"><?= h($d['model'] ?: '–') ?><div class="small muted mono"><?= h($d['os_version'] ? 'RouterOS ' . preg_replace('/\s.*$/', '', $d['os_version']) : '') ?></div></td>

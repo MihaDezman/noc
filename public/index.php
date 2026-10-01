@@ -71,7 +71,7 @@ if ($path === '/login') {
         $r = Auth::login(post('email'), post('password'));
         if ($r === 'ok') redirect('/');
         if ($r === 'totp') redirect('/login/2fa');
-        view('login', ['error' => Auth::loginBlocked(post('email')) ? A('Preveč neuspelih poskusov – počakaj 15 minut.') : A('Napačna e-pošta ali geslo.')]);
+        view('login', ['error' => Auth::loginBlocked(post('email')) ? A('Preveč neuspelih poskusov – počakaj 15 minut.') : A('Napačen uporabnik ali geslo.')]);
     }
     if (Auth::$user) redirect('/');
     view('login', ['error' => '']);
