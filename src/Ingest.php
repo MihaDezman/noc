@@ -21,6 +21,7 @@ final class Ingest
         foreach ($st as $r) $prev[$r['name']] = $r;
         $rates = is_array($b['rates'] ?? null) ? $b['rates'] : [];
         $monitor = Devices::list((string)$d['monitor_ifaces']);
+        if ($d['wan_iface'] !== '' && !in_array($d['wan_iface'], $monitor, true)) $monitor[] = $d['wan_iface'];   // WAN ima zgodovino vedno
         $seen = []; $keepT = [];
         $upIf = $pdo->prepare('INSERT INTO device_ifaces (device_id, name, type, comment, mac, running, disabled, rate, rx_byte, tx_byte, rx_bps, tx_bps, rx_error, tx_error, link_downs, last_up, updated_at)
                                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,FROM_UNIXTIME(?))

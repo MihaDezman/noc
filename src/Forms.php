@@ -7,7 +7,8 @@ final class DeviceForm
     public static function read(): array
     {
         $ip = fn($v) => filter_var($v, FILTER_VALIDATE_IP) ? $v : '';
-        $csv = fn($v) => implode(',', array_unique(array_filter(array_map('trim', preg_split('/[\s,;]+/', (string)$v)))));
+        // seznami vmesnikov: ločilo je samo vejica (ali podpičje/nova vrstica) – RouterOS dovoli presledek v imenu vmesnika
+        $csv = fn($v) => implode(',', array_unique(array_filter(array_map('trim', preg_split('/[,;\r\n]+/', (string)$v)))));
         $nets = implode(',', array_filter(array_map('trim', preg_split('/[\s,;]+/', post('lan_networks'))), fn($n) => preg_match('#^\d+\.\d+\.\d+\.\d+/\d{1,2}$#', $n)));
         $rx = fn($v) => preg_replace('/[^a-zA-Z0-9|,.;_\-]/', '', (string)$v);
         return [

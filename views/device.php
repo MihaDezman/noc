@@ -145,7 +145,9 @@ $upd = $s['upd'] ?? [];
 <?php endif; ?>
 
 <?php elseif ($tab === 'ifaces'):
-  $mon = Devices::list((string)$d['monitor_ifaces']); $cur = $_GET['i'] ?? ($mon[0] ?? '');
+  $mon = Devices::list((string)$d['monitor_ifaces']);
+  if ($d['wan_iface'] !== '' && !in_array($d['wan_iface'], $mon, true)) array_unshift($mon, $d['wan_iface']);
+  $cur = $_GET['i'] ?? ($mon[0] ?? '');
 ?>
 <?php if ($mon): ?>
 <section class="panel">
