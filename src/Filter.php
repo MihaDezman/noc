@@ -110,7 +110,7 @@ final class Filter
                 . self::top('/ip firewall raw', 'chain=prerouting src-address-list=noc-filter-drop action=drop comment="noc-filter: varnostna IP lista"')
                 . self::top('/ip firewall raw', 'chain=prerouting dst-address-list=noc-filter-drop action=drop comment="noc-filter: varnostna IP lista"')
                 . "/system script add name=noc-filter-update policy=$pol comment=\"noc.dezman.net\" source=\"" . str_replace(['\\', '"', '$'], ['\\\\', '\\"', '\\$'], $upd) . "\"\n"
-                . sprintf("/system scheduler add name=noc-filter-update interval=1d start-time=%02d:%02d:00 on-event=noc-filter-update policy=%s comment=\"noc.dezman.net\"\n", 5, random_int(5, 55), $pol)
+                . sprintf("/system scheduler add name=noc-filter-update interval=1d start-time=%02d:%02d:00 on-event=noc-filter-update policy=%s comment=\"noc.dezman.net\"\n", 5, 5 + crc32('noc-filter-' . $d['id']) % 51, $pol)
                 . ":execute script=\"/system script run noc-filter-update\"\n";
         }
         return $s . ":log info \"noc: zascita " . self::label($p) . " nastavljena\"\n\n";

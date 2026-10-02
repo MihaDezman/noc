@@ -140,6 +140,14 @@ v 5 minutah ne doseže NOC (`/api/fw-confirm`), sam povrne vse spremembe.
 Vmesniki → Stanje porta (zadnja prekinitev/vzpostavitev, števec routerja, štetje NOC, časovnica) in SFP moduli
 (RX/TX moč, temperatura, grafi 30 dni). Pragovi RX: 1G opozorilo −20 / kritično −23 dBm, 10G −12 / −14 dBm; nastavljivo po portu.
 
+## Samodejne posodobitve routerjev
+
+Router v vsakem pushu sporoči verzijo svoje skripte. Če se v NOC kaj spremeni (nova verzija NOC ali nastavitve naprave),
+NOC v odgovoru sporoči, da je na voljo nova skripta, router pa jo sam prenese z `/api/install/auto` in uvozi
+(največ en poziv na 30 min). Razdelek požarnega zidu se pri tem ne spreminja – ta gre na router samo z ročnim ukazom s strani Paket.
+Stikalo je pri napravi v Nastavitvah ("Samodejne posodobitve skripte"), stanje pa v kartici Podatki in na strani Posodobitve.
+Routerji s skripto pred v1.9 se morajo enkrat posodobiti ročno.
+
 ## fail2ban (priporočeno)
 
 NOC v Apache error log piše `noc-login-fail ip=…` (napačna prijava) in `noc-api-badkey ip=…` (neveljaven API ključ).

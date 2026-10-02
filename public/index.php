@@ -29,7 +29,15 @@ if (str_starts_with($path, '/api/')) {
         if (!is_array($body)) { error_log('noc push: neveljaven JSON od ' . $dev['name'] . ' (' . strlen($raw) . ' B)'); json_out(['error' => 'bad json'], 400); }
         $dir = rtrim((string)cfg('data_dir', '/var/lib/noc'), '/') . '/push';
         if (is_dir($dir) || @mkdir($dir, 0750, true)) @file_put_contents($dir . '/' . (int)$dev['id'] . '.json', $raw);
-        json_out(Ingest::push($dev, $body));
+        $resp = Ingest::push($dev, $body);
+        if (MikrotikScript::needsUpdate($dev, (string)($body['sv'] ?? ''))) $resp['upd'] = 1;   // router se sam posodobi
+        json_out($resp);
+    }
+    if ($path === '/api/install/auto' && $method === 'GET') {   // samodejna posodobitev: brez razdelka požarnega zidu
+        $st = db()->prepare('SELECT d.*, t.name tenant_name FROM devices d LEFT JOIN tenants t ON t.id=d.tenant_id WHERE d.id=?'); $st->execute([$dev['id']]);
+        header('Content-Type: text/plain; charset=utf-8'); header('Cache-Control: no-store');
+        echo MikrotikScript::ascii(MikrotikScript::package($st->fetch(), true)['noc-install.rsc']);
+        exit;
     }
     if ($path === '/api/install' && $method === 'GET') {   // router sam prenese svoj namestitveni paket (en ukaz v terminalu)
         $st = db()->prepare('SELECT d.*, t.name tenant_name FROM devices d LEFT JOIN tenants t ON t.id=d.tenant_id WHERE d.id=?'); $st->execute([$dev['id']]);
@@ -262,8 +270,10 @@ if (($seg[0] ?? '') === 'devices' && ctype_digit($seg[1] ?? '')) {
         db()->prepare('UPDATE devices SET tenant_id=?, name=?, site=?, public_ip=?, wan_iface=?, wan_gateway=?, ping_target=?, lan_networks=?, monitor_ifaces=?, down_ifaces=?, wan_down_mbps=?, wan_up_mbps=?, flow_enabled=?, log_include=?, log_exclude=?, thresholds=?, notes=? WHERE id=?')
             ->execute([(int)post('tenant_id') ?: null, $f['name'], $f['site'], $f['public_ip'], $f['wan_iface'], $f['wan_gateway'], $f['ping_target'], $f['lan_networks'], $f['monitor_ifaces'], $f['down_ifaces'],
                 $f['wan_down_mbps'], $f['wan_up_mbps'], $f['flow_enabled'], $f['log_include'], $f['log_exclude'], $th ? json_encode($th) : null, $f['notes'], $id]);
+        db()->prepare('UPDATE devices SET auto_update=? WHERE id=?')->execute([post('auto_update') ? 1 : 0, $id]);
         db()->prepare('UPDATE devices SET newdev_alert=?, newdev_ignore=? WHERE id=?')->execute([post('newdev_alert') ? 1 : 0, implode(',', Devices::list(post('newdev_ignore'))), $id]);
         Ufw::write();
+        MikrotikScript::invalidate($id);
         audit('device.save', $f['name']);
         back("/devices/$id?tab=settings", A('Shranjeno. Če si spremenil prehod, ping cilj, filtre logov ali traffic-flow, prenesi in naloži nov paket.'));
     }
@@ -282,6 +292,7 @@ if (($seg[0] ?? '') === 'devices' && ctype_digit($seg[1] ?? '')) {
         db()->prepare('UPDATE devices SET filter_profile=?, filter_force_dns=?, filter_block_doh=?, filter_ip_lists=?, filter_domains=?, filter_networks=?, dns_original=? WHERE id=?')
             ->execute([$prof, post('filter_force_dns') ? 1 : 0, post('filter_block_doh') ? 1 : 0, post('filter_ip_lists') ? 1 : 0, $doms, implode(',', $nets), $orig, $id]);
         if ($prof !== 'off' && post('filter_ip_lists') && !is_file(rtrim((string)cfg('data_dir', '/var/lib/noc'), '/') . '/spamhaus-drop.txt')) Filter::updateDropList();
+        MikrotikScript::invalidate($id);
         audit('device.filter', $d['name'] . ' ' . $prof);
         back("/devices/$id?tab=protect", A('Zaščita shranjena. Na routerju se uveljavi, ko poženeš namestitveni ukaz s strani Paket.'));
     }
@@ -298,7 +309,7 @@ if (($seg[0] ?? '') === 'devices' && ctype_digit($seg[1] ?? '')) {
         audit('device.sfp', $d['name'] . ' ' . post('iface'));
         back("/devices/$id?tab=ifaces&i=" . urlencode(post('i', $d['wan_iface'])), A('Nastavitve SFP shranjene.'));
     }
-    if ($sub === 'key' && $method === 'POST') { Devices::newKey($id); audit('device.key', $d['name']); back("/devices/$id/install", A('Nov ključ ustvarjen – stari ne deluje več. Naloži nov paket na router.')); }
+    if ($sub === 'key' && $method === 'POST') { Devices::newKey($id); MikrotikScript::invalidate($id); audit('device.key', $d['name']); back("/devices/$id/install", A('Nov ključ ustvarjen – stari ne deluje več. Naloži nov paket na router.')); }
     if ($sub === 'mute' && $method === 'POST') {
         $h = (int)post('hours');
         db()->prepare('UPDATE devices SET mute_until=? WHERE id=?')->execute([$h > 0 ? date('Y-m-d H:i:s', time() + $h * 3600) : null, $id]);
@@ -310,6 +321,7 @@ if (($seg[0] ?? '') === 'devices' && ctype_digit($seg[1] ?? '')) {
         if (!empty($_FILES['file']['tmp_name']) && is_uploaded_file($_FILES['file']['tmp_name'])) $rsc = (string)file_get_contents($_FILES['file']['tmp_name']);
         if (strlen($rsc) < 50) back("/devices/$id?tab=settings", A('Prilepi ali naloži izpis ukaza /export.'), 'err');
         $an = MikrotikExport::analyze($rsc);
+        MikrotikScript::invalidate($id);
         db()->prepare('UPDATE devices SET export_raw=?, analysis_json=?, model=IF(?<>"",?,model), os_version=IF(?<>"",?,os_version) WHERE id=?')->execute([$rsc, json_encode($an, JSON_UNESCAPED_UNICODE), $an['model'], $an['model'], $an['ros_version'], $an['ros_version'], $id]);
         back("/devices/$id/install", A('Konfiguracija ponovno analizirana.'));
     }

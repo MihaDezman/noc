@@ -73,6 +73,9 @@ CREATE TABLE devices (
   dns_original     VARCHAR(255) NULL,
   fw_fixes        TEXT NULL,
   fw_confirmed_at DATETIME NULL,
+  auto_update     TINYINT(1) NOT NULL DEFAULT 1,
+  script_ver      VARCHAR(12) NULL,
+  upd_attempt_at  DATETIME NULL,
   api_key_hash   CHAR(64) NULL UNIQUE,
   api_key_enc    TEXT NULL,
   export_raw     MEDIUMTEXT NULL,                      -- /export, iz katerega je bila naprava dodana

@@ -32,6 +32,7 @@ $isNew ??= false;
 </div>
 <label class="check"><input type="checkbox" name="flow_enabled" value="1" <?= !empty($f['flow_enabled']) ? 'checked' : '' ?>> <?= h(A('Traffic-flow: spremljaj promet po napravah v LAN-u')) ?></label>
 <?php if (!$isNew): ?>
+<label class="check"><input type="checkbox" name="auto_update" value="1" <?= (int)($f['auto_update'] ?? 1) ? 'checked' : '' ?>> <span><b><?= h(A('Samodejne posodobitve skripte')) ?></b> – <?= h(A('router sam prenese novo skripto, ko se v NOC kaj spremeni (požarni zid vedno samo ročno)')) ?></span></label>
 <h3 style="margin-top:6px"><?= icon('scroll', 16) ?> <?= h(A('Logi')) ?></h3>
 <div class="row c3">
   <label class="f"><?= h(A('Pošlji teme (regex)')) ?><input type="text" name="log_include" value="<?= h($f['log_include']) ?>" class="mono"></label>

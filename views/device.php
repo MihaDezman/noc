@@ -120,6 +120,7 @@ $upd = $s['upd'] ?? [];
         <dt><?= h(A('Prehod WAN')) ?></dt><dd class="mono"><?= h(($s['ping']['gw'] ?? '') ?: '–') ?></dd>
         <dt><?= h(A('Povezave (conntrack)')) ?></dt><dd><?= isset($hh['conns']) && $hh['conns'] !== null ? number_format((int)$hh['conns'], 0, ',', '.') : '–' ?></dd>
         <dt><?= h(A('DHCP najemi')) ?></dt><dd><?= $hh['leases'] ?? '–' ?></dd>
+        <?php if (Auth::isSuper()): [$scCls, $scTxt] = MikrotikScript::scriptState($d); ?><dt><?= h(A('Skripta NOC')) ?></dt><dd><span class="tag <?= $scCls ?>" title="<?= h($d['script_ver'] ?? '') ?>"><?= h($scTxt) ?></span></dd><?php endif; ?>
         <dt><?= h(A('Zaščita')) ?></dt><dd><?php [$fok, $fmsg] = Filter::routerState($d); ?><span class="tag <?= ($d['filter_profile'] ?? 'off') === 'off' ? '' : ($fok ? 'up' : 'warn') ?>"><?= h(Filter::label($d['filter_profile'] ?? 'off')) ?></span></dd>
         <dt><?= h(A('Razpoložljivost 30 d')) ?></dt><dd><a href="?tab=sla"><span class="tag <?= Sla::cls($sla30['pct']) ?>"><?= h(Sla::fmt($sla30['pct'])) ?></span></a></dd>
         <?php foreach ($s['health'] ?? [] as $k => $v): if (str_contains((string)$k, 'temperature') || $k === 'cpu-temperature') continue; ?>

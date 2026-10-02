@@ -10,10 +10,69 @@ final class MikrotikScript
     public const POLICY = 'read,write,test,ftp,policy';   // RouterOS 7.24+: brez "policy" fetch iz schedulerja odpove
 
     /** [ime datoteke => vsebina] */
-    public static function package(array $d): array
+    /** Samodejna posodobitev: paket brez razdelka požarnega zidu (ta se uveljavi samo ročno) */
+    private static bool $auto = false;
+    /** Verzija skripte, ki jo router sporoča v pushu */
+    private static string $ver = '%%VER%%';
+
+    /**
+     * Verzija = kratek hash vsebine samodejnega paketa (brez datumov). Ista nastavitev = ista verzija,
+     * zato se router posodobi samo, ko se v NOC res kaj spremeni (koda ali nastavitve naprave).
+     */
+    public static function version(array $d): string
+    {
+        $key = dec($d['api_key_enc'] ?? null); $an = json_decode((string)($d['analysis_json'] ?? ''), true) ?: [];
+        [$a, $v] = [self::$auto, self::$ver]; self::$auto = true; self::$ver = '%%VER%%';
+        $t = self::install($d, $an, $key);
+        [self::$auto, self::$ver] = [$a, $v];
+        $t = preg_replace('/\d{4}-\d{2}-\d{2} \d{2}:\d{2}(:\d{2})?/', '', $t);
+        return substr(sha1($t), 0, 10);
+    }
+
+    /** Pričakovana verzija (predpomnjena 10 min v settings – izračun generira celoten paket) */
+    public static function expectedVersion(array $d): string
+    {
+        $c = explode('|', setting('sv:' . $d['id'], ''));
+        if (count($c) === 2 && (int)$c[1] > time() - 600) return $c[0];
+        $v = self::version($d);
+        setting_set('sv:' . $d['id'], $v . '|' . time());
+        return $v;
+    }
+
+    public static function invalidate(int $id): void { db()->prepare('DELETE FROM settings WHERE k=?')->execute(['sv:' . $id]); }
+
+    /** Stanje skripte na routerju: [razred, besedilo] */
+    public static function scriptState(array $d): array
+    {
+        $sv = (string)($d['script_ver'] ?? '');
+        if ($sv === '') return ['warn', A('stara skripta – enkrat posodobi ročno')];
+        if ($sv === self::expectedVersion($d)) return ['up', A('posodobljena')];
+        if ((int)($d['auto_update'] ?? 1)) return ['info', A('posodablja se samodejno')];
+        return ['warn', A('na voljo nova – samodejno izklopljeno')];
+    }
+
+    /** Ob pushu: ali naj router prenese novo skripto (največ enkrat na 30 min) */
+    public static function needsUpdate(array $d, string $sv): bool
+    {
+        db()->prepare('UPDATE devices SET script_ver=? WHERE id=?')->execute([$sv !== '' ? mb_substr($sv, 0, 12) : null, $d['id']]);
+        if ($sv === '' || !(int)($d['auto_update'] ?? 1)) return false;
+        if ($sv === self::expectedVersion($d)) return false;
+        if ($d['upd_attempt_at'] && strtotime($d['upd_attempt_at']) > time() - 1800) return false;
+        db()->prepare('UPDATE devices SET upd_attempt_at=NOW() WHERE id=?')->execute([$d['id']]);
+        db()->prepare('INSERT INTO audit (user_id, action, detail, ip) VALUES (NULL, ?, ?, ?)')->execute(['device.auto-update', $d['name'] . " $sv → " . self::expectedVersion($d), client_ip()]);
+        return true;
+    }
+
+    public static function package(array $d, bool $auto = false): array
     {
         $key = dec($d['api_key_enc'] ?? null);
         $an = json_decode((string)($d['analysis_json'] ?? ''), true) ?: [];
+        self::$ver = self::version($d); self::$auto = $auto;
+        try { return self::files($d, $an, $key); } finally { self::$auto = false; self::$ver = '%%VER%%'; }
+    }
+
+    private static function files(array $d, array $an, string $key): array
+    {
         return [
             'NAVODILA.txt'     => self::readme($d, $an, $key),
             'noc-install.rsc'  => self::install($d, $an, $key),
@@ -28,6 +87,7 @@ final class MikrotikScript
 
     public static function pushBody(array $d, string $key): string
     {
+        $ver = self::$ver;
         $base = rtrim((string)cfg('base_url'), '/');
         $gwFallback = filter_var($d['wan_gateway'] ?? '', FILTER_VALIDATE_IP) ? $d['wan_gateway'] : '';
         $ext = trim((string)($d['ping_target'] ?? '')) ?: '1.1.1.1';
@@ -36,6 +96,8 @@ final class MikrotikScript
 # NOC push – {$d['name']} – generirano {$GLOBALS['__gen']}
 :local url "$base/api/push"
 :local key "$key"
+:local scriptVer "{$ver}"
+:local updUrl "$base/api/install/auto"
 :local gwFallback "$gwFallback"
 :local extTarget "$ext"
 :local logInc "$inc"
@@ -166,7 +228,7 @@ final class MikrotikScript
     }
 }
 
-:local data {"v"=1;"tick"=\$nocTick;"ident"=\$ident;"res"=\$res;"rb"=\$rb;"health"=\$hl;"ifs"=\$ifs;"rates"=\$rates;"ping"=\$ping;"conns"=\$conns;"nLeases"=\$nLeases;"leases"=\$leases;"pools"=\$pools;"flt"=\$flt;"sfp"=\$sfp;"wg"=\$wg;"logs"=\$logs;"upd"=\$nocUpd}
+:local data {"v"=1;"sv"=\$scriptVer;"tick"=\$nocTick;"ident"=\$ident;"res"=\$res;"rb"=\$rb;"health"=\$hl;"ifs"=\$ifs;"rates"=\$rates;"ping"=\$ping;"conns"=\$conns;"nLeases"=\$nLeases;"leases"=\$leases;"pools"=\$pools;"flt"=\$flt;"sfp"=\$sfp;"wg"=\$wg;"logs"=\$logs;"upd"=\$nocUpd}
 :local body [:serialize to=json value=\$data]
 # varovalka: fetch ima omejitev velikosti - prevelik push (npr. ogromne vrstice loga) pošlji brez logov
 :if ([:len \$body] > 48000) do={
@@ -183,7 +245,14 @@ final class MikrotikScript
 # :onerror zapiše dejansko sporočilo RouterOS (npr. "not enough permissions", "failure: ... 401")
 :onerror e in={
     :local out [/tool fetch url=\$url http-method=post http-data=\$body http-header-field=("Content-Type: application/json,X-Api-Key: " . \$key) output=user as-value]
-    :if ((\$out->"status") = "finished") do={ :set nocLastLog \$maxid }
+    :if ((\$out->"status") = "finished") do={
+        :set nocLastLog \$maxid
+        # NOC sporoči, da je na voljo nova skripta: posodobitev v ozadju (ta skripta se medtem zamenja)
+        :if ([:typeof [:find [:tostr (\$out->"data")] "\"upd\":1"]] = "num") do={
+            :log info "noc: na voljo nova skripta - samodejna posodobitev"
+            :execute script=("/tool fetch url=\"" . \$updUrl . "\" http-header-field=\"X-Api-Key: " . \$key . "\" dst-path=noc-install.rsc; :delay 2s; /import noc-install.rsc; /file remove noc-install.rsc")
+        }
+    }
 } do={ :log warning ("noc: push ni uspel - " . \$e) }
 ROS;
     }
@@ -228,7 +297,7 @@ ROS;
     {
         $GLOBALS['__gen'] = date('Y-m-d H:i');
         $noc = (string)cfg('noc_ip'); $port = (int)cfg('flow_port', 2055); $pol = self::POLICY;
-        $min = random_int(5, 55); $hour = random_int(2, 4);
+        $h = crc32('noc-backup-' . $d['id']); $min = 5 + $h % 51; $hour = 2 + intdiv($h, 51) % 3;   // določljivo: ista naprava = ista ura
         $s = "# NOC – namestitev za \"{$d['name']}\" (" . ($d['model'] ?: 'MikroTik') . ")\n# Generirano " . date('Y-m-d H:i') . " – noc.dezman.net\n# Uvoz: /import noc-install.rsc\n\n";
         $s .= "# --- počisti prejšnjo namestitev\n/system scheduler remove [find name~\"^noc-\"]\n/system script remove [find name~\"^noc-\"]\n\n";
         $s .= "# --- skripti\n/system script add name=noc-push policy=$pol comment=\"noc.dezman.net\" source=\"" . self::esc(self::pushBody($d, $key)) . "\"\n\n";
@@ -253,7 +322,8 @@ ROS;
             $s .= ":if ([:len [/ip traffic-flow target find dst-address=$noc]] = 0) do={ /ip traffic-flow target add dst-address=$noc port=$port version=ipfix }\n\n";
         }
         $s .= Filter::rsc($d);
-        $s .= Firewall::rsc($d);
+        // požarni zid samo ob ročni namestitvi – samodejna posodobitev obstoječih pravil noc-fw ne spreminja
+        $s .= self::$auto ? "# --- pozarni zid: nespremenjen (samodejna posodobitev)\n\n" : Firewall::rsc($d);
         $s .= "# --- fetch,info ne polni loga (vsak push bi zapisal vrstico 'Download ... FINISHED'); napake fetcha se se vedno belezijo\n";
         $s .= ":foreach r in=[/system logging find] do={ :if ([:tostr [/system logging get \$r topics]] = \"info\") do={ /system logging set \$r topics=info,!fetch } }\n\n";
         $s .= "# --- prvi zagon: push takoj, backup konfiguracije + preverjanje posodobitev v ozadju (traja ~20 s)\n/system script run noc-push\n:execute script=\"/system script run noc-backup\"\n:log info \"noc: nameščeno – push vsako minuto, backup zdaj in vsak dan ob " . sprintf('%02d:%02d', $hour, $min) . "\"\n";

@@ -798,4 +798,12 @@ return [
     '… ali TX nasprotne strani' => '… or TX of the other end',
     'Hitrost povezave na {n} spet normalna: {t}' => 'Link speed on {n} back to normal: {t}',
     'Najdeni VPN strežniki ostanejo dostopni: {v}' => 'Detected VPN servers stay reachable: {v}',
+    'Samodejne posodobitve skripte' => 'Automatic script updates',
+    'router sam prenese novo skripto, ko se v NOC kaj spremeni (požarni zid vedno samo ročno)' => 'the router downloads a new script itself when something changes in NOC (firewall always manual only)',
+    'Skripta NOC' => 'NOC script',
+    'stara skripta – enkrat posodobi ročno' => 'old script – update manually once',
+    'posodobljena' => 'up to date',
+    'posodablja se samodejno' => 'updating automatically',
+    'na voljo nova – samodejno izklopljeno' => 'new available – automatic off',
+    'RouterOS, firmware in skripta NOC na vseh napravah. Podatek o novi verziji RouterOS router preveri ob nočnem backupu.' => 'RouterOS, firmware and NOC script on all devices. The router checks for a new RouterOS version during the nightly backup.',
 ];
