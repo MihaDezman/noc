@@ -65,7 +65,7 @@ final class MikrotikScript
 :foreach i in=[/interface find] do={
     :local x [/interface get \$i]
     :if ([:tostr (\$x->"dynamic")] != "true") do={
-        :set (\$ifs->[:len \$ifs]) {"n"=(\$x->"name");"t"=(\$x->"type");"run"=(\$x->"running");"dis"=(\$x->"disabled");"rx"=(\$x->"rx-byte");"tx"=(\$x->"tx-byte");"rxe"=(\$x->"rx-error");"txe"=(\$x->"tx-error");"ld"=(\$x->"link-downs");"mac"=[:tostr (\$x->"mac-address")];"c"=[:tostr (\$x->"comment")];"lu"=[:tostr (\$x->"last-link-up-time")]}
+        :set (\$ifs->[:len \$ifs]) {"n"=(\$x->"name");"t"=(\$x->"type");"run"=(\$x->"running");"dis"=(\$x->"disabled");"rx"=(\$x->"rx-byte");"tx"=(\$x->"tx-byte");"rxe"=(\$x->"rx-error");"txe"=(\$x->"tx-error");"ld"=(\$x->"link-downs");"mac"=[:tostr (\$x->"mac-address")];"c"=[:tostr (\$x->"comment")];"lu"=[:tostr (\$x->"last-link-up-time")];"ldt"=[:tostr (\$x->"last-link-down-time")]}
     }
 }
 # hitrost povezave (vsakih 10 min)
@@ -74,6 +74,19 @@ final class MikrotikScript
     :foreach e in=[/interface ethernet find where running=yes] do={
         :local nm [/interface ethernet get \$e name]
         :do { :local mo [/interface ethernet monitor \$e once as-value]; :set (\$rates->\$nm) [:tostr (\$mo->"rate")] } on-error={}
+    }
+}
+
+# --- SFP moduli (vsakih 5 min): identifikacija in diagnostika (DDM)
+:local sfp [:toarray ""]
+:if ((\$nocTick % 5) = 1) do={
+    :foreach e in=[/interface ethernet find where default-name~"sfp|combo|qsfp"] do={
+        :local nm [/interface ethernet get \$e name]
+        :do {
+            :local mo [/interface ethernet monitor \$e once as-value]
+            :local pr [:tostr (\$mo->"sfp-module-present")]
+            :set (\$sfp->[:len \$sfp]) {"n"=\$nm;"p"=\$pr;"v"=[:tostr (\$mo->"sfp-vendor-name")];"pn"=[:tostr (\$mo->"sfp-vendor-part-number")];"sn"=[:tostr (\$mo->"sfp-vendor-serial")];"t"=[:tostr (\$mo->"sfp-type")];"wl"=[:tostr (\$mo->"sfp-wavelength")];"len"=[:tostr (\$mo->"sfp-link-length-sm")];"tmp"=[:tostr (\$mo->"sfp-temperature")];"vcc"=[:tostr (\$mo->"sfp-supply-voltage")];"bias"=[:tostr (\$mo->"sfp-tx-bias-current")];"tx"=[:tostr (\$mo->"sfp-tx-power")];"rx"=[:tostr (\$mo->"sfp-rx-power")];"rate"=[:tostr (\$mo->"rate")]}
+        } on-error={}
     }
 }
 
@@ -124,7 +137,7 @@ final class MikrotikScript
 
 # --- stanje zascite (noc-filter)
 :local flt [:toarray ""]
-:do { :set flt {"dns"=[:tostr [/ip dns get servers]];"n"=([:len [/ip firewall nat find comment~"^noc-filter"]] + [:len [/ip firewall filter find comment~"^noc-filter"]]);"drop"=[:len [/ip firewall address-list find list=noc-filter-drop]]} } on-error={}
+:do { :set flt {"dns"=[:tostr [/ip dns get servers]];"n"=([:len [/ip firewall nat find comment~"^noc-filter"]] + [:len [/ip firewall filter find comment~"^noc-filter"]]);"drop"=[:len [/ip firewall address-list find list=noc-filter-drop]];"fw"=([:len [/ip firewall filter find comment~"^noc-fw"]] + [:len [/ip firewall raw find comment~"^noc-fw"]])} } on-error={}
 
 # --- WireGuard
 :local wg [:toarray ""]
@@ -153,7 +166,7 @@ final class MikrotikScript
     }
 }
 
-:local data {"v"=1;"tick"=\$nocTick;"ident"=\$ident;"res"=\$res;"rb"=\$rb;"health"=\$hl;"ifs"=\$ifs;"rates"=\$rates;"ping"=\$ping;"conns"=\$conns;"nLeases"=\$nLeases;"leases"=\$leases;"pools"=\$pools;"flt"=\$flt;"wg"=\$wg;"logs"=\$logs;"upd"=\$nocUpd}
+:local data {"v"=1;"tick"=\$nocTick;"ident"=\$ident;"res"=\$res;"rb"=\$rb;"health"=\$hl;"ifs"=\$ifs;"rates"=\$rates;"ping"=\$ping;"conns"=\$conns;"nLeases"=\$nLeases;"leases"=\$leases;"pools"=\$pools;"flt"=\$flt;"sfp"=\$sfp;"wg"=\$wg;"logs"=\$logs;"upd"=\$nocUpd}
 :local body [:serialize to=json value=\$data]
 # varovalka: fetch ima omejitev velikosti - prevelik push (npr. ogromne vrstice loga) pošlji brez logov
 :if ([:len \$body] > 48000) do={
@@ -240,6 +253,7 @@ ROS;
             $s .= ":if ([:len [/ip traffic-flow target find dst-address=$noc]] = 0) do={ /ip traffic-flow target add dst-address=$noc port=$port version=ipfix }\n\n";
         }
         $s .= Filter::rsc($d);
+        $s .= Firewall::rsc($d);
         $s .= "# --- fetch,info ne polni loga (vsak push bi zapisal vrstico 'Download ... FINISHED'); napake fetcha se se vedno belezijo\n";
         $s .= ":foreach r in=[/system logging find] do={ :if ([:tostr [/system logging get \$r topics]] = \"info\") do={ /system logging set \$r topics=info,!fetch } }\n\n";
         $s .= "# --- prvi zagon: push takoj, backup konfiguracije + preverjanje posodobitev v ozadju (traja ~20 s)\n/system script run noc-push\n:execute script=\"/system script run noc-backup\"\n:log info \"noc: nameščeno – push vsako minuto, backup zdaj in vsak dan ob " . sprintf('%02d:%02d', $hour, $min) . "\"\n";
@@ -257,6 +271,7 @@ ROS;
             . "/ip firewall nat remove [find comment~\"^noc-filter\"]\n/ip firewall filter remove [find comment~\"^noc-filter\"]\n"
             . "/ip firewall raw remove [find comment~\"^noc-filter\"]\n/ip firewall address-list remove [find comment~\"^noc-filter\"]\n/ip dns static remove [find comment~\"^noc-filter\"]\n"
             . Filter::restoreDns($d)
+            . Firewall::removeRsc($d)
             . "/system script environment remove [find name~\"^noc\"]\n:log info \"noc: odstranjeno\"\n";
     }
 

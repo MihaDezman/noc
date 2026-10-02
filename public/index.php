@@ -40,6 +40,11 @@ if (str_starts_with($path, '/api/')) {
         echo MikrotikScript::ascii(MikrotikScript::package($full)['noc-install.rsc']);
         exit;
     }
+    if ($path === '/api/fw-confirm' && $method === 'GET') {   // router po spremembi požarnega zidu potrdi, da še doseže NOC
+        db()->prepare('UPDATE devices SET fw_confirmed_at=NOW() WHERE id=?')->execute([$dev['id']]);
+        db()->prepare('INSERT INTO audit (user_id, action, detail, ip) VALUES (NULL, ?, ?, ?)')->execute(['device.fw-confirm', $dev['name'], client_ip()]);
+        json_out(['ok' => true]);
+    }
     if ($path === '/api/filter/drop' && $method === 'GET') {   // varnostna IP lista za router (zaščita)
         header('Content-Type: text/plain; charset=utf-8'); header('Cache-Control: no-store');
         echo Filter::dropRsc(); exit;
@@ -111,6 +116,7 @@ if ($path === '/ui/chart') {
     $r = array_key_exists(q('r'), Metrics::RANGES) ? q('r') : '24h';
     $k = q('k');
     if ($k === 'traffic') json_out(['data' => Metrics::traffic((int)$d['id'], q('i'), $r)]);
+    if ($k === 'sfp') json_out(['data' => Metrics::sfp((int)$d['id'], q('i'), $r)]);
     if (in_array($k, ['cpu', 'ping', 'temp', 'conns'], true)) json_out(['data' => Metrics::health((int)$d['id'], $k, $r)]);
     json_out(['error' => 'kind'], 400);
 }
@@ -278,6 +284,19 @@ if (($seg[0] ?? '') === 'devices' && ctype_digit($seg[1] ?? '')) {
         if ($prof !== 'off' && post('filter_ip_lists') && !is_file(rtrim((string)cfg('data_dir', '/var/lib/noc'), '/') . '/spamhaus-drop.txt')) Filter::updateDropList();
         audit('device.filter', $d['name'] . ' ' . $prof);
         back("/devices/$id?tab=protect", A('Zaščita shranjena. Na routerju se uveljavi, ko poženeš namestitveni ukaz s strani Paket.'));
+    }
+    if ($sub === 'fw' && $method === 'POST') {
+        Firewall::save($d, array_map('strval', (array)($_POST['fx'] ?? [])));
+        audit('device.fw', $d['name'] . ' ' . implode(',', (array)($_POST['fx'] ?? [])));
+        back("/devices/$id?tab=protect#fw", A('Izbira shranjena. Na routerju se uveljavi z namestitvenim ukazom – z varovalko, ki vse povrne, če router po spremembi ne doseže NOC.'));
+    }
+    if ($sub === 'sfp' && $method === 'POST') {
+        $num = fn($k) => is_numeric(str_replace(',', '.', post($k))) ? (float)str_replace(',', '.', post($k)) : null;
+        [$pd, $pi] = array_pad(explode('|', post('peer'), 2), 2, '');
+        db()->prepare('UPDATE sfp_state SET th_warn=?, th_crit=?, th_high=?, peer_device=?, peer_iface=?, remote_tx=? WHERE device_id=? AND iface=?')
+            ->execute([$num('th_warn'), $num('th_crit'), $num('th_high'), (int)$pd ?: null, (int)$pd ? mb_substr($pi, 0, 64) : '', $num('remote_tx'), $id, post('iface')]);
+        audit('device.sfp', $d['name'] . ' ' . post('iface'));
+        back("/devices/$id?tab=ifaces&i=" . urlencode(post('i', $d['wan_iface'])), A('Nastavitve SFP shranjene.'));
     }
     if ($sub === 'key' && $method === 'POST') { Devices::newKey($id); audit('device.key', $d['name']); back("/devices/$id/install", A('Nov ključ ustvarjen – stari ne deluje več. Naloži nov paket na router.')); }
     if ($sub === 'mute' && $method === 'POST') {
@@ -457,6 +476,7 @@ if ($path === '/settings') {
         setting_set('notify_emails', implode(', ', array_filter(array_map('trim', preg_split('/[\s,;]+/', post('notify_emails'))), fn($e) => filter_var($e, FILTER_VALIDATE_EMAIL))));
         foreach (['notify_mail_min', 'notify_tg_min'] as $k) if (in_array(post($k), ['info', 'warning', 'critical', 'off'], true)) setting_set($k, post($k));
         setting_set('notify_resolved', post('notify_resolved') ? '1' : '0');
+        setting_set('mgmt_ips', implode(', ', array_filter(array_map('trim', preg_split('/[\s,;]+/', post('mgmt_ips'))), fn($x) => preg_match('#^\d{1,3}(\.\d{1,3}){3}(/\d{1,2})?$#', $x))));
         if (post('tg_token') !== '') setting_set('tg_token_enc', enc(post('tg_token')));
         if (post('tg_token_clear')) setting_set('tg_token_enc', '');
         setting_set('tg_chat_id', preg_replace('/[^0-9\-]/', '', post('tg_chat_id')));

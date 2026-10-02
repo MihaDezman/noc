@@ -48,6 +48,9 @@ $num = function (string $k, string $label, string $unit, string $hint = '') {
       </div></div>
     </div></section>
   </div>
+  <section class="panel"><div class="panel-head"><h2><?= icon('key', 18) ?><?= h(A('Upravljalni naslovi')) ?></h2></div><div class="panel-body form">
+    <label class="f"><?= h(A('Tvoji statični IP naslovi')) ?><input type="text" name="mgmt_ips" value="<?= h(setting('mgmt_ips')) ?>" class="mono"><small><?= h(A('Pri popravkih požarnega zidu so ti naslovi na routerjih vedno dovoljeni, zato se ne moreš zakleniti. Ločeno z vejico, dovoljeni so tudi obsegi (npr. 109.123.4.0/24).')) ?></small></label>
+  </div></section>
   <label class="check"><input type="checkbox" name="notify_resolved" value="1" <?= setting('notify_resolved', '1') === '1' ? 'checked' : '' ?>> <?= h(A('Obvesti tudi, ko se težava razreši')) ?></label>
   <div class="actions"><button class="btn primary"><?= icon('check', 16) ?><?= h(A('Shrani nastavitve')) ?></button></div>
 </form>

@@ -17,16 +17,17 @@ final class Ingest
 
         // --- vmesniki: hitrosti iz razlike števcev
         $prev = [];
-        $st = $pdo->prepare('SELECT name, rx_byte, tx_byte, rx_bps, tx_bps, rate, UNIX_TIMESTAMP(updated_at) t FROM device_ifaces WHERE device_id=?'); $st->execute([$id]);
+        $st = $pdo->prepare('SELECT name, rx_byte, tx_byte, rx_bps, tx_bps, rate, running, link_downs, link_downs_noc, UNIX_TIMESTAMP(updated_at) t FROM device_ifaces WHERE device_id=?'); $st->execute([$id]);
         foreach ($st as $r) $prev[$r['name']] = $r;
         $rates = is_array($b['rates'] ?? null) ? $b['rates'] : [];
         $monitor = Devices::list((string)$d['monitor_ifaces']);
         if ($d['wan_iface'] !== '' && !in_array($d['wan_iface'], $monitor, true)) $monitor[] = $d['wan_iface'];   // WAN ima zgodovino vedno
-        $seen = []; $keepT = [];
-        $upIf = $pdo->prepare('INSERT INTO device_ifaces (device_id, name, type, comment, mac, running, disabled, rate, rx_byte, tx_byte, rx_bps, tx_bps, rx_error, tx_error, link_downs, last_up, updated_at)
-                               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,FROM_UNIXTIME(?))
+        $seen = []; $keepT = []; $events = []; $speedDrops = [];
+        $evIfaces = array_values(array_unique(array_merge($monitor, Devices::list((string)$d['down_ifaces']))));   // dogodki za WAN in izbrane vmesnike
+        $upIf = $pdo->prepare('INSERT INTO device_ifaces (device_id, name, type, comment, mac, running, disabled, rate, rx_byte, tx_byte, rx_bps, tx_bps, rx_error, tx_error, link_downs, last_up, last_down, link_downs_noc, updated_at)
+                               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,FROM_UNIXTIME(?))
                                ON DUPLICATE KEY UPDATE type=VALUES(type), comment=VALUES(comment), mac=VALUES(mac), running=VALUES(running), disabled=VALUES(disabled), rate=VALUES(rate),
-                               rx_byte=VALUES(rx_byte), tx_byte=VALUES(tx_byte), rx_bps=VALUES(rx_bps), tx_bps=VALUES(tx_bps), rx_error=VALUES(rx_error), tx_error=VALUES(tx_error), link_downs=VALUES(link_downs), last_up=VALUES(last_up), updated_at=VALUES(updated_at)');
+                               rx_byte=VALUES(rx_byte), tx_byte=VALUES(tx_byte), rx_bps=VALUES(rx_bps), tx_bps=VALUES(tx_bps), rx_error=VALUES(rx_error), tx_error=VALUES(tx_error), link_downs=VALUES(link_downs), last_up=VALUES(last_up), last_down=VALUES(last_down), link_downs_noc=VALUES(link_downs_noc), updated_at=VALUES(updated_at)');
         $ins1 = $pdo->prepare('INSERT IGNORE INTO iface_1m (device_id, iface, ts, rx_bps, tx_bps) VALUES (?,?,?,?,?)');
         $ins5 = $pdo->prepare('INSERT INTO iface_5m (device_id, iface, ts, rx_bytes, tx_bytes, rx_peak, tx_peak, secs) VALUES (?,?,?,?,?,?,?,?)
                                ON DUPLICATE KEY UPDATE rx_bytes=rx_bytes+VALUES(rx_bytes), tx_bytes=tx_bytes+VALUES(tx_bytes), rx_peak=GREATEST(rx_peak, VALUES(rx_peak)), tx_peak=GREATEST(tx_peak, VALUES(tx_peak)), secs=LEAST(300, secs+VALUES(secs))');
@@ -49,13 +50,34 @@ final class Ingest
             if ($p && $now - (int)$p['t'] < 20 && $now - (int)$p['t'] >= 0) { $rx = (int)$p['rx_byte']; $tx = (int)$p['tx_byte']; $keepT[$n] = (int)$p['t']; $rxb = (int)$p['rx_bps']; $txb = (int)$p['tx_bps']; }
             $rate = isset($rates[$n]) ? (string)$rates[$n] : (string)($p['rate'] ?? '');
             if (empty($i['run'])) $rate = '';
+            // prekinitve in hitrost: števec link-downs z routerja; ob ponovnem zagonu se postavi na 0 (to ni prekinitev)
+            $ld = (int)($i['ld'] ?? 0); $ldNoc = (int)($p['link_downs_noc'] ?? 0);
+            if ($p && in_array($n, $evIfaces, true)) {
+                $dld = $ld - (int)$p['link_downs'];
+                if ($dld > 0) { $ldNoc += $dld; $events[] = [$n, 'down', (string)$dld, self::rosTime((string)($i['ldt'] ?? ''), $now)]; }   // detail = število prekinitev
+                if (!(int)$p['running'] && !empty($i['run'])) $events[] = [$n, 'up', A('povezava vzpostavljena') . ($rate ? " ($rate)" : ''), self::rosTime((string)($i['lu'] ?? ''), $now)];
+                $old = self::rateMbps((string)$p['rate']); $new = self::rateMbps($rate);
+                if ($old && $new && $new !== $old) { $events[] = [$n, 'speed', $p['rate'] . ' → ' . $rate, $now]; $speedDrops[$n] = [$new < $old, $p['rate'] . ' → ' . $rate]; }
+            }
             $upIf->execute([$id, $n, mb_substr((string)($i['t'] ?? ''), 0, 32), mb_substr((string)($i['c'] ?? ''), 0, 255), (string)($i['mac'] ?? ''),
                 !empty($i['run']) ? 1 : 0, !empty($i['dis']) ? 1 : 0, mb_substr($rate, 0, 16), $rx, $tx, $rxb, $txb,
-                (int)($i['rxe'] ?? 0), (int)($i['txe'] ?? 0), (int)($i['ld'] ?? 0), mb_substr((string)($i['lu'] ?? ''), 0, 32), $keepT[$n] ?? $now]);
+                (int)($i['rxe'] ?? 0), (int)($i['txe'] ?? 0), (int)($i['ld'] ?? 0), mb_substr((string)($i['lu'] ?? ''), 0, 32), mb_substr((string)($i['ldt'] ?? ''), 0, 32), $ldNoc, $keepT[$n] ?? $now]);
         }
         if ($seen) {   // vmesniki, ki jih ni več
             $in = implode(',', array_fill(0, count($seen), '?'));
             $pdo->prepare("DELETE FROM device_ifaces WHERE device_id=? AND name NOT IN ($in)")->execute(array_merge([$id], $seen));
+        }
+
+        if ($events) {
+            $insE = $pdo->prepare('INSERT INTO iface_events (device_id, iface, ts, kind, detail) VALUES (?,?,FROM_UNIXTIME(?),?,?)');
+            foreach ($events as [$n, $k, $det, $t]) $insE->execute([$id, $n, $t, $k, mb_substr($det, 0, 255)]);
+        }
+
+        // --- SFP moduli (vsakih 5 min)
+        $sfpRows = [];
+        foreach ((array)($b['sfp'] ?? []) as $m) {
+            if (!is_array($m) || empty($m['n'])) continue;
+            $sfpRows[] = self::sfp($d, $m, $now);
         }
 
         // --- zdravje
@@ -160,6 +182,8 @@ final class Ingest
         if ($pools !== null) Alerts::pools($d, $pools);
         if ($newHosts) Alerts::newHosts($d, $newHosts);
         if (!empty($b['logs'])) Alerts::attacks($d);
+        Alerts::links($d, $speedDrops);
+        if ($sfpRows) Alerts::sfp($d, array_filter($sfpRows));
 
         return ['ok' => true, 'tick' => (int)($b['tick'] ?? 0)];
     }
@@ -213,6 +237,63 @@ final class Ingest
             if ($la !== false && $lz !== false && $lz >= $la) $n += $lz - $la + 1;
         }
         return $n;
+    }
+
+    /** "1Gbps", "10Gbps", "100Mbps", "2.5Gbps" -> Mb/s */
+    public static function rateMbps(string $r): ?float
+    {
+        if (!preg_match('/([\d.]+)\s*([GM])bps/i', $r, $m)) return null;
+        return (float)$m[1] * (strtoupper($m[2]) === 'G' ? 1000 : 1);
+    }
+
+    /** Čas z routerja ("2026-10-01 08:09:52", "oct/01/2026 08:09:52") -> unix; prazno -> $now */
+    private static function rosTime(string $t, int $now): int
+    {
+        $t = trim($t); if ($t === '') return $now;
+        $ts = strtotime(str_replace('/', ' ', $t)); return $ts && $ts <= $now + 300 ? $ts : $now;
+    }
+
+    /** Število iz RouterOS vrednosti z enoto: "-8.405dBm", "41C", "3.29V", "18mA", "1310nm", "20km" */
+    public static function num(?string $v): ?float
+    {
+        if ($v === null || !preg_match('/-?\d+(?:\.\d+)?/', $v, $m)) return null;
+        return (float)$m[0];
+    }
+
+    /** Zapis enega SFP modula; vrne vrstico za alarme ali null */
+    private static function sfp(array $d, array $m, int $now): ?array
+    {
+        $pdo = db(); $id = (int)$d['id']; $n = mb_substr((string)$m['n'], 0, 64);
+        $present = in_array(strtolower((string)($m['p'] ?? '')), ['true', 'yes'], true);
+        $st = $pdo->prepare('SELECT * FROM sfp_state WHERE device_id=? AND iface=?'); $st->execute([$id, $n]); $old = $st->fetch() ?: null;
+        $ev = $pdo->prepare('INSERT INTO iface_events (device_id, iface, ts, kind, detail) VALUES (?,?,FROM_UNIXTIME(?),?,?)');
+        if (!$present) {
+            if ($old && $old['present']) {
+                $pdo->prepare('UPDATE sfp_state SET present=0, rx=NULL, tx=NULL, updated_at=NOW() WHERE device_id=? AND iface=?')->execute([$id, $n]);
+                $ev->execute([$id, $n, $now, 'sfp_out', $old['part']]);
+                Alerts::event($d, 'sfp:' . $n, 'warning', A('SFP modul odstranjen iz {n} ({p})', ['n' => $n, 'p' => $old['part'] ?: $old['vendor']]));
+            }
+            return null;
+        }
+        $v = fn($k) => trim((string)($m[$k] ?? ''));
+        $row = ['vendor' => mb_substr($v('v'), 0, 64), 'part' => mb_substr($v('pn'), 0, 64), 'serial' => mb_substr($v('sn'), 0, 64), 'stype' => mb_substr($v('t'), 0, 64),
+                'wavelength' => self::num($v('wl')), 'rx' => self::num($v('rx')), 'tx' => self::num($v('tx')), 'temp' => self::num($v('tmp')), 'volt' => self::num($v('vcc')), 'bias' => self::num($v('bias'))];
+        $len = $v('len'); $row['length_km'] = ($x = self::num($len)) !== null ? (str_contains($len, 'km') ? $x : round($x / 1000, 1)) : null;
+        // 10G: hitrost porta, oznaka 10G v tipu/modelu ali MikroTik "S+…" (tip "SFP/SFP+/SFP28" opisuje režo, ne modula)
+        $tenG = preg_match('/\b10G|10000|10Gbps/i', $row['stype'] . ' ' . $row['part'] . ' ' . $v('rate')) || preg_match('/^(S\+|SFP-10G|SFP\+-)/i', $row['part']);
+        $row['speed_class'] = $tenG ? '10g' : '1g';
+        if (!$old) $ev->execute([$id, $n, $now, 'sfp_in', trim($row['vendor'] . ' ' . $row['part'])]);
+        elseif ($old['serial'] !== '' && $row['serial'] !== '' && $old['serial'] !== $row['serial']) {
+            $ev->execute([$id, $n, $now, 'sfp_swap', $old['part'] . ' → ' . $row['part']]);
+            Alerts::event($d, 'sfp:' . $n, 'info', A('SFP modul v {n} zamenjan: {o} → {p} (SN {s})', ['n' => $n, 'o' => $old['part'], 'p' => $row['part'], 's' => $row['serial']]));
+        } elseif (!$old['present']) $ev->execute([$id, $n, $now, 'sfp_in', trim($row['vendor'] . ' ' . $row['part'])]);
+        $pdo->prepare('INSERT INTO sfp_state (device_id, iface, present, vendor, part, serial, stype, wavelength, length_km, rx, tx, temp, volt, bias, speed_class, updated_at)
+                       VALUES (?,?,1,?,?,?,?,?,?,?,?,?,?,?,?,NOW())
+                       ON DUPLICATE KEY UPDATE present=1, vendor=VALUES(vendor), part=VALUES(part), serial=VALUES(serial), stype=VALUES(stype), wavelength=VALUES(wavelength), length_km=VALUES(length_km),
+                         rx=VALUES(rx), tx=VALUES(tx), temp=VALUES(temp), volt=VALUES(volt), bias=VALUES(bias), speed_class=VALUES(speed_class), updated_at=NOW()')
+            ->execute([$id, $n, $row['vendor'], $row['part'], $row['serial'], $row['stype'], $row['wavelength'], $row['length_km'], $row['rx'], $row['tx'], $row['temp'], $row['volt'], $row['bias'], $row['speed_class']]);
+        $pdo->prepare('INSERT IGNORE INTO sfp_5m (device_id, iface, ts, rx, tx, temp) VALUES (?,?,?,?,?,?)')->execute([$id, $n, date('Y-m-d H:i:00', $now - $now % 300), $row['rx'], $row['tx'], $row['temp']]);
+        return ['iface' => $n] + $row + ['th_warn' => $old['th_warn'] ?? null, 'th_crit' => $old['th_crit'] ?? null, 'th_high' => $old['th_high'] ?? null];
     }
 
     /** Stopnja vrstice loga. RouterOS spremembo ure (IP Cloud ob zagonu) označi kot critical – to je samo info. */

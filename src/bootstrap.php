@@ -2,14 +2,14 @@
 declare(strict_types=1);
 
 define('APP_ROOT', dirname(__DIR__));
-define('APP_VERSION', '1.7');
+define('APP_VERSION', '1.8');
 
 $config = require APP_ROOT . '/config.php';
 date_default_timezone_set($config['timezone'] ?? 'Europe/Ljubljana');
 if (!empty($config['debug'])) { ini_set('display_errors', '1'); error_reporting(E_ALL); }
 
 if (file_exists(APP_ROOT . '/vendor/autoload.php')) require APP_ROOT . '/vendor/autoload.php';
-foreach (['Auth', 'Devices', 'Ingest', 'Metrics', 'Alerts', 'Notify', 'Flows', 'MikrotikExport', 'MikrotikScript', 'Diff', 'Forms', 'Sla', 'Report', 'Enroll', 'Totp', 'TgBot', 'Filter'] as $c) require __DIR__ . "/$c.php";
+foreach (['Auth', 'Devices', 'Ingest', 'Metrics', 'Alerts', 'Notify', 'Flows', 'MikrotikExport', 'MikrotikScript', 'Diff', 'Forms', 'Sla', 'Report', 'Enroll', 'Totp', 'TgBot', 'Filter', 'Firewall'] as $c) require __DIR__ . "/$c.php";
 
 function db(): PDO {
     static $pdo = null;

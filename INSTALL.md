@@ -128,6 +128,18 @@ Naprava → **Zaščita** → profil (Osnovna / Družinska), dodatna stikala, om
 Varnostno IP listo (Spamhaus DROP) strežnik prenese vsak dan (`cron/daily.php`) v `/var/lib/noc/spamhaus-drop.txt`, routerji jo prevzamejo ob 5h.
 Ob izklopu se vse nastavitve `noc-filter` odstranijo in DNS routerja vrne na prvotnega.
 
+## Pregled požarnega zidu
+
+Naprava → **Zaščita** → Pregled požarnega zidu. NOC pregleda zadnji nočni /export po pravilih dobre prakse (brez AI) in predlaga popravke.
+Izbrane popravke uveljaviš z namestitvenim ukazom. Vsa pravila nosijo oznako `noc-fw`.
+Varovalki: upravljalni naslovi (Alarmi in obvestila → Upravljalni naslovi) so vedno dovoljeni; če router po spremembi
+v 5 minutah ne doseže NOC (`/api/fw-confirm`), sam povrne vse spremembe.
+
+## Stanje portov in SFP
+
+Vmesniki → Stanje porta (zadnja prekinitev/vzpostavitev, števec routerja, štetje NOC, časovnica) in SFP moduli
+(RX/TX moč, temperatura, grafi 30 dni). Pragovi RX: 1G opozorilo −20 / kritično −23 dBm, 10G −12 / −14 dBm; nastavljivo po portu.
+
 ## fail2ban (priporočeno)
 
 NOC v Apache error log piše `noc-login-fail ip=…` (napačna prijava) in `noc-api-badkey ip=…` (neveljaven API ključ).

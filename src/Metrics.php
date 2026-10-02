@@ -36,6 +36,15 @@ final class Metrics
         return ['today' => $today, 'month' => ['rx' => $month['rx'] + $today['rx'], 'tx' => $month['tx'] + $today['tx']]];
     }
 
+    /** SFP: [t[], rx[], tx[]] v dBm (5-minutni podatki, do 30 dni) */
+    public static function sfp(int $id, string $iface, string $range): array
+    {
+        $h = min(self::RANGES[$range] ?? 24, 720);
+        $st = db()->prepare('SELECT UNIX_TIMESTAMP(ts) t, rx, tx FROM sfp_5m WHERE device_id=? AND iface=? AND ts > NOW() - INTERVAL ? HOUR ORDER BY ts');
+        $st->execute([$id, $iface, $h]);
+        return self::cols($st->fetchAll(PDO::FETCH_NUM), 3);
+    }
+
     /** kind: cpu | ping | temp | conns */
     public static function health(int $id, string $kind, string $range): array
     {
@@ -84,6 +93,8 @@ final class Metrics
         $pdo->exec('DELETE FROM iface_daily WHERE day < CURDATE() - INTERVAL 400 DAY');
         $pdo->exec('DELETE FROM host_daily WHERE day < CURDATE() - INTERVAL 400 DAY');
         $pdo->exec('DELETE FROM logs WHERE ts < NOW() - INTERVAL 90 DAY');
+        $pdo->exec('DELETE FROM sfp_5m WHERE ts < NOW() - INTERVAL 35 DAY');
+        $pdo->exec('DELETE FROM iface_events WHERE ts < NOW() - INTERVAL 365 DAY');
         $pdo->exec('DELETE FROM alerts WHERE ended_at < NOW() - INTERVAL 365 DAY');
         $pdo->exec('DELETE FROM lan_hosts WHERE last_seen < NOW() - INTERVAL 180 DAY');
         $pdo->exec('DELETE FROM login_attempts WHERE at < NOW() - INTERVAL 7 DAY');

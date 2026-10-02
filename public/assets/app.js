@@ -83,6 +83,10 @@
       series: [{ label: T.cpu, stroke: violet, fill: fill(violet, '45'), width: 1.6, fmt: function (v) { return fmtNum(v, ' %'); } }, { label: T.mem, stroke: yellow, width: 1.5, fmt: function (v) { return fmtNum(v, ' %'); } }],
       axisFmt: function (v) { return v + ' %'; }, scale: { range: [0, 100] }
     };
+    if (kind === 'sfp') return {
+      series: [{ label: 'RX', stroke: aqua, width: 1.8, fmt: function (v) { return fmtNum(v, ' dBm', 2); } }, { label: 'TX', stroke: violet, width: 1.5, fmt: function (v) { return fmtNum(v, ' dBm', 2); } }],
+      axisFmt: function (v) { return v + ' dBm'; }, scale: { range: function (u, mn, mx) { return [Math.floor(mn - 2), Math.ceil(mx + 2)]; } }
+    };
     if (kind === 'temp') return { series: [{ label: T.temp, stroke: down, width: 1.6, fmt: function (v) { return fmtNum(v, ' °C', 1); } }], axisFmt: function (v) { return v + ' °'; }, scale: {} };
     if (kind === 'conns') return { series: [{ label: T.conns, stroke: violet, fill: fill(violet, '35'), width: 1.5, fmt: function (v) { return fmtNum(v); } }], axisFmt: function (v) { return v; }, scale: {} };
     if (kind === 'ping') return {
@@ -117,6 +121,7 @@
       { stroke: axisCol, grid: grid, ticks: { show: false }, font: '11px Plex, sans-serif', size: 70, values: function (u, vals) { return vals.map(cfg.axisFmt); } }
     ];
     var scales = { x: { time: true }, y: cfg.scale.range ? { range: cfg.scale.range } : { range: function (u, mn, mx) { return [0, mx > 0 ? mx * 1.12 : 1]; } } };
+    if (typeof cfg.scale.range === 'function') scales.y = { range: cfg.scale.range };
     if (cfg.loss) { scales.loss = { range: [0, 100] }; }
     var tip = box.querySelector('.chart-tip');
     if (!tip) { tip = document.createElement('div'); tip.className = 'chart-tip'; box.appendChild(tip); }

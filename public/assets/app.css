@@ -173,6 +173,31 @@ textarea.code { font-family: var(--mono); font-size: .82rem; min-height: 260px; 
 .enroll-wait.expired .pulse { background: var(--down); animation: none; }
 @keyframes pulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(107,79,216,.5); } 50% { box-shadow: 0 0 0 10px rgba(107,79,216,0); } }
 
+/* stanje porta in SFP */
+.port-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; }
+.port-grid > div, .sfp-grid > div { display: grid; gap: 3px; align-content: start; }
+.port-grid b { font-size: 1.05rem; }
+.sfp-grid { display: grid; grid-template-columns: 1.4fr repeat(3, minmax(0, 1fr)); gap: 16px; }
+.sfp-pow { font-size: 1.35rem; }
+.sfp-pow.up { color: var(--up); } .sfp-pow.warn { color: var(--warn); } .sfp-pow.down { color: var(--down); }
+.sfp-set { border-top: 1px solid var(--line-2); }
+.sfp-set summary { padding: 10px 20px; cursor: pointer; color: var(--muted); }
+@media (max-width: 900px) { .port-grid, .sfp-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
+/* pregled požarnega zidu */
+.fw-score { font-size: 1.5rem; font-weight: 700; padding: 2px 12px; border-radius: 10px; background: var(--line-2); }
+.fw-score small { font-size: .8rem; color: var(--muted); font-weight: 500; }
+.fw-score.up { background: var(--up-soft); color: var(--up); } .fw-score.warn { background: var(--warn-soft); color: var(--warn); } .fw-score.down { background: var(--down-soft); color: var(--down); }
+.fw-list { list-style: none; margin: 0; padding: 0; }
+.fw-item { display: flex; gap: 12px; align-items: flex-start; padding: 12px 20px; border-bottom: 1px solid var(--line-2); }
+.fw-item input { width: 17px; height: 17px; margin-top: 3px; accent-color: var(--violet); flex: none; }
+.fw-item label { display: flex; gap: 12px; flex: 1; cursor: pointer; }
+.fw-item label > span:last-child { display: grid; gap: 3px; }
+.fw-title { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.fw-item.done { background: color-mix(in srgb, var(--up-soft) 40%, transparent); }
+.fw-foot { display: flex; justify-content: space-between; gap: 16px; align-items: center; flex-wrap: wrap; }
+.btn[disabled] { opacity: .5; cursor: not-allowed; }
+
 /* izbira profila (zaščita) */
 .choice-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
 .choice { display: grid; gap: 6px; padding: 14px; border: 1.5px solid var(--line); border-radius: var(--r); cursor: pointer; align-content: start; }

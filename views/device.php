@@ -163,6 +163,90 @@ $upd = $s['upd'] ?? [];
   <div class="panel-body"><div id="ifc" data-chart-group><?= chart($id, 'traffic', '24h', $cur, 240) ?></div></div>
 </section>
 <?php endif; ?>
+<?php
+  // --- stanje porta (izbrani vmesnik) in SFP moduli
+  $pi = null; foreach ($ifaces as $x) if ($x['name'] === $cur) $pi = $x;
+  $cnt = function (string $iv) use ($id, $cur) { $q = db()->prepare("SELECT COALESCE(SUM(CAST(detail AS UNSIGNED)),0) FROM iface_events WHERE device_id=? AND iface=? AND kind='down' AND ts > NOW() - INTERVAL $iv"); $q->execute([$id, $cur]); return (int)$q->fetchColumn(); };
+  $evs = db()->prepare('SELECT * FROM iface_events WHERE device_id=? AND iface=? ORDER BY ts DESC LIMIT 12'); $evs->execute([$id, $cur]); $evs = $evs->fetchAll();
+  $sfps = db()->prepare('SELECT * FROM sfp_state WHERE device_id=? ORDER BY iface'); $sfps->execute([$id]); $sfps = $sfps->fetchAll();
+  $evIco = ['down' => ['unlink', 'down'], 'up' => ['link', 'up'], 'speed' => ['gauge', 'warn'], 'sfp_in' => ['plug', 'up'], 'sfp_out' => ['plug', 'down'], 'sfp_swap' => ['refresh', 'info']];
+?>
+<?php if ($pi): ?>
+<section class="panel">
+  <div class="panel-head"><h2><?= icon('ethernet', 18) ?><?= h(A('Stanje porta')) ?> <span class="mono faint small"><?= h($cur) ?></span></h2>
+    <?= $pi['disabled'] ? '<span class="tag">' . h(A('izklopljen')) . '</span>' : ($pi['running'] ? '<span class="tag up">' . h(A('povezan')) . ($pi['rate'] ? ' · ' . h($pi['rate']) : '') . '</span>' : '<span class="tag down">' . h(A('brez povezave')) . '</span>') ?></div>
+  <div class="panel-body port-grid">
+    <div><span class="small muted"><?= h(A('Zadnja vzpostavitev')) ?></span><b><?= h($pi['last_up'] ? fmt_dt(date('Y-m-d H:i:s', strtotime(str_replace('/', ' ', $pi['last_up'])) ?: time())) : '–') ?></b></div>
+    <div><span class="small muted"><?= h(A('Zadnja prekinitev')) ?></span><b><?= h($pi['last_down'] ? fmt_dt(date('Y-m-d H:i:s', strtotime(str_replace('/', ' ', $pi['last_down'])) ?: time())) : '–') ?></b></div>
+    <div title="<?= h(A('Števec link-downs na routerju – od zadnjega ponovnega zagona ali ponastavitve števcev')) ?>"><span class="small muted"><?= h(A('Prekinitve (števec routerja)')) ?></span><b><?= (int)$pi['link_downs'] ?></b></div>
+    <div title="<?= h(A('Prekinitve, ki jih je zaznal NOC – štejejo tudi prek ponovnih zagonov')) ?>"><span class="small muted"><?= h(A('Prekinitve (NOC) 24 h / 7 dni / skupaj')) ?></span><b><?= $cnt('24 HOUR') ?> / <?= $cnt('7 DAY') ?> / <?= (int)$pi['link_downs_noc'] ?></b></div>
+  </div>
+  <?php if ($evs): ?>
+  <ul class="feed" style="border-top:1px solid var(--line-2)">
+    <?php foreach ($evs as $e): [$ei, $ec] = $evIco[$e['kind']] ?? ['info', 'info']; ?>
+    <li><span class="badge b-<?= ['down' => 'red', 'up' => 'aqua', 'warn' => 'yellow', 'info' => 'violet'][$ec] ?>" style="width:26px;height:26px"><?= icon($ei, 14) ?></span><div class="what"><?= h(['down' => A('Prekinitev'), 'up' => A('Vzpostavitev'), 'speed' => A('Sprememba hitrosti'), 'sfp_in' => A('SFP vstavljen'), 'sfp_out' => A('SFP odstranjen'), 'sfp_swap' => A('SFP zamenjan')][$e['kind']] ?? $e['kind']) ?> <span class="muted small"><?= h($e['kind'] === 'down' ? ((int)$e['detail'] > 1 ? '(' . (int)$e['detail'] . '×)' : '') : $e['detail']) ?></span></div><span class="when"><?= h(fmt_dt($e['ts'])) ?></span></li>
+    <?php endforeach; ?>
+  </ul>
+  <?php else: ?><div class="panel-body small muted" style="border-top:1px solid var(--line-2)"><?= h(A('Od dodajanja naprave ni bilo prekinitev na tem portu.')) ?></div><?php endif; ?>
+</section>
+<?php endif; ?>
+
+<?php foreach ($sfps as $sf):
+  $th = Alerts::sfpThresholds($sf);
+  $rxCls = $sf['rx'] === null ? '' : ($sf['rx'] <= $th['crit'] ? 'down' : ($sf['rx'] <= $th['warn'] || $sf['rx'] >= $th['high'] ? 'warn' : 'up'));
+  $peerTx = null;
+  if ($sf['peer_device']) { $q = db()->prepare('SELECT tx FROM sfp_state WHERE device_id=? AND iface=?'); $q->execute([$sf['peer_device'], $sf['peer_iface']]); $peerTx = $q->fetchColumn(); $peerTx = $peerTx === false ? null : $peerTx; }
+  elseif ($sf['remote_tx'] !== null) $peerTx = $sf['remote_tx'];
+  $loss = ($peerTx !== null && $sf['rx'] !== null) ? (float)$peerTx - (float)$sf['rx'] : null;
+?>
+<section class="panel">
+  <div class="panel-head">
+    <h2><?= icon('plug', 18) ?>SFP <span class="mono faint small"><?= h($sf['iface']) ?></span></h2>
+    <?= $sf['present'] ? '<span class="tag violet">' . h(strtoupper($sf['speed_class'])) . '</span>' : '<span class="tag down">' . h(A('modul ni vstavljen')) . '</span>' ?>
+  </div>
+  <?php if ($sf['present']): ?>
+  <div class="panel-body sfp-grid">
+    <div class="sfp-id">
+      <b><?= h(trim($sf['vendor'] . ' ' . $sf['part'])) ?: '–' ?></b>
+      <div class="small muted"><?= h(implode(' · ', array_filter([$sf['stype'], $sf['wavelength'] ? (int)$sf['wavelength'] . ' nm' : '', $sf['length_km'] ? rtrim(rtrim(number_format((float)$sf['length_km'], 1, ',', ''), '0'), ',') . ' km' : '']))) ?></div>
+      <div class="small faint mono">SN <?= h($sf['serial'] ?: '–') ?></div>
+    </div>
+    <?php if ($sf['rx'] === null && $sf['tx'] === null): ?>
+      <div class="small muted" style="grid-column: span 3"><?= h(A('Modul nima diagnostike (DDM) – moči signala ni mogoče brati (npr. bakreni SFP).')) ?></div>
+    <?php else: ?>
+    <div><span class="small muted">RX</span><b class="sfp-pow <?= $rxCls ?>"><?= $sf['rx'] !== null ? number_format((float)$sf['rx'], 2, ',', '') . ' dBm' : '–' ?></b><span class="small faint"><?= h(A('meja {w} / {c}', ['w' => number_format($th['warn'], 0), 'c' => number_format($th['crit'], 0)])) ?></span></div>
+    <div><span class="small muted">TX</span><b class="sfp-pow"><?= $sf['tx'] !== null ? number_format((float)$sf['tx'], 2, ',', '') . ' dBm' : '–' ?></b><span class="small faint"><?= $loss !== null ? h(A('dušenje trase {l} dB', ['l' => number_format($loss, 1, ',', '')])) : h(A('dušenje: nastavi nasprotno stran')) ?></span></div>
+    <div><span class="small muted"><?= h(A('Modul')) ?></span><b><?= $sf['temp'] !== null ? number_format((float)$sf['temp'], 1, ',', '') . ' °C' : '–' ?></b><span class="small faint"><?= $sf['volt'] !== null ? number_format((float)$sf['volt'], 2, ',', '') . ' V' : '' ?><?= $sf['bias'] !== null ? ' · ' . number_format((float)$sf['bias'], 1, ',', '') . ' mA' : '' ?></span></div>
+    <?php endif; ?>
+  </div>
+  <?php if ($sf['rx'] !== null): ?>
+  <div class="panel-body" style="padding-top:0">
+    <div class="actions" style="justify-content:space-between;margin-bottom:6px"><span class="legend"><span><i style="background:var(--aqua)"></i>RX</span><span><i style="background:var(--violet)"></i>TX</span></span>
+      <?= range_seg(['24h' => '24 h', '7d' => '7 d', '30d' => '30 d'], '7d', 'sfpc-' . md5($sf['iface'])) ?></div>
+    <div id="sfpc-<?= md5($sf['iface']) ?>" data-chart-group><?= chart($id, 'sfp', '7d', $sf['iface'], 170) ?></div>
+  </div>
+  <?php endif; ?>
+  <?php if (Auth::isSuper()): $peers = db()->query('SELECT s.device_id, s.iface, d.name FROM sfp_state s JOIN devices d ON d.id=s.device_id WHERE s.present=1 AND NOT (s.device_id=' . $id . ' AND s.iface=' . db()->quote($sf['iface']) . ') ORDER BY d.name, s.iface')->fetchAll(); ?>
+  <details class="sfp-set"><summary class="small"><?= icon('sliders', 14) ?> <?= h(A('Pragovi in nasprotna stran')) ?></summary>
+    <form class="form panel-body" method="post" action="/devices/<?= $id ?>/sfp"><?= Auth::csrf() ?><input type="hidden" name="iface" value="<?= h($sf['iface']) ?>"><input type="hidden" name="i" value="<?= h($cur) ?>">
+      <div class="row c3">
+        <label class="f"><span><?= h(A('Opozorilo pod')) ?> <small>(dBm)</small></span><input type="text" name="th_warn" value="<?= h($sf['th_warn'] ?? '') ?>" placeholder="<?= h(Alerts::SFP_TH[$sf['speed_class']]['warn']) ?>"></label>
+        <label class="f"><span><?= h(A('Kritično pod')) ?> <small>(dBm)</small></span><input type="text" name="th_crit" value="<?= h($sf['th_crit'] ?? '') ?>" placeholder="<?= h(Alerts::SFP_TH[$sf['speed_class']]['crit']) ?>"></label>
+        <label class="f"><span><?= h(A('Premočno nad')) ?> <small>(dBm)</small></span><input type="text" name="th_high" value="<?= h($sf['th_high'] ?? '') ?>" placeholder="<?= h(Alerts::SFP_TH[$sf['speed_class']]['high']) ?>"></label>
+      </div>
+      <div class="row c3">
+        <label class="f"><span><?= h(A('Nasprotna stran v NOC')) ?></span><select name="peer"><option value="">–</option><?php foreach ($peers as $pp): $v = $pp['device_id'] . '|' . $pp['iface']; ?><option value="<?= h($v) ?>" <?= (int)$sf['peer_device'] === (int)$pp['device_id'] && $sf['peer_iface'] === $pp['iface'] ? 'selected' : '' ?>><?= h($pp['name'] . ' · ' . $pp['iface']) ?></option><?php endforeach; ?></select></label>
+        <label class="f"><span><?= h(A('… ali TX nasprotne strani')) ?> <small>(dBm)</small></span><input type="text" name="remote_tx" value="<?= h($sf['remote_tx'] ?? '') ?>" placeholder="-3"></label>
+        <div style="align-self:end"><button class="btn"><?= icon('check', 15) ?><?= h(A('Shrani')) ?></button></div>
+      </div>
+      <small class="muted"><?= h(A('Prazno = privzeti pragovi za {c}. Dušenje trase = TX nasprotne strani − RX tukaj.', ['c' => strtoupper($sf['speed_class'])])) ?></small>
+    </form>
+  </details>
+  <?php endif; ?>
+  <?php endif; ?>
+</section>
+<?php endforeach; ?>
+
 <section class="panel">
   <div class="panel-head"><h2><?= icon('ethernet', 18) ?><?= h(A('Vsi vmesniki')) ?></h2><span class="small muted"><?= h(A('Zgodovino prometa imajo vmesniki, izbrani v nastavitvah.')) ?></span></div>
   <div class="tbl-wrap"><table class="tbl">
@@ -404,6 +488,44 @@ $upd = $s['upd'] ?? [];
     </div></section>
   </aside>
 </div>
+
+<?php $fa = Firewall::audit($d); $fx = json_decode((string)($d['fw_fixes'] ?? ''), true) ?: []; $fxIds = $fx['ids'] ?? [];
+  $applied = array_diff($fxIds, array_keys($fa['findings'])); $fwOnRouter = (int)($s['flt']['fw'] ?? 0);
+  $scCls = $fa['score'] === null ? '' : ($fa['score'] >= 8 ? 'up' : ($fa['score'] >= 5 ? 'warn' : 'down')); ?>
+<section class="panel" id="fw" style="margin-top:20px">
+  <div class="panel-head">
+    <h2><?= icon('shield', 18) ?><?= h(A('Pregled požarnega zidu')) ?></h2>
+    <div class="actions">
+      <?php if ($fa['at']): ?><span class="small muted"><?= h(A('iz backupa {t}', ['t' => fmt_dt($fa['at'])])) ?></span><?php endif; ?>
+      <?php if ($fa['score'] !== null): ?><span class="fw-score <?= $scCls ?>"><?= (int)$fa['score'] ?><small>/10</small></span><?php endif; ?>
+    </div>
+  </div>
+  <?php if ($fa['score'] === null): ?>
+    <div class="empty"><?= empty_art('archive') ?><div><?= h(A('Ni konfiguracije za pregled – počakaj na nočni backup ali ga sproži z /system script run noc-backup.')) ?></div></div>
+  <?php else: ?>
+  <form method="post" action="/devices/<?= $id ?>/fw"><?= Auth::csrf() ?>
+    <?php if (!$fa['findings'] && !$applied): ?><div class="empty"><?= empty_art('ok') ?><div><?= h(A('Požarni zid je urejen po dobri praksi.')) ?></div></div><?php endif; ?>
+    <ul class="fw-list">
+    <?php foreach ($fa['findings'] as $f): ?>
+      <li class="fw-item">
+        <?php if ($f['fixable']): ?><input type="checkbox" name="fx[]" value="<?= h($f['id']) ?>" id="fx-<?= h($f['id']) ?>" <?= in_array($f['id'], $fxIds, true) ? 'checked' : '' ?>><?php else: ?><span style="width:17px"></span><?php endif; ?>
+        <label for="fx-<?= h($f['id']) ?>"><span class="sev-bar <?= h($f['sev']) ?>"></span><span><span class="fw-title"><b><?= h($f['title']) ?></b><?= sev_tag($f['sev']) ?></span><span class="small muted"><?= h($f['why']) ?></span><?php if ($f['note']): ?><span class="small" style="color:var(--warn)"><?= icon('alert', 13) ?> <?= h($f['note']) ?></span><?php endif; ?></span></label>
+      </li>
+    <?php endforeach; ?>
+    <?php foreach ($applied as $aid): ?>
+      <li class="fw-item done"><input type="checkbox" name="fx[]" value="<?= h($aid) ?>" id="fx-<?= h($aid) ?>" checked>
+        <label for="fx-<?= h($aid) ?>"><span class="sev-bar" style="background:var(--up)"></span><span><span class="fw-title"><b><?= h($fx['titles'][$aid] ?? $aid) ?></b><span class="tag up"><?= icon('check', 12) ?><?= h(A('popravljeno')) ?></span></span><span class="small muted"><?= h(A('Popravek NOC je aktiven. Odkljukaj in uveljavi, če ga želiš odstraniti.')) ?></span></span></label></li>
+    <?php endforeach; ?>
+    </ul>
+    <div class="panel-body fw-foot">
+      <div class="small muted"><?= icon('info', 14) ?> <?= h(A('Upravljalni naslovi ({ips}) so vedno dovoljeni. Če router po spremembi ne doseže NOC, se vse samodejno povrne v 5 minutah.', ['ips' => implode(', ', Firewall::mgmtIps()) ?: '–'])) ?>
+        <?php if (!Firewall::mgmtIps()): ?><br><b style="color:var(--down)"><?= h(A('Najprej vpiši upravljalne naslove v Alarmi in obvestila.')) ?></b><?php endif; ?></div>
+      <div class="actions"><span class="small muted"><?= h(A('Na routerju: {n} pravil noc-fw', ['n' => $fwOnRouter])) ?><?= $d['fw_confirmed_at'] ? ' · ' . h(A('potrjeno {t}', ['t' => fmt_ago($d['fw_confirmed_at'])])) : '' ?></span>
+        <button class="btn primary" <?= !Firewall::mgmtIps() ? 'disabled' : '' ?>><?= icon('check', 16) ?><?= h(A('Shrani izbiro')) ?></button></div>
+    </div>
+  </form>
+  <?php endif; ?>
+</section>
 
 <?php elseif ($tab === 'settings'):
   $f = $d; $th = json_decode((string)$d['thresholds'], true) ?: [];

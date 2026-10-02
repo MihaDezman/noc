@@ -71,6 +71,8 @@ CREATE TABLE devices (
   filter_domains   TEXT NULL,
   filter_networks  VARCHAR(500) NOT NULL DEFAULT '',
   dns_original     VARCHAR(255) NULL,
+  fw_fixes        TEXT NULL,
+  fw_confirmed_at DATETIME NULL,
   api_key_hash   CHAR(64) NULL UNIQUE,
   api_key_enc    TEXT NULL,
   export_raw     MEDIUMTEXT NULL,                      -- /export, iz katerega je bila naprava dodana
@@ -107,6 +109,8 @@ CREATE TABLE device_ifaces (
   tx_error    BIGINT UNSIGNED NOT NULL DEFAULT 0,
   link_downs  INT UNSIGNED NOT NULL DEFAULT 0,
   last_up     VARCHAR(32) NOT NULL DEFAULT '',
+  last_down   VARCHAR(32) NOT NULL DEFAULT '',
+  link_downs_noc INT UNSIGNED NOT NULL DEFAULT 0,
   updated_at  DATETIME NOT NULL,
   PRIMARY KEY (device_id, name),
   FOREIGN KEY (device_id) REFERENCES devices(id) ON DELETE CASCADE
@@ -261,6 +265,52 @@ CREATE TABLE IF NOT EXISTS enroll_parts (
   FOREIGN KEY (enroll_id) REFERENCES enroll_codes(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- Dogodki na vmesnikih in SFP moduli
+CREATE TABLE IF NOT EXISTS iface_events (
+  id         BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  device_id  INT UNSIGNED NOT NULL,
+  iface      VARCHAR(64) NOT NULL,
+  ts         DATETIME NOT NULL,
+  kind       ENUM('down','up','speed','sfp_in','sfp_out','sfp_swap') NOT NULL,
+  detail     VARCHAR(255) NOT NULL DEFAULT '',
+  KEY (device_id, iface, ts),
+  FOREIGN KEY (device_id) REFERENCES devices(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS sfp_state (
+  device_id   INT UNSIGNED NOT NULL,
+  iface       VARCHAR(64) NOT NULL,
+  present     TINYINT(1) NOT NULL DEFAULT 1,
+  vendor      VARCHAR(64) NOT NULL DEFAULT '',
+  part        VARCHAR(64) NOT NULL DEFAULT '',
+  serial      VARCHAR(64) NOT NULL DEFAULT '',
+  stype       VARCHAR(64) NOT NULL DEFAULT '',
+  wavelength  SMALLINT UNSIGNED NULL,
+  length_km   DECIMAL(6,1) NULL,
+  rx          DECIMAL(6,2) NULL,
+  tx          DECIMAL(6,2) NULL,
+  temp        DECIMAL(5,1) NULL,
+  volt        DECIMAL(5,2) NULL,
+  bias        DECIMAL(6,1) NULL,
+  speed_class ENUM('1g','10g') NOT NULL DEFAULT '1g',
+  th_warn     DECIMAL(6,2) NULL,     -- lastni pragovi (prazno = privzeto po hitrosti)
+  th_crit     DECIMAL(6,2) NULL,
+  th_high     DECIMAL(6,2) NULL,
+  peer_device INT UNSIGNED NULL,     -- nasprotni konec, če je v NOC (za dušenje)
+  peer_iface  VARCHAR(64) NOT NULL DEFAULT '',
+  remote_tx   DECIMAL(6,2) NULL,     -- ročno vpisana TX moč nasprotne strani
+  updated_at  DATETIME NOT NULL,
+  PRIMARY KEY (device_id, iface),
+  FOREIGN KEY (device_id) REFERENCES devices(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS sfp_5m (
+  device_id INT UNSIGNED NOT NULL, iface VARCHAR(64) NOT NULL, ts DATETIME NOT NULL,
+  rx DECIMAL(6,2) NULL, tx DECIMAL(6,2) NULL, temp DECIMAL(5,1) NULL,
+  PRIMARY KEY (device_id, iface, ts),
+  FOREIGN KEY (device_id) REFERENCES devices(id) ON DELETE CASCADE
+) ENGINE=InnoDB;
+
 CREATE TABLE settings (
   k VARCHAR(64) PRIMARY KEY,
   v TEXT NOT NULL
@@ -288,4 +338,5 @@ INSERT INTO settings (k, v) VALUES
  ('th_offline_min', '3'), ('th_host_gb_h', '10'), ('th_host_mbps', '200'), ('th_host_min', '15'),
  ('notify_emails', ''), ('notify_mail_min', 'warning'), ('notify_tg_min', 'warning'), ('notify_resolved', '1'),
  ('tg_token_enc', ''), ('tg_chat_id', ''),
- ('th_attack', '5'), ('th_attack_min', '15'), ('th_pool', '90'), ('th_backup_days', '2');
+ ('th_attack', '5'), ('th_attack_min', '15'), ('th_pool', '90'), ('th_backup_days', '2'),
+ ('mgmt_ips', ''), ('th_flap', '3'), ('th_flap_min', '60');

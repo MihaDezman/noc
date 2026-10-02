@@ -221,6 +221,54 @@ final class Alerts
         return $newest;
     }
 
+    /** Nestabilna povezava (pogoste prekinitve) in padec hitrosti na WAN in izbranih vmesnikih */
+    public static function links(array $d, array $speedDrops): void
+    {
+        $th = Devices::thresholds($d); $id = (int)$d['id'];
+        $watch = array_values(array_unique(array_filter(array_merge([(string)$d['wan_iface']], Devices::list((string)$d['down_ifaces'])))));
+        $lim = max(2, (int)$th['th_flap']); $min = max(5, (int)$th['th_flap_min']);
+        $st = db()->prepare("SELECT COALESCE(SUM(CAST(detail AS UNSIGNED)),0) FROM iface_events WHERE device_id=? AND iface=? AND kind='down' AND ts > NOW() - INTERVAL ? MINUTE");   // ena vrstica = lahko več prekinitev
+        foreach ($watch as $n) {
+            $st->execute([$id, $n, $min]); $c = (int)$st->fetchColumn();
+            self::set($d, $c >= $lim, 'flap:' . $n, 'warning', A('Nestabilna povezava na {n}: {c} v {m} min', ['n' => $n, 'c' => $c . ' ' . plural($c, A('prekinitev'), A('prekinitvi'), A('prekinitve'), A('prekinitev')), 'm' => $min]));
+        }
+        // padec hitrosti: alarm ostane odprt, dokler se hitrost ne poveča nazaj
+        foreach ($speedDrops as $n => [$down, $txt]) {
+            if (!in_array($n, $watch, true)) continue;
+            if ($down) self::raise($d, 'speed:' . $n, 'warning', A('Hitrost povezave na {n} je padla: {t}', ['n' => $n, 't' => $txt]));
+            else self::clear($d, 'speed:' . $n, A('Hitrost povezave na {n} spet normalna: {t}', ['n' => $n, 't' => $txt]));
+        }
+    }
+
+    /** Privzeti pragovi RX moči (dBm) po hitrosti modula */
+    public const SFP_TH = ['1g' => ['warn' => -20.0, 'crit' => -23.0, 'high' => -3.0], '10g' => ['warn' => -12.0, 'crit' => -14.0, 'high' => 0.5]];
+
+    public static function sfpThresholds(array $r): array
+    {
+        $def = self::SFP_TH[$r['speed_class'] ?? '1g'] ?? self::SFP_TH['1g'];
+        return ['warn' => $r['th_warn'] !== null ? (float)$r['th_warn'] : $def['warn'], 'crit' => $r['th_crit'] !== null ? (float)$r['th_crit'] : $def['crit'], 'high' => $r['th_high'] !== null ? (float)$r['th_high'] : $def['high']];
+    }
+
+    /** SFP: šibek ali premočan signal, slabšanje optike glede na tedensko povprečje */
+    public static function sfp(array $d, array $rows): void
+    {
+        $id = (int)$d['id'];
+        foreach ($rows as $r) {
+            $n = $r['iface']; $rx = $r['rx'];
+            if ($rx === null) continue;   // modul brez diagnostike (DDM)
+            $t = self::sfpThresholds($r); $f = number_format((float)$rx, 1, ',', '');
+            $sev = $rx <= $t['crit'] ? 'critical' : ($rx <= $t['warn'] ? 'warning' : null);
+            self::set($d, $sev !== null, 'sfprx:' . $n, $sev ?? 'warning', $sev === 'critical' ? A('SFP {n}: RX {r} dBm – signal tik pred izpadom', ['n' => $n, 'r' => $f]) : A('SFP {n}: šibek signal, RX {r} dBm', ['n' => $n, 'r' => $f]));
+            self::set($d, $rx >= $t['high'], 'sfphigh:' . $n, 'warning', A('SFP {n}: premočan signal, RX {r} dBm – potreben atenuator', ['n' => $n, 'r' => $f]));
+            // slabšanje: povprečje zadnjih 7 dni (brez zadnje ure) proti zadnjim 30 min
+            $st = db()->prepare('SELECT AVG(IF(ts < NOW() - INTERVAL 1 HOUR, rx, NULL)) wk, AVG(IF(ts > NOW() - INTERVAL 30 MINUTE, rx, NULL)) now_, SUM(ts < NOW() - INTERVAL 1 DAY) old_n
+                                 FROM sfp_5m WHERE device_id=? AND iface=? AND ts > NOW() - INTERVAL 7 DAY AND rx IS NOT NULL');
+            $st->execute([$id, $n]); $a = $st->fetch();
+            $drop = ($a['wk'] !== null && $a['now_'] !== null && (int)$a['old_n'] >= 12) ? (float)$a['wk'] - (float)$a['now_'] : 0;
+            self::set($d, $drop >= 3, 'sfpdeg:' . $n, 'warning', A('SFP {n}: optika se slabša – RX je {x} dB nižji od tedenskega povprečja (umazan konektor, upognjeno vlakno?)', ['n' => $n, 'x' => number_format($drop, 1, ',', '')]));
+        }
+    }
+
     public static function openList(?int $deviceId = null): array
     {
         [$w, $p] = Auth::deviceScope('d');
