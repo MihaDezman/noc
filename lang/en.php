@@ -814,4 +814,5 @@ return [
     'bakreni (RJ45)' => 'copper (RJ45)',
     'Bakreni modul (RJ45) – povezava po kablu, optičnih meritev ni.' => 'Copper module (RJ45) – cable link, no optical measurements.',
     'Optični modul brez diagnostike (DDM) – moči signala ni mogoče brati.' => 'Optical module without diagnostics (DDM) – signal power cannot be read.',
+    'Alarmi in dogodki' => 'Alerts and events',
 ];

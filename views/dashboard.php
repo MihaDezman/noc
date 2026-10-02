@@ -89,7 +89,8 @@ $pct = fn($k) => $n ? round($cnt[$k] / $n * 100, 2) : 0;
 <?php endforeach; ?>
 </div>
 
-<div class="grid g2" style="margin-top:28px">
+<div class="section-break"><h2><?= icon('bell', 18) ?><?= h(A('Alarmi in dogodki')) ?></h2></div>
+<div class="grid g2">
   <section class="panel">
     <div class="panel-head"><h2><?= icon('bell', 18) ?><?= h(A('Odprti alarmi')) ?></h2><a class="small" href="/alerts"><?= h(A('Vsi alarmi')) ?></a></div>
     <?php if (!$alerts): ?><div class="empty"><?= empty_art('ok') ?><div><?= h(A('Ni odprtih alarmov.')) ?></div></div>
