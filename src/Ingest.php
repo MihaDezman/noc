@@ -77,7 +77,8 @@ final class Ingest
         $sfpRows = [];
         foreach ((array)($b['sfp'] ?? []) as $m) {
             if (!is_array($m) || empty($m['n'])) continue;
-            $sfpRows[] = self::sfp($d, $m, $now);
+            try { $sfpRows[] = self::sfp($d, $m, $now); }
+            catch (\Throwable $e) { error_log('noc sfp ' . $d['name'] . ' ' . ($m['n'] ?? '?') . ': ' . $e->getMessage() . ' | ' . json_encode($m, JSON_UNESCAPED_UNICODE)); }   // en modul ne sme ustaviti pusha
         }
 
         // --- zdravje
@@ -279,6 +280,12 @@ final class Ingest
         $row = ['vendor' => mb_substr($v('v'), 0, 64), 'part' => mb_substr($v('pn'), 0, 64), 'serial' => mb_substr($v('sn'), 0, 64), 'stype' => mb_substr($v('t'), 0, 64),
                 'wavelength' => self::num($v('wl')), 'rx' => self::num($v('rx')), 'tx' => self::num($v('tx')), 'temp' => self::num($v('tmp')), 'volt' => self::num($v('vcc')), 'bias' => self::num($v('bias'))];
         $len = $v('len'); $row['length_km'] = ($x = self::num($len)) !== null ? (str_contains($len, 'km') ? $x : round($x / 1000, 1)) : null;
+        // nesmiselne vrednosti (bakreni moduli, DAC kabli, moduli brez DDM) -> ni podatka; sicer bi baza zavrnila cel push
+        $in = fn($x, float $lo, float $hi) => $x !== null && $x >= $lo && $x <= $hi ? $x : null;
+        $row['wavelength'] = $in($row['wavelength'], 1, 20000) !== null ? (int)round($row['wavelength']) : null;
+        $row['rx'] = $in($row['rx'], -60, 30); $row['tx'] = $in($row['tx'], -60, 30);
+        $row['temp'] = $in($row['temp'], -60, 200); $row['volt'] = $in($row['volt'], 0, 20);
+        $row['bias'] = $in($row['bias'], 0, 1000); $row['length_km'] = $in($row['length_km'], 0, 10000);
         // 10G: hitrost porta, oznaka 10G v tipu/modelu ali MikroTik "S+…" (tip "SFP/SFP+/SFP28" opisuje režo, ne modula)
         $tenG = preg_match('/\b10G|10000|10Gbps/i', $row['stype'] . ' ' . $row['part'] . ' ' . $v('rate')) || preg_match('/^(S\+|SFP-10G|SFP\+-)/i', $row['part']);
         $row['speed_class'] = $tenG ? '10g' : '1g';
