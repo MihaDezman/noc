@@ -280,6 +280,11 @@ final class Ingest
         $row = ['vendor' => mb_substr($v('v'), 0, 64), 'part' => mb_substr($v('pn'), 0, 64), 'serial' => mb_substr($v('sn'), 0, 64), 'stype' => mb_substr($v('t'), 0, 64),
                 'wavelength' => self::num($v('wl')), 'rx' => self::num($v('rx')), 'tx' => self::num($v('tx')), 'temp' => self::num($v('tmp')), 'volt' => self::num($v('vcc')), 'bias' => self::num($v('bias'))];
         $len = $v('len'); $row['length_km'] = ($x = self::num($len)) !== null ? (str_contains($len, 'km') ? $x : round($x / 1000, 1)) : null;
+        // RouterOS skripti (as-value) vrne cela števila v manjših enotah, v terminalu pa decimalke:
+        //   moč -10883 = -10,883 dBm, napetost 3253 = 3,253 V, valovna dolžina 155000 = 1550,00 nm. Sprejmemo obe obliki.
+        foreach (['rx', 'tx'] as $k) if ($row[$k] !== null && abs($row[$k]) > 100) $row[$k] = round($row[$k] / 1000, 3);
+        if ($row['volt'] !== null && $row['volt'] > 100) $row['volt'] = round($row['volt'] / 1000, 3);
+        if ($row['wavelength'] !== null && $row['wavelength'] > 20000) $row['wavelength'] = $row['wavelength'] / 100;
         // nesmiselne vrednosti (bakreni moduli, DAC kabli, moduli brez DDM) -> ni podatka; sicer bi baza zavrnila cel push
         $in = fn($x, float $lo, float $hi) => $x !== null && $x >= $lo && $x <= $hi ? $x : null;
         $row['wavelength'] = $in($row['wavelength'], 1, 20000) !== null ? (int)round($row['wavelength']) : null;

@@ -809,4 +809,6 @@ return [
     'Dušenje' => 'Attenuation',
     'Prekinitve' => 'Link drops',
     'brez modula' => 'no module',
+    'Meritve' => 'Diagnostics',
+    'ni diagnostike (DDM)' => 'no diagnostics (DDM)',
 ];

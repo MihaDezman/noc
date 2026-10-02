@@ -2,7 +2,7 @@
 declare(strict_types=1);
 
 define('APP_ROOT', dirname(__DIR__));
-define('APP_VERSION', '1.9.2');
+define('APP_VERSION', '1.9.3');
 
 $config = require APP_ROOT . '/config.php';
 date_default_timezone_set($config['timezone'] ?? 'Europe/Ljubljana');

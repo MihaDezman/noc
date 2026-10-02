@@ -43,8 +43,11 @@ function port_tip(array $p, ?array $sf, ?float $atten): string {
             $rx = $sf['rx'] !== null ? (float)$sf['rx'] : null;
             $cls = $rx === null ? '' : ($rx < $th['crit'] ? 'down' : ($rx < $th['warn'] || $rx > $th['high'] ? 'warn' : 'up'));
             $rows[] = ['SFP', trim($sf['vendor'] . ' ' . $sf['part']) . ($sf['wavelength'] ? ' · ' . $sf['wavelength'] . ' nm' : '')];
-            $rows[] = ['RX', $rx !== null ? '<b class="pt-pow ' . $cls . '">' . number_format($rx, 2, ',', '') . ' dBm</b>' : '–', true];
-            $rows[] = ['TX', $sf['tx'] !== null ? number_format((float)$sf['tx'], 2, ',', '') . ' dBm' : '–'];
+            if ($rx === null && $sf['tx'] === null) $rows[] = [A('Meritve'), A('ni diagnostike (DDM)')];
+            else {
+                $rows[] = ['RX', $rx !== null ? '<b class="pt-pow ' . $cls . '">' . number_format($rx, 2, ',', '') . ' dBm</b>' : '–', true];
+                $rows[] = ['TX', $sf['tx'] !== null ? number_format((float)$sf['tx'], 2, ',', '') . ' dBm' : '–'];
+            }
             if ($atten !== null) $rows[] = [A('Dušenje'), number_format($atten, 1, ',', '') . ' dB'];
             if ($sf['temp'] !== null) $rows[] = [A('Temperatura'), number_format((float)$sf['temp'], 1, ',', '') . ' °C'];
         }
