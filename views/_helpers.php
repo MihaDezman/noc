@@ -18,15 +18,44 @@ function kind_icon(string $kind): string { return match ($kind) { 'switch' => 's
 function face_ports(array $ifaces, string $wan, int $max = 26): array {
     $out = [];
     foreach (Devices::ports($ifaces) as $i) {
-        $out[] = ['name' => $i['name'], 'on' => (bool)$i['running'], 'dis' => (bool)$i['disabled'], 'sfp' => str_contains($i['type'] . $i['name'], 'sfp'), 'wan' => $i['name'] === $wan, 'rate' => $i['rate'], 'comment' => $i['comment']];
+        $out[] = ['name' => $i['name'], 'on' => (bool)$i['running'], 'dis' => (bool)$i['disabled'], 'sfp' => str_contains($i['type'] . $i['name'], 'sfp'), 'wan' => $i['name'] === $wan, 'rate' => $i['rate'], 'comment' => $i['comment'], 'row' => $i];
         if (count($out) >= $max) break;
     }
     return $out;
 }
-function port_html(array $p): string {
+function port_html(array $p, bool $title = true): string {
     $cls = 'port' . ($p['on'] ? ' on' : '') . ($p['dis'] ? ' dis' : '') . ($p['sfp'] ? ' sfp' : '') . ($p['wan'] ? ' wan' : '');
     $t = $p['name'] . ($p['wan'] ? ' (WAN)' : '') . ($p['comment'] ? ' – ' . $p['comment'] : '') . ' · ' . ($p['dis'] ? A('izklopljen') : ($p['on'] ? ($p['rate'] ?: A('povezan')) : A('brez povezave')));
-    return '<i class="' . $cls . '" title="' . h($t) . '"></i>';
+    return '<i class="' . $cls . '"' . ($title ? ' title="' . h($t) . '"' : '') . '></i>';
+}
+
+/** Vsebina okna ob portu na sprednji plošči (stanje povezave, promet, SFP) */
+function port_tip(array $p, ?array $sf, ?float $atten): string {
+    $r = $p['row'] ?? [];
+    $state = $p['dis'] ? A('izklopljen') : ($p['on'] ? A('povezan') . ($p['rate'] ? ' · ' . $p['rate'] : '') : A('brez povezave'));
+    $h = '<div class="pt-head"><b class="mono">' . h($p['name']) . '</b>' . ($p['wan'] ? ' <span class="tag violet">WAN</span>' : '') . '<span class="pt-state ' . ($p['dis'] ? '' : ($p['on'] ? 'up' : 'down')) . '">' . h($state) . '</span></div>';
+    if ($p['comment']) $h .= '<div class="pt-com">' . h($p['comment']) . '</div>';
+    $rows = [];
+    if ($sf !== null) {
+        if (!(int)$sf['present']) $rows[] = ['SFP', A('brez modula')];
+        else {
+            $th = Alerts::sfpThresholds($sf);
+            $rx = $sf['rx'] !== null ? (float)$sf['rx'] : null;
+            $cls = $rx === null ? '' : ($rx < $th['crit'] ? 'down' : ($rx < $th['warn'] || $rx > $th['high'] ? 'warn' : 'up'));
+            $rows[] = ['SFP', trim($sf['vendor'] . ' ' . $sf['part']) . ($sf['wavelength'] ? ' · ' . $sf['wavelength'] . ' nm' : '')];
+            $rows[] = ['RX', $rx !== null ? '<b class="pt-pow ' . $cls . '">' . number_format($rx, 2, ',', '') . ' dBm</b>' : '–', true];
+            $rows[] = ['TX', $sf['tx'] !== null ? number_format((float)$sf['tx'], 2, ',', '') . ' dBm' : '–'];
+            if ($atten !== null) $rows[] = [A('Dušenje'), number_format($atten, 1, ',', '') . ' dB'];
+            if ($sf['temp'] !== null) $rows[] = [A('Temperatura'), number_format((float)$sf['temp'], 1, ',', '') . ' °C'];
+        }
+    }
+    if ($p['on'] && isset($r['rx_bps'])) $rows[] = [A('Promet'), '↓ ' . fmt_bps($r['rx_bps']) . ' · ↑ ' . fmt_bps($r['tx_bps'])];
+    if (!empty($r['last_up'])) $rows[] = [A('Zadnja vzpostavitev'), $r['last_up']];
+    if (!empty($r['last_down'])) $rows[] = [A('Zadnja prekinitev'), $r['last_down']];
+    if (isset($r['link_downs'])) $rows[] = [A('Prekinitve'), (int)$r['link_downs'] . ' · NOC ' . (int)($r['link_downs_noc'] ?? 0)];
+    $h .= '<dl>';
+    foreach ($rows as $x) $h .= '<dt>' . h($x[0]) . '</dt><dd>' . (!empty($x[2]) ? $x[1] : h($x[1])) . '</dd>';
+    return $h . '</dl>';
 }
 
 /** Krožni merilnik (SVG) */

@@ -45,7 +45,17 @@ $upd = $s['upd'] ?? [];
 <?php if ($ports): ?>
 <div class="faceplate" aria-label="<?= h(A('Vrata naprave')) ?>">
   <div class="ident"><?= h($d['name']) ?><small><?= h($d['model'] ?: 'MikroTik') ?></small></div>
-  <div class="ports"><?php foreach ($ports as $p): ?><div class="port-wrap"><?= port_html($p) ?><span><?= h(preg_replace(['/^ether/', '/^sfp-sfpplus/', '/^qsfp28-/', '/^combo/'], ['', 'sfp', 'q', 'c'], $p['name'])) ?></span></div><?php endforeach; ?></div>
+  <?php
+    // SFP stanje in dušenje za okno ob portu
+    $fpSfp = []; $st = db()->prepare('SELECT * FROM sfp_state WHERE device_id=?'); $st->execute([$id]); foreach ($st as $r) $fpSfp[$r['iface']] = $r;
+    $fpAtt = function (?array $sf) {
+        if (!$sf || $sf['rx'] === null) return null;
+        if ($sf['remote_tx'] !== null) return (float)$sf['remote_tx'] - (float)$sf['rx'];
+        if ($sf['peer_device']) { $q = db()->prepare('SELECT tx FROM sfp_state WHERE device_id=? AND iface=?'); $q->execute([$sf['peer_device'], $sf['peer_iface']]); $tx = $q->fetchColumn(); if ($tx !== false && $tx !== null) return (float)$tx - (float)$sf['rx']; }
+        return null;
+    };
+  ?>
+  <div class="ports"><?php foreach ($ports as $p): $sf = $fpSfp[$p['name']] ?? ($p['sfp'] ? ['present' => 0] : null); ?><div class="port-wrap" tabindex="0" data-port-tip><?= port_html($p, false) ?><span><?= h(preg_replace(['/^ether/', '/^sfp-sfpplus/', '/^qsfp28-/', '/^combo/'], ['', 'sfp', 'q', 'c'], $p['name'])) ?></span><template><?= port_tip($p, $sf, $fpAtt($sf['present'] ?? 0 ? $sf : null)) ?></template></div><?php endforeach; ?></div>
   <?php if ($d['serial']): ?><div class="serial">S/N <?= h($d['serial']) ?></div><?php endif; ?>
 </div>
 <?php else: ?><div style="height:18px"></div><?php endif; ?>

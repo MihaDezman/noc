@@ -72,7 +72,7 @@ $pct = fn($k) => $n ? round($cnt[$k] / $n * 100, 2) : 0;
     </div>
     <div class="unit-body">
       <div class="unit-title">
-        <div class="unit-name"><span class="unit-art"><?= device_art((string)$d['model'], (string)$d['kind'], 34) ?></span><div><b><?= h($d['name']) ?></b><div class="sub"><?= h($d['tenant_name'] ?: '–') ?><?= $d['site'] ? ' · ' . h($d['site']) : '' ?></div></div></div>
+        <div class="unit-name"><span class="unit-art"><?= device_art((string)$d['model'], (string)$d['kind'], 42) ?></span><div><b><?= h($d['name']) ?></b><div class="sub"><?= h($d['tenant_name'] ?: '–') ?><?= $d['site'] ? ' · ' . h($d['site']) : '' ?></div></div></div>
         <?= state_tag($d) ?>
       </div>
       <div class="unit-metrics">

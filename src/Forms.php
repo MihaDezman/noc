@@ -28,12 +28,18 @@ final class Ufw
 {
     public static function ips(): array
     {
-        return db()->query('SELECT DISTINCT public_ip FROM devices WHERE active=1 AND flow_enabled=1 AND public_ip<>""')->fetchAll(PDO::FETCH_COLUMN);
+        // vpisan javni IP in naslov, s katerega router dejansko pošilja push (router z več WAN naslovi)
+        $ips = [];
+        foreach (db()->query('SELECT public_ip, last_seen_ip FROM devices WHERE active=1 AND flow_enabled=1') as $r)
+            foreach ([$r['public_ip'], $r['last_seen_ip']] as $ip) if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4 | FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE)) $ips[$ip] = true;   // samo javni naslovi
+        $ips = array_keys($ips); sort($ips);
+        return $ips;
     }
     /** Seznam IP-jev za bin/ufw-sync.sh (root cron odpre UDP flow_port samo za te naslove) */
     public static function write(): void
     {
         $f = (string)cfg('ufw_list'); if ($f === '') return;
-        @file_put_contents($f, implode("\n", self::ips()) . "\n");
+        $new = implode("\n", self::ips()) . "\n";
+        if (!is_file($f) || file_get_contents($f) !== $new) @file_put_contents($f, $new);   // piši samo ob spremembi
     }
 }

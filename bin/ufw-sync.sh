@@ -1,4 +1,5 @@
 #!/bin/bash
+# cron ima okrnjen PATH (brez /usr/sbin, kjer je ufw)
 PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 # Odpre UDP port za traffic-flow samo za IP-je routerjev iz NOC (seznam piše aplikacija).
 # Root cron:  */5 * * * * /var/www/noc/bin/ufw-sync.sh

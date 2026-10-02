@@ -806,4 +806,7 @@ return [
     'posodablja se samodejno' => 'updating automatically',
     'na voljo nova – samodejno izklopljeno' => 'new available – automatic off',
     'RouterOS, firmware in skripta NOC na vseh napravah. Podatek o novi verziji RouterOS router preveri ob nočnem backupu.' => 'RouterOS, firmware and NOC script on all devices. The router checks for a new RouterOS version during the nightly backup.',
+    'Dušenje' => 'Attenuation',
+    'Prekinitve' => 'Link drops',
+    'brez modula' => 'no module',
 ];

@@ -49,6 +49,26 @@
     setInterval(function () { if (!busy && !document.hidden) location.reload(); }, ar * 1000);
   }
 
+  // ================================================================ okno ob portu (sprednja plošča)
+  var tip = null;
+  function showTip(w) {
+    var t = w.querySelector('template'); if (!t) return;
+    if (!tip) { tip = document.createElement('div'); tip.className = 'port-pop'; document.body.appendChild(tip); }
+    tip.innerHTML = t.innerHTML; tip.style.display = 'block';
+    var r = w.getBoundingClientRect(), tw = tip.offsetWidth, th = tip.offsetHeight;
+    var x = Math.min(Math.max(8, r.left + r.width / 2 - tw / 2), window.innerWidth - tw - 8);
+    var y = r.bottom + 10; if (y + th > window.innerHeight - 8) y = Math.max(8, r.top - th - 10);
+    tip.style.left = x + 'px'; tip.style.top = y + 'px';
+  }
+  function hideTip() { if (tip) tip.style.display = 'none'; }
+  document.querySelectorAll('[data-port-tip]').forEach(function (w) {
+    w.addEventListener('mouseenter', function () { showTip(w); });
+    w.addEventListener('mouseleave', hideTip);
+    w.addEventListener('focus', function () { showTip(w); });   // dotik na telefonu
+    w.addEventListener('blur', hideTip);
+  });
+  window.addEventListener('scroll', hideTip, { passive: true });
+
   // ================================================================ grafi
   var charts = [];
 

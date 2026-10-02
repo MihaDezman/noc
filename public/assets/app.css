@@ -257,9 +257,10 @@ textarea.code { font-family: var(--mono); font-size: .82rem; min-height: 260px; 
 :root[data-theme="dark"] .badge.b-yellow { background: #3a3010; color: #e8b100; }
 .fleet-stats .k { gap: 10px; white-space: nowrap; }
 .unit-name { display: flex; gap: 10px; align-items: center; min-width: 0; }
-.unit-art { flex: none; display: grid; place-items: center; width: 40px; height: 40px; border-radius: 10px; background: var(--rack); }
+.unit-art { flex: none; display: grid; place-items: center; width: 42px; height: 42px; }
+.unit-art svg { filter: drop-shadow(0 1px 1px rgba(15,17,30,.18)); }
 .dev-link { display: inline-flex; align-items: center; gap: 10px; }
-.dev-link svg { background: var(--rack); border-radius: 7px; padding: 2px; flex: none; }
+.dev-link svg { flex: none; filter: drop-shadow(0 1px 1px rgba(15,17,30,.18)); }
 .empty-art { display: block; margin: 0 auto 10px; }
 .nav a .ico { transition: color .15s; }
 .nav a[data-k="dash"] .ico { color: #8b72ff; }
@@ -305,6 +306,18 @@ textarea.code { font-family: var(--mono); font-size: .82rem; min-height: 260px; 
 .unit.down .unit-metrics b, .unit.new .unit-metrics b { color: var(--faint); }
 .unit-alert { margin-top: 11px; font-size: .83rem; display: flex; gap: 7px; align-items: center; color: var(--down); }
 .unit-alert.warn { color: var(--warn); }
+
+/* okno ob portu */
+.faceplate .port-wrap { cursor: default; border-radius: 4px; outline: none; }
+.faceplate .port-wrap:hover .port, .faceplate .port-wrap:focus .port { border-color: #8b72ff; }
+.port-pop { position: fixed; z-index: 60; display: none; min-width: 230px; max-width: 320px; background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 12px 32px -8px rgba(15,17,30,.35); padding: 12px 14px; font-size: .84rem; pointer-events: none; }
+.port-pop .pt-head { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+.port-pop .pt-state { margin-left: auto; font-size: .76rem; font-weight: 600; color: var(--muted); }
+.port-pop .pt-state.up { color: var(--up); } .port-pop .pt-state.down { color: var(--down); }
+.port-pop .pt-com { color: var(--muted); font-size: .8rem; margin-bottom: 6px; }
+.port-pop dl { display: grid; grid-template-columns: auto 1fr; gap: 4px 14px; margin: 8px 0 0; padding-top: 8px; border-top: 1px solid var(--line-2); }
+.port-pop dt { color: var(--muted); } .port-pop dd { margin: 0; text-align: right; }
+.pt-pow.up { color: var(--up); } .pt-pow.warn { color: var(--warn); } .pt-pow.down { color: var(--down); }
 
 /* ------------------------------------------------------------------ naprava */
 .dev-hero { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 18px; align-items: center; }
