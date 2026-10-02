@@ -42,8 +42,10 @@ function port_tip(array $p, ?array $sf, ?float $atten): string {
             $th = Alerts::sfpThresholds($sf);
             $rx = $sf['rx'] !== null ? (float)$sf['rx'] : null;
             $cls = $rx === null ? '' : ($rx < $th['crit'] ? 'down' : ($rx < $th['warn'] || $rx > $th['high'] ? 'warn' : 'up'));
-            $rows[] = ['SFP', trim($sf['vendor'] . ' ' . $sf['part']) . ($sf['wavelength'] ? ' · ' . $sf['wavelength'] . ' nm' : '')];
-            if ($rx === null && $sf['tx'] === null) $rows[] = [A('Meritve'), A('ni diagnostike (DDM)')];
+            $copper = Devices::sfpCopper($sf);
+            $rows[] = ['SFP', trim($sf['vendor'] . ' ' . $sf['part']) . ($copper ? ' · ' . A('bakreni (RJ45)') : ($sf['wavelength'] ? ' · ' . $sf['wavelength'] . ' nm' : ''))];
+            if ($copper) { /* bakreni modul: meritev optike ni in niso pričakovane */ }
+            elseif ($rx === null && $sf['tx'] === null) $rows[] = [A('Meritve'), A('ni diagnostike (DDM)')];
             else {
                 $rows[] = ['RX', $rx !== null ? '<b class="pt-pow ' . $cls . '">' . number_format($rx, 2, ',', '') . ' dBm</b>' : '–', true];
                 $rows[] = ['TX', $sf['tx'] !== null ? number_format((float)$sf['tx'], 2, ',', '') . ' dBm' : '–'];

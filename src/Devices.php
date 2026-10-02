@@ -37,9 +37,33 @@ final class Devices
         $age = $d['last_seen_at'] ? time() - strtotime($d['last_seen_at']) : null;
         $d['online'] = $age !== null && $age <= $off;
         $lvl = (int)($d['alert_level'] ?? 0);
-        $d['state'] = $age === null ? 'new' : (!$d['online'] ? 'down' : ($lvl >= 3 ? 'down' : ($lvl === 2 ? 'warn' : 'up')));
+        // "ne deluje" = samo dejanski izpad (router se ne javlja ali internet ne dela);
+        // ostali alarmi, tudi kritični (šibek SFP, poln pool, napad …), pomenijo opozorilo – naprava deluje
+        $outage = in_array((int)$d['id'], self::outageIds(), true);
+        $d['state'] = $age === null ? 'new' : (!$d['online'] || $outage ? 'down' : ($lvl >= 2 ? 'warn' : 'up'));
         $d['muted'] = $d['mute_until'] && strtotime($d['mute_until']) > time();
         return $d;
+    }
+
+    public const OUTAGE_KEYS = ['offline', 'wan_down', 'ext_down'];
+
+    /** Naprave z odprtim alarmom izpada (enkrat na zahtevo) */
+    public static function outageIds(): array
+    {
+        static $ids = null;
+        if ($ids === null) {
+            $in = implode(',', array_fill(0, count(self::OUTAGE_KEYS), '?'));
+            $st = db()->prepare("SELECT DISTINCT device_id FROM alerts WHERE ended_at IS NULL AND akey IN ($in)"); $st->execute(self::OUTAGE_KEYS);
+            $ids = array_map('intval', $st->fetchAll(PDO::FETCH_COLUMN));
+        }
+        return $ids;
+    }
+
+    /** Bakreni SFP (RJ45) – nima optike, zato tudi meritev moči ne */
+    public static function sfpCopper(array $sf): bool
+    {
+        return $sf['rx'] === null && $sf['tx'] === null
+            && (bool)preg_match('/RJ\d*|RJ45|BASE-?T\b|COPPER|-T\b/i', $sf['part'] . ' ' . $sf['stype'] . ' ' . $sf['vendor']);
     }
 
     public static function ifaces(int $deviceId): array

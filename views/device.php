@@ -203,6 +203,7 @@ $upd = $s['upd'] ?? [];
 <?php endif; ?>
 
 <?php foreach ($sfps as $sf):
+  $copper = $sf['present'] && Devices::sfpCopper($sf);
   $th = Alerts::sfpThresholds($sf);
   $rxCls = $sf['rx'] === null ? '' : ($sf['rx'] <= $th['crit'] ? 'down' : ($sf['rx'] <= $th['warn'] || $sf['rx'] >= $th['high'] ? 'warn' : 'up'));
   $peerTx = null;
@@ -213,7 +214,7 @@ $upd = $s['upd'] ?? [];
 <section class="panel">
   <div class="panel-head">
     <h2><?= icon('plug', 18) ?>SFP <span class="mono faint small"><?= h($sf['iface']) ?></span></h2>
-    <?= $sf['present'] ? '<span class="tag violet">' . h(strtoupper($sf['speed_class'])) . '</span>' : '<span class="tag down">' . h(A('modul ni vstavljen')) . '</span>' ?>
+    <?= !$sf['present'] ? '<span class="tag down">' . h(A('modul ni vstavljen')) . '</span>' : ($copper ? '<span class="tag">' . h(A('bakreni (RJ45)')) . '</span>' : '<span class="tag violet">' . h(strtoupper($sf['speed_class'])) . '</span>') ?>
   </div>
   <?php if ($sf['present']): ?>
   <div class="panel-body sfp-grid">
@@ -222,8 +223,10 @@ $upd = $s['upd'] ?? [];
       <div class="small muted"><?= h(implode(' · ', array_filter([$sf['stype'], $sf['wavelength'] ? (int)$sf['wavelength'] . ' nm' : '', $sf['length_km'] ? rtrim(rtrim(number_format((float)$sf['length_km'], 1, ',', ''), '0'), ',') . ' km' : '']))) ?></div>
       <div class="small faint mono">SN <?= h($sf['serial'] ?: '–') ?></div>
     </div>
-    <?php if ($sf['rx'] === null && $sf['tx'] === null): ?>
-      <div class="small muted" style="grid-column: span 3"><?= h(A('Modul nima diagnostike (DDM) – moči signala ni mogoče brati (npr. bakreni SFP).')) ?></div>
+    <?php if ($copper): ?>
+      <div class="small muted" style="grid-column: span 3"><?= h(A('Bakreni modul (RJ45) – povezava po kablu, optičnih meritev ni.')) ?></div>
+    <?php elseif ($sf['rx'] === null && $sf['tx'] === null): ?>
+      <div class="small muted" style="grid-column: span 3"><?= h(A('Optični modul brez diagnostike (DDM) – moči signala ni mogoče brati.')) ?></div>
     <?php else: ?>
     <div><span class="small muted">RX</span><b class="sfp-pow <?= $rxCls ?>"><?= $sf['rx'] !== null ? number_format((float)$sf['rx'], 2, ',', '') . ' dBm' : '–' ?></b><span class="small faint"><?= h(A('meja {w} / {c}', ['w' => number_format($th['warn'], 0), 'c' => number_format($th['crit'], 0)])) ?></span></div>
     <div><span class="small muted">TX</span><b class="sfp-pow"><?= $sf['tx'] !== null ? number_format((float)$sf['tx'], 2, ',', '') . ' dBm' : '–' ?></b><span class="small faint"><?= $loss !== null ? h(A('dušenje trase {l} dB', ['l' => number_format($loss, 1, ',', '')])) : h(A('dušenje: nastavi nasprotno stran')) ?></span></div>
@@ -237,7 +240,7 @@ $upd = $s['upd'] ?? [];
     <div id="sfpc-<?= md5($sf['iface']) ?>" data-chart-group><?= chart($id, 'sfp', '7d', $sf['iface'], 170) ?></div>
   </div>
   <?php endif; ?>
-  <?php if (Auth::isSuper()): $peers = db()->query('SELECT s.device_id, s.iface, d.name FROM sfp_state s JOIN devices d ON d.id=s.device_id WHERE s.present=1 AND NOT (s.device_id=' . $id . ' AND s.iface=' . db()->quote($sf['iface']) . ') ORDER BY d.name, s.iface')->fetchAll(); ?>
+  <?php if (Auth::isSuper() && !$copper): $peers = db()->query('SELECT s.device_id, s.iface, d.name FROM sfp_state s JOIN devices d ON d.id=s.device_id WHERE s.present=1 AND NOT (s.device_id=' . $id . ' AND s.iface=' . db()->quote($sf['iface']) . ') ORDER BY d.name, s.iface')->fetchAll(); ?>
   <details class="sfp-set"><summary class="small"><?= icon('sliders', 14) ?> <?= h(A('Pragovi in nasprotna stran')) ?></summary>
     <form class="form panel-body" method="post" action="/devices/<?= $id ?>/sfp"><?= Auth::csrf() ?><input type="hidden" name="iface" value="<?= h($sf['iface']) ?>"><input type="hidden" name="i" value="<?= h($cur) ?>">
       <div class="row c3">
