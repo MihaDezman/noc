@@ -179,7 +179,8 @@ $upd = $s['upd'] ?? [];
   $pi = null; foreach ($ifaces as $x) if ($x['name'] === $cur) $pi = $x;
   $cnt = function (string $iv) use ($id, $cur) { $q = db()->prepare("SELECT COALESCE(SUM(CAST(detail AS UNSIGNED)),0) FROM iface_events WHERE device_id=? AND iface=? AND kind='down' AND ts > NOW() - INTERVAL $iv"); $q->execute([$id, $cur]); return (int)$q->fetchColumn(); };
   $evs = db()->prepare('SELECT * FROM iface_events WHERE device_id=? AND iface=? ORDER BY ts DESC LIMIT 12'); $evs->execute([$id, $cur]); $evs = $evs->fetchAll();
-  $sfps = db()->prepare('SELECT * FROM sfp_state WHERE device_id=? ORDER BY iface'); $sfps->execute([$id]); $sfps = $sfps->fetchAll();
+  $sfps = db()->prepare('SELECT * FROM sfp_state WHERE device_id=?'); $sfps->execute([$id]); $sfps = $sfps->fetchAll();
+  usort($sfps, fn($a, $b) => strnatcasecmp($a['iface'], $b['iface']));   // naravni vrstni red: 1, 2 … 9, 10 … 16
   $evIco = ['down' => ['unlink', 'down'], 'up' => ['link', 'up'], 'speed' => ['gauge', 'warn'], 'sfp_in' => ['plug', 'up'], 'sfp_out' => ['plug', 'down'], 'sfp_swap' => ['refresh', 'info']];
 ?>
 <?php if ($pi): ?>

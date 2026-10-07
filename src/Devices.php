@@ -78,7 +78,7 @@ final class Devices
     {
         $order = ['ether' => 1, 'sfp' => 1, 'combo' => 1, 'wlan' => 2, 'wifi' => 2, 'bridge' => 3, 'vlan' => 4, 'wg' => 5];
         $o = 9; foreach ($order as $k => $v) if (str_starts_with($i['type'], $k)) { $o = $v; break; }
-        return $o . $i['name'];
+        return $o . ' ' . $i['name'];   // presledek: številka skupine se ne zlije s številko na začetku imena
     }
 
     /** Fizična vrata (za prikaz sprednje plošče) */
