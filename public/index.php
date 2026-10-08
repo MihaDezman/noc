@@ -29,7 +29,8 @@ if (str_starts_with($path, '/api/')) {
         if (!is_array($body)) { error_log('noc push: neveljaven JSON od ' . $dev['name'] . ' (' . strlen($raw) . ' B)'); json_out(['error' => 'bad json'], 400); }
         $dir = rtrim((string)cfg('data_dir', '/var/lib/noc'), '/') . '/push';
         if (is_dir($dir) || @mkdir($dir, 0750, true)) @file_put_contents($dir . '/' . (int)$dev['id'] . '.json', $raw);
-        $resp = Ingest::push($dev, $body);
+        try { $resp = Ingest::pushLocked($dev, $body); }
+        catch (\RuntimeException $e) { if ($e->getMessage() !== 'push busy') throw $e; json_out(['error' => 'busy'], 503); }   // router pošlje znova čez minuto
         if (MikrotikScript::needsUpdate($dev, (string)($body['sv'] ?? ''))) $resp['upd'] = 1;   // router se sam posodobi
         json_out($resp);
     }

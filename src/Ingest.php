@@ -4,6 +4,30 @@ declare(strict_types=1);
 /** Sprejem podatkov z naprav (push vsako minuto, backup ponoči) */
 final class Ingest
 {
+    /**
+     * Push z zaklepom po napravi: sočasna pusha iste naprave (npr. samodejna posodobitev + scheduler)
+     * se obdelata zaporedno, ne vzporedno. MariaDB 11.6+ (innodb_snapshot_isolation) bi drugega sicer
+     * zavrnila z "1020 Record has changed since last read"; ob sporu ali deadlocku se transakcija ponovi.
+     */
+    public static function pushLocked(array $d, array $b): array
+    {
+        $pdo = db(); $lock = 'noc-push-' . (int)$d['id'];
+        $st = $pdo->prepare('SELECT GET_LOCK(?, 50)'); $st->execute([$lock]);
+        if ((int)$st->fetchColumn() !== 1) throw new \RuntimeException('push busy');
+        try {
+            for ($try = 1; ; $try++) {
+                try { return self::push($d, $b); }
+                catch (\PDOException $e) {
+                    $code = (int)($e->errorInfo[1] ?? 0);   // 1020 snapshot, 1213 deadlock, 1205 lock wait timeout
+                    if ($try >= 3 || !in_array($code, [1020, 1213, 1205], true)) throw $e;
+                    usleep(random_int(100, 400) * 1000);
+                }
+            }
+        } finally {
+            $pdo->prepare('SELECT RELEASE_LOCK(?)')->execute([$lock]);
+        }
+    }
+
     public static function push(array $d, array $b): array
     {
         $pdo = db(); $id = (int)$d['id']; $now = time(); $ts = date('Y-m-d H:i:00', $now);
