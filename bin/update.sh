@@ -63,7 +63,7 @@ done
 
 # 4a. routerji prevzamejo novo skripto že ob naslednjem pushu (brez 30-min čakanja po prejšnjem poskusu)
 #     routerji z isto verzijo skripte se ne posodabljajo, zato je ponastavitev neškodljiva
-if mysql --defaults-extra-file="$MYCNF" noc -e "UPDATE devices SET upd_attempt_at=NULL" 2>/dev/null; then
+if mysql --defaults-extra-file="$MYCNF" noc -e "UPDATE devices SET upd_attempt_at=NULL; DELETE FROM settings WHERE k LIKE 'sv:%'" 2>/dev/null; then
     ok "routerji se posodobijo ob naslednjem pushu"
 else echo -e "  \e[33m! čakanje na samodejno posodobitev routerjev ni ponastavljeno (do 30 min)\e[0m"; fi
 

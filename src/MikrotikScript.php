@@ -40,7 +40,10 @@ final class MikrotikScript
         $t = self::install($d, $an, $key);
         [self::$auto, self::$ver] = [$a, $v];
         $t = preg_replace('/\d{4}-\d{2}-\d{2} \d{2}:\d{2}(:\d{2})?/', '', $t);
-        return substr(sha1($t), 0, 10);
+        $h = substr(sha1($t), 0, 10);
+        // RouterOS :serialize niz, ki je videti kot število, zapiše kot število: "8e40377451" postane inf (neveljaven JSON),
+        // "0123456789" izgubi vodilno ničlo. Taka verzija dobi črko na začetku (ostale ostanejo, kot so – brez posodabljanja).
+        return is_numeric($h) ? 'v' . substr($h, 1) : $h;
     }
 
     /** Pričakovana verzija (predpomnjena 10 min v settings – izračun generira celoten paket) */

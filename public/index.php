@@ -34,6 +34,9 @@ if (str_starts_with($path, '/api/')) {
         $dir = rtrim((string)cfg('data_dir', '/var/lib/noc'), '/') . '/push';
         // RouterOS :serialize ne očisti vsega: imena DHCP gostov ipd. lahko vsebujejo neveljaven UTF-8 ali kontrolne znake
         $body = json_decode($raw, true, 512, JSON_INVALID_UTF8_SUBSTITUTE);
+        // :serialize zapiše prevelika "števila" kot inf/nan brez narekovajev (npr. verzija skripte 8e40377451) – kot niz
+        if (!is_array($body)) $raw = (string)preg_replace('/(?<=[:\[,])(-?inf|nan)(?=[,}\]])/', '"$1"', $raw);
+        if (!is_array($body)) $body = json_decode($raw, true, 512, JSON_INVALID_UTF8_SUBSTITUTE);
         if (!is_array($body)) $body = json_decode((string)preg_replace('/[\x00-\x1f\x7f]/', ' ', $raw), true, 512, JSON_INVALID_UTF8_SUBSTITUTE);
         if (!is_array($body)) {
             error_log('noc push: neveljaven JSON od ' . $dev['name'] . ' (' . strlen($raw) . ' B): ' . json_last_error_msg());
