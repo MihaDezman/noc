@@ -6,7 +6,7 @@
 <meta name="robots" content="noindex">
 <title>NOC – Network Operations Center</title>
 <link rel="stylesheet" href="/assets/app.css?v=<?= APP_VERSION ?>">
-<script>try{var t=localStorage.getItem('noc-theme');if(t)document.documentElement.dataset.theme=t;}catch(e){}</script>
+<script<?= nonce() ?>>try{var t=localStorage.getItem('noc-theme');if(t)document.documentElement.dataset.theme=t;}catch(e){}</script>
 </head>
 <body>
 <div class="login">

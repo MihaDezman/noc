@@ -621,6 +621,26 @@ $upd = $s['upd'] ?? [];
   </div>
 </section>
 
+<?php [$tsCls, $tsTxt] = MikrotikScript::tlsState($d); $tlsOn = (int)($d['tls_check'] ?? 0); ?>
+<section class="panel" id="tls" style="margin-top:20px">
+  <div class="panel-head"><h2><?= icon('lock', 18) ?><?= h(A('Preverjanje certifikata NOC')) ?></h2><span class="tag <?= $tsCls ?>"><?= h($tsTxt) ?></span></div>
+  <div class="panel-body fwlog-body">
+    <div>
+      <p style="margin-top:0"><?= h(A('Router pri povezavi na NOC preveri certifikat HTTPS. Tako nihče na poti med routerjem in NOC ne more podtakniti skripte za samodejno posodobitev.')) ?></p>
+      <ul class="fwlog-list small">
+        <li><b><?= h(A('Posodobitve:')) ?></b> <?= h(A('skripta se prenese in uvozi samo s preverjenim certifikatom')) ?></li>
+        <li><b><?= h(A('Push:')) ?></b> <?= h(A('najprej s preverjanjem; če router certifikatu ne zaupa, pošlje brez, da nadzor ne izpade – NOC to pokaže tukaj')) ?></li>
+      </ul>
+      <p class="small muted"><?= h(A('Preizkus na routerju pred vklopom:')) ?> <code>/tool fetch url="<?= h(rtrim((string)cfg('base_url'), '/')) ?>/login" check-certificate=yes-without-crl output=none</code></p>
+    </div>
+    <form method="post" action="/devices/<?= $id ?>/tls" class="fwlog-act"><?= Auth::csrf() ?>
+      <input type="hidden" name="on" value="<?= $tlsOn ? '0' : '1' ?>">
+      <?php if ($tlsOn): ?><button class="btn"><?= icon('x', 16) ?><?= h(A('Izklopi')) ?></button>
+      <?php else: ?><button class="btn primary"><?= icon('lock', 16) ?><?= h(A('Vklopi')) ?></button><?php endif; ?>
+    </form>
+  </div>
+</section>
+
 <?php elseif ($tab === 'settings'):
   $f = $d; $th = json_decode((string)$d['thresholds'], true) ?: [];
   $thLabels = ['th_cpu' => ['CPU %', '%'], 'th_temp' => [A('Temperatura'), '°C'], 'th_gw_loss' => [A('Izguba do prehoda'), '%'], 'th_gw_ms' => [A('Latenca do prehoda'), 'ms'], 'th_ext_loss' => [A('Izguba do interneta'), '%'], 'th_ext_ms' => [A('Latenca do interneta'), 'ms'], 'th_offline_min' => [A('Brez pusha'), 'min'], 'th_host_gb_h' => [A('Naprava v LAN – GB/uro'), 'GB'], 'th_host_mbps' => [A('Naprava v LAN – Mb/s'), 'Mb/s'], 'th_attack' => [A('Napad: neuspelih prijav'), A('št.')], 'th_pool' => [A('Zasedenost IP poola'), '%'], 'th_backup_days' => [A('Brez backupa'), A('dni')], 'th_fw_ports' => [A('Skeniranje: različnih portov'), A('v 15 min')], 'th_out_ips' => [A('Okužena naprava: ciljev na en port'), A('v 5 min')], 'th_out_smtp' => [A('Spam: SMTP strežnikov'), A('v 5 min')]];

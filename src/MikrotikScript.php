@@ -62,6 +62,15 @@ final class MikrotikScript
         db()->prepare('UPDATE devices SET upd_attempt_at=NULL WHERE id=?')->execute([$id]);   // posodobitev že ob naslednjem pushu
     }
 
+    /** Preverjanje certifikata NOC na routerju: [razred, besedilo] */
+    public static function tlsState(array $d): array
+    {
+        if (!(int)($d['tls_check'] ?? 0)) return ['', A('izklopljeno')];
+        if ($d['tls_ok'] === null) return ['warn', A('čaka na router (samodejna posodobitev)')];
+        return (int)$d['tls_ok'] === 1 ? ['up', A('deluje · certifikat preverjen {t}', ['t' => fmt_ago($d['tls_seen_at'])])]
+            : ['down', A('router certifikatu ne zaupa – samodejne posodobitve ne delujejo')];
+    }
+
     /** Stanje skripte na routerju: [razred, besedilo] */
     public static function scriptState(array $d): array
     {
@@ -115,6 +124,23 @@ final class MikrotikScript
         $gwFallback = filter_var($d['wan_gateway'] ?? '', FILTER_VALIDATE_IP) ? $d['wan_gateway'] : '';
         $ext = trim((string)($d['ping_target'] ?? '')) ?: '1.1.1.1';
         $inc = (string)($d['log_include'] ?? ''); $exc = (string)($d['log_exclude'] ?? '');
+        $tls = (int)($d['tls_check'] ?? 0) === 1;
+        // preverjanje certifikata NOC (stikalo pri napravi): push najprej s preverjanjem, ob napaki SSL brez (nadzor ne sme
+        // izpasti), prenos skripte za samodejno posodobitev pa VEDNO s preverjanjem – podtaknjena skripta se ne uvozi
+        $tlsGlobal = $tls ? ":global nocTls\n:if ([:typeof \$nocTls] != \"num\") do={ :set nocTls -1 }\n" : '';
+        $tlsData = $tls ? ';"tls"=$nocTls' : '';
+        $updCheck = $tls ? ' check-certificate=yes-without-crl' : '';
+        $fetchArgs = 'url=$url http-method=post http-data=$body http-header-field=("Content-Type: application/json,X-Api-Key: " . $key) output=user as-value';
+        $fetch = $tls
+            ? ":local out\n"
+            . "    :onerror e2 in={ :set out [/tool fetch $fetchArgs check-certificate=yes-without-crl]; :set nocTls 1 } do={\n"
+            . "        # samo napaka certifikata/SSL -> poskusi brez preverjanja; druge napake (NOC nedosegljiv, 400 ...) gredo naprej\n"
+            . "        :if ([:typeof [:find \$e2 \"SSL\"]] != \"num\" && [:typeof [:find \$e2 \"ssl\"]] != \"num\" && [:typeof [:find \$e2 \"TLS\"]] != \"num\" && [:typeof [:find \$e2 \"ertific\"]] != \"num\") do={ :error \$e2 }\n"
+            . "        :if (\$nocTls != 0) do={ :log warning (\"noc: certifikat NOC ni preverjen - \" . \$e2) }\n"
+            . "        :set nocTls 0\n"
+            . "        :set out [/tool fetch $fetchArgs]\n"
+            . "    }"
+            : ":local out [/tool fetch $fetchArgs]";
         return <<<ROS
 # NOC push – {$d['cmt_name']} – generirano {$GLOBALS['__gen']}
 :local url "$base/api/push"
@@ -129,7 +155,7 @@ final class MikrotikScript
 :global nocTick
 :global nocLastLog
 :global nocUpd
-:if ([:typeof \$nocTick] != "num") do={ :set nocTick 0 }
+{$tlsGlobal}:if ([:typeof \$nocTick] != "num") do={ :set nocTick 0 }
 :if ([:typeof \$nocLastLog] != "num") do={ :set nocLastLog 0 }
 :if ([:typeof \$nocUpd] != "array") do={ :set nocUpd [:toarray ""] }
 :set nocTick (\$nocTick + 1)
@@ -251,7 +277,7 @@ final class MikrotikScript
     }
 }
 
-:local data {"v"=1;"sv"=\$scriptVer;"tick"=\$nocTick;"ident"=\$ident;"res"=\$res;"rb"=\$rb;"health"=\$hl;"ifs"=\$ifs;"rates"=\$rates;"ping"=\$ping;"conns"=\$conns;"nLeases"=\$nLeases;"leases"=\$leases;"pools"=\$pools;"flt"=\$flt;"sfp"=\$sfp;"wg"=\$wg;"logs"=\$logs;"upd"=\$nocUpd}
+:local data {"v"=1;"sv"=\$scriptVer;"tick"=\$nocTick;"ident"=\$ident;"res"=\$res;"rb"=\$rb;"health"=\$hl;"ifs"=\$ifs;"rates"=\$rates;"ping"=\$ping;"conns"=\$conns;"nLeases"=\$nLeases;"leases"=\$leases;"pools"=\$pools;"flt"=\$flt;"sfp"=\$sfp;"wg"=\$wg;"logs"=\$logs;"upd"=\$nocUpd{$tlsData}}
 :local body [:serialize to=json value=\$data]
 # varovalka: fetch ima omejitev velikosti - prevelik push (npr. ogromne vrstice loga) pošlji brez logov
 :if ([:len \$body] > 48000) do={
@@ -267,13 +293,13 @@ final class MikrotikScript
 
 # :onerror zapiše dejansko sporočilo RouterOS (npr. "not enough permissions", "failure: ... 401")
 :onerror e in={
-    :local out [/tool fetch url=\$url http-method=post http-data=\$body http-header-field=("Content-Type: application/json,X-Api-Key: " . \$key) output=user as-value]
+    {$fetch}
     :if ((\$out->"status") = "finished") do={
         :set nocLastLog \$maxid
         # NOC sporoči, da je na voljo nova skripta: posodobitev v ozadju (ta skripta se medtem zamenja)
         :if ([:typeof [:find [:tostr (\$out->"data")] "\"upd\":1"]] = "num") do={
             :log info "noc: na voljo nova skripta - samodejna posodobitev"
-            :execute script=("/tool fetch url=\"" . \$updUrl . "\" http-header-field=\"X-Api-Key: " . \$key . "\" dst-path=noc-install.rsc; :delay 2s; /import noc-install.rsc; /file remove noc-install.rsc")
+            :execute script=("/tool fetch url=\"" . \$updUrl . "\"{$updCheck} http-header-field=\"X-Api-Key: " . \$key . "\" dst-path=noc-install.rsc; :delay 2s; /import noc-install.rsc; /file remove noc-install.rsc")
         }
     }
 } do={ :log warning ("noc: push ni uspel - " . \$e) }

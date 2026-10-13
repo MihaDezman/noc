@@ -114,6 +114,7 @@ final class Metrics
         // varnostni dogodki (skeniranja, sumljiv odhodni promet) so pogosti – zavihek Varnost kaže 30 dni
         self::purge('alerts', "ended_at < NOW() - INTERVAL 90 DAY AND (akey LIKE 'fwscan:%' OR akey = 'fwspike' OR akey LIKE 'outbl:%' OR akey LIKE 'outscan:%' OR akey LIKE 'outsmtp:%')");
         self::purge('audit', 'at < NOW() - INTERVAL 730 DAY');
+        self::purge('notify_queue', 'sent_at < NOW() - INTERVAL 7 DAY');
         self::purge('lan_hosts', 'last_seen < NOW() - INTERVAL 180 DAY');
         self::purge('login_attempts', 'at < NOW() - INTERVAL 7 DAY');
         self::purge('backup_parts', 'at < NOW() - INTERVAL 1 DAY');

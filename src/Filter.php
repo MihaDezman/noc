@@ -105,7 +105,8 @@ final class Filter
         }
         if ((int)($d['filter_ip_lists'] ?? 1)) {
             $base = rtrim((string)cfg('base_url'), '/'); $key = dec($d['api_key_enc'] ?? null); $pol = MikrotikScript::POLICY;
-            $upd = ":onerror e in={ /tool fetch url=\"$base/api/filter/drop\" http-header-field=\"X-Api-Key: $key\" dst-path=noc-filter-drop.rsc; :delay 1s; /import noc-filter-drop.rsc; /file remove noc-filter-drop.rsc } do={ :log warning (\"noc: varnostna IP lista ni posodobljena - \" . \$e) }";
+            $chk = (int)($d['tls_check'] ?? 0) ? ' check-certificate=yes-without-crl' : '';   // uvoz .rsc samo s preverjenim certifikatom
+            $upd = ":onerror e in={ /tool fetch url=\"$base/api/filter/drop\"$chk http-header-field=\"X-Api-Key: $key\" dst-path=noc-filter-drop.rsc; :delay 1s; /import noc-filter-drop.rsc; /file remove noc-filter-drop.rsc } do={ :log warning (\"noc: varnostna IP lista ni posodobljena - \" . \$e) }";
             $s .= "# varnostne IP liste (Spamhaus DROP) - posodobitev vsak dan\n"
                 . self::top('/ip firewall raw', 'chain=prerouting src-address-list=noc-filter-drop action=drop comment="noc-filter: varnostna IP lista"')
                 . self::top('/ip firewall raw', 'chain=prerouting dst-address-list=noc-filter-drop action=drop comment="noc-filter: varnostna IP lista"')

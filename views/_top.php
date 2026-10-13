@@ -20,7 +20,7 @@ $flash = Auth::flash();
 <link rel="icon" href="data:image/svg+xml,<?= rawurlencode('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><rect width="24" height="24" rx="6" fill="#1c1f2e"/><circle cx="12" cy="12" r="3" fill="#e8b100"/><path d="M12 5a7 7 0 0 1 7 7" stroke="#8b72ff" stroke-width="2.4" fill="none" stroke-linecap="round"/><path d="M12 19a7 7 0 0 1-7-7" stroke="#19c0d8" stroke-width="2.4" fill="none" stroke-linecap="round"/></svg>') ?>">
 <link rel="stylesheet" href="/assets/vendor/uPlot.min.css">
 <link rel="stylesheet" href="/assets/app.css?v=<?= APP_VERSION ?>">
-<script>try{var t=localStorage.getItem('noc-theme');if(t)document.documentElement.dataset.theme=t;}catch(e){}</script>
+<script<?= nonce() ?>>try{var t=localStorage.getItem('noc-theme');if(t)document.documentElement.dataset.theme=t;}catch(e){}</script>
 </head>
 <body<?= !empty($autorefresh) ? ' data-autorefresh="' . (int)$autorefresh . '"' : '' ?>>
 <div class="shell">

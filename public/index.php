@@ -84,7 +84,7 @@ if (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') header('Strict-Tra
 header('X-Frame-Options: DENY');
 header('Referrer-Policy: same-origin');
 header('X-Content-Type-Options: nosniff');
-header("Content-Security-Policy: default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'");
+header("Content-Security-Policy: default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self' 'nonce-" . csp_nonce() . "'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'");
 Auth::start();
 
 function view(string $name, array $vars = []): never {
@@ -300,6 +300,15 @@ if (($seg[0] ?? '') === 'devices' && ctype_digit($seg[1] ?? '')) {
         MikrotikScript::invalidate($id); Ufw::write();
         audit('device.fwlog', $d['name'] . ($on ? ' on' : ' off'));
         back("/devices/$id?tab=protect#fwlog", $on ? A('Varnostna analiza vklopljena. Router dobi nastavitve s samodejno posodobitvijo v nekaj minutah (ali takoj z ukazom s strani Paket).') : A('Varnostna analiza izklopljena. Router nastavitve odstrani ob naslednji posodobitvi.'));
+    }
+    if ($sub === 'tls' && $method === 'POST') {   // stikalo: router preverja certifikat NOC
+        $on = post('on') === '1' ? 1 : 0;
+        $stuck = !$on && (int)($d['tls_check'] ?? 0) && $d['tls_ok'] !== null && (int)$d['tls_ok'] === 0;   // router certifikatu ne zaupa -> nove skripte ne more prenesti
+        db()->prepare('UPDATE devices SET tls_check=?, tls_ok=NULL, tls_seen_at=NULL WHERE id=?')->execute([$on, $id]);
+        MikrotikScript::invalidate($id);
+        audit('device.tls', $d['name'] . ($on ? ' on' : ' off'));
+        if ($stuck) back("/devices/$id/install", A('Preverjanje certifikata izklopljeno. Ker router certifikatu ne zaupa, nove skripte ne more prenesti sam – enkrat poženi namestitveni ukaz s te strani.'), 'err');
+        back("/devices/$id?tab=protect#tls", $on ? A('Preverjanje certifikata vklopljeno. Router dobi novo skripto s samodejno posodobitvijo v nekaj minutah.') : A('Preverjanje certifikata izklopljeno.'));
     }
     if ($sub === 'filter' && $method === 'POST') {
         $prof = in_array(post('filter_profile'), ['off', 'basic', 'family'], true) ? post('filter_profile') : 'off';
@@ -535,6 +544,17 @@ if ($path === '/settings/fwlog-all' && $method === 'POST') {   // varnostna anal
     foreach ($ids as $x) MikrotikScript::invalidate((int)$x);
     Ufw::write(); audit('fwlog.all', $on ? 'on' : 'off');
     back('/settings#fwlog', $on ? A('Varnostna analiza vklopljena pri {n} napravah. Routerji se posodobijo samodejno v nekaj minutah.', ['n' => count($ids)]) : A('Varnostna analiza izklopljena pri vseh napravah.'));
+}
+if ($path === '/settings/tls-all' && $method === 'POST') {   // preverjanje certifikata pri vseh napravah
+    Auth::requireSuper();
+    $on = post('on') === '1' ? 1 : 0;
+    $ids = db()->query('SELECT id FROM devices WHERE active=1 AND tls_check<>' . $on)->fetchAll(PDO::FETCH_COLUMN);
+    $stuck = $on ? [] : db()->query('SELECT name FROM devices WHERE active=1 AND tls_check=1 AND tls_ok=0')->fetchAll(PDO::FETCH_COLUMN);
+    db()->prepare('UPDATE devices SET tls_check=?, tls_ok=NULL, tls_seen_at=NULL WHERE active=1 AND tls_check<>?')->execute([$on, $on]);
+    foreach ($ids as $x) MikrotikScript::invalidate((int)$x);
+    audit('tls.all', ($on ? 'on' : 'off') . ' ' . count($ids));
+    if ($stuck) back('/settings#tls', A('Preverjanje certifikata izklopljeno. Te naprave certifikatu ne zaupajo in nove skripte ne morejo prenesti same – pri njih enkrat poženi namestitveni ukaz: {n}', ['n' => implode(', ', $stuck)]), 'err');
+    back('/settings#tls', $on ? A('Preverjanje certifikata vklopljeno pri {n} napravah. Routerji se posodobijo samodejno v nekaj minutah.', ['n' => count($ids)]) : A('Preverjanje certifikata izklopljeno pri vseh napravah.'));
 }
 if ($path === '/settings') {
     Auth::requireSuper();

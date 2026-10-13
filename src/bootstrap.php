@@ -2,7 +2,7 @@
 declare(strict_types=1);
 
 define('APP_ROOT', dirname(__DIR__));
-define('APP_VERSION', '1.11.3');
+define('APP_VERSION', '1.13');
 
 $config = require APP_ROOT . '/config.php';
 date_default_timezone_set($config['timezone'] ?? 'Europe/Ljubljana');
@@ -150,6 +150,10 @@ function ros_cmt(string $s): string { return str_replace('\\', '/', ros_clean($s
 function ros_word(string $s): string { return preg_match('/^[A-Za-z0-9_.,:!\/+-]{1,128}$/', $s) ? $s : ''; }
 /** rekurzivno očisti niz/polje (analiza izvoza, nastavitve naprave) */
 function ros_clean_deep($v) { if (is_string($v)) return ros_clean($v); if (is_array($v)) return array_map('ros_clean_deep', $v); return $v; }
+
+/** Žeton za vgrajene <script> (CSP brez 'unsafe-inline'): isti za celotno zahtevo */
+function csp_nonce(): string { static $n = null; return $n ??= base64_encode(random_bytes(16)); }
+function nonce(): string { return ' nonce="' . csp_nonce() . '"'; }
 
 function ros_seconds(string $s): ?int {
     $s = trim($s); if ($s === '') return null;

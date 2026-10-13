@@ -39,7 +39,8 @@ $dur = fn(int $s) => $s < 60 ? $s . ' s' : ($s < 3600 ? intdiv($s, 60) . ' min' 
 <?php if (!$forMail): ?>
   <div class="noprint">
     <a href="/reports"><?= h(A('Nazaj')) ?></a>
-    <button onclick="window.print()"><?= h(A('Natisni / shrani PDF')) ?></button>
+    <button type="button" id="print-btn"><?= h(A('Natisni / shrani PDF')) ?></button>
+    <script<?= nonce() ?>>document.getElementById('print-btn').addEventListener('click', function () { window.print(); });</script>
   </div>
 <?php endif; ?>
   <div class="head">

@@ -42,6 +42,14 @@ $num = function (string $k, string $label, string $unit, string $hint = '') {
       <p class="small muted" style="margin:0"><?= h(A('Skeniranje z interneta je vsakdanje, zato je samo dogodek (info) – na Telegram pride, če je tam nastavljeno "vse". Porast in sumljiva naprava v LAN-u sta opozorili. Isti napadalec ali naprava se javi največ enkrat na 6 ur.')) ?></p>
     </div></section>
 
+  <?php $tlsAll = db()->query('SELECT COUNT(*) n, COALESCE(SUM(tls_check),0) on_, COALESCE(SUM(tls_check=1 AND tls_ok=0),0) bad FROM devices WHERE active=1')->fetch(); ?>
+  <section class="panel" id="tls"><div class="panel-head"><h2><?= icon('lock', 18) ?><?= h(A('Preverjanje certifikata NOC')) ?></h2>
+    <div class="actions"><span class="small muted"><?= h(A('vklopljeno pri {a} od {n} naprav', ['a' => (int)$tlsAll['on_'], 'n' => (int)$tlsAll['n']])) ?></span>
+      <?php if ((int)$tlsAll['bad'] > 0): ?><span class="tag down"><?= h(A('ne zaupa: {n}', ['n' => (int)$tlsAll['bad']])) ?></span><?php endif; ?>
+      <?php if ((int)$tlsAll['on_'] < (int)$tlsAll['n']): ?><button class="btn sm primary" form="tls-on" type="submit"><?= icon('lock', 14) ?><?= h(A('Vklopi pri vseh')) ?></button><?php endif; ?>
+      <?php if ((int)$tlsAll['on_'] > 0): ?><button class="btn sm" form="tls-off" type="submit"><?= icon('x', 14) ?><?= h(A('Izklopi pri vseh')) ?></button><?php endif; ?></div></div>
+    <div class="panel-body"><p class="small muted" style="margin:0"><?= h(A('Routerji prenesejo in uvozijo skripto za samodejno posodobitev samo s preverjenim certifikatom HTTPS. Push gre ob težavi s certifikatom še vedno skozi, router z napako pa je označen na strani Zaščita pri napravi.')) ?></p></div></section>
+
   <div class="grid g2">
     <section class="panel"><div class="panel-head"><h2><?= icon('mail', 18) ?><?= h(A('E-pošta')) ?></h2></div><div class="panel-body form">
       <label class="f"><?= h(A('Prejemniki')) ?><input type="text" name="notify_emails" value="<?= h(setting('notify_emails')) ?>" placeholder="miha@dezman.net"><small><?= h(A('Več naslovov loči z vejico. SMTP je v config.php.')) ?></small></label>
@@ -68,6 +76,8 @@ $num = function (string $k, string $label, string $unit, string $hint = '') {
 </form>
 <form id="fwlog-on" method="post" action="/settings/fwlog-all" data-confirm="<?= h(A('Vklopim varnostno analizo pri vseh napravah? Routerji dobijo pravila za beleženje s samodejno posodobitvijo.')) ?>"><?= Auth::csrf() ?><input type="hidden" name="on" value="1"></form>
 <form id="fwlog-off" method="post" action="/settings/fwlog-all" data-confirm="<?= h(A('Izklopim varnostno analizo pri vseh napravah?')) ?>"><?= Auth::csrf() ?><input type="hidden" name="on" value="0"></form>
+<form id="tls-on" method="post" action="/settings/tls-all" data-confirm="<?= h(A('Vklopim preverjanje certifikata pri vseh napravah? Routerji dobijo novo skripto s samodejno posodobitvijo.')) ?>"><?= Auth::csrf() ?><input type="hidden" name="on" value="1"></form>
+<form id="tls-off" method="post" action="/settings/tls-all" data-confirm="<?= h(A('Izklopim preverjanje certifikata pri vseh napravah?')) ?>"><?= Auth::csrf() ?><input type="hidden" name="on" value="0"></form>
 
 <section class="panel" style="margin-top:20px"><div class="panel-head"><h2><?= icon('zap', 18) ?><?= h(A('Preizkus')) ?></h2></div><div class="panel-body actions">
   <form method="post" action="/settings/test"><?= Auth::csrf() ?><input type="hidden" name="what" value="mail"><button class="btn"><?= icon('mail', 16) ?><?= h(A('Testni e-mail')) ?></button></form>

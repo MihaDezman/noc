@@ -30,7 +30,7 @@
           <form method="post" action="/account/2fa" style="margin-top:8px"><?= Auth::csrf() ?><input type="hidden" name="act" value="cancel"><button class="btn sm ghost"><?= h(A('Prekliči')) ?></button></form></div></li>
       </ol>
       <script src="/assets/vendor/qrcode.js"></script>
-      <script>(function(){var el=document.getElementById('qr');var q=qrcode(0,'M');q.addData(el.dataset.uri);q.make();el.innerHTML=q.createSvgTag({cellSize:5,margin:0});})();</script>
+      <script<?= nonce() ?>>(function(){var el=document.getElementById('qr');var q=qrcode(0,'M');q.addData(el.dataset.uri);q.make();el.innerHTML=q.createSvgTag({cellSize:5,margin:0});})();</script>
     <?php else: ?>
       <p class="muted" style="margin-top:0"><?= h(A('Poleg gesla ob prijavi zahteva še 6-mestno kodo iz aplikacije na telefonu. Tudi če kdo izve geslo, se brez telefona ne more prijaviti.')) ?></p>
       <form method="post" action="/account/2fa"><?= Auth::csrf() ?><input type="hidden" name="act" value="start"><button class="btn primary"><?= icon('shield', 16) ?><?= h(A('Vklopi 2FA')) ?></button></form>

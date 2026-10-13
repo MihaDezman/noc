@@ -196,6 +196,10 @@ final class Ingest
             'pools' => $pools ?? ($oldStatus['pools'] ?? []),
             'flt' => is_array($b['flt'] ?? null) && $b['flt'] ? $b['flt'] : ($oldStatus['flt'] ?? null),
         ];
+        // preverjanje certifikata (samo naprave s stikalom): 1 = push s preverjenim certifikatom, 0 = samo brez
+        if ((int)($d['tls_check'] ?? 0) && isset($b['tls']) && in_array((int)$b['tls'], [0, 1], true)
+            && ((string)($d['tls_ok'] ?? '') !== (string)(int)$b['tls'] || !$d['tls_seen_at'] || strtotime((string)$d['tls_seen_at']) < $now - 600))
+            $pdo->prepare('UPDATE devices SET tls_ok=?, tls_seen_at=NOW() WHERE id=?')->execute([(int)$b['tls'], $id]);
         $rebooted = $d['last_uptime'] !== null && $uptime !== null && $uptime + 120 < (int)$d['last_uptime'];
         $pdo->prepare('UPDATE devices SET last_seen_at=NOW(), last_seen_ip=?, last_uptime=?, status_json=?, model=IF(?<>"", ?, model), serial=IF(?<>"", ?, serial), os_version=?, firmware=?, arch=? WHERE id=?')
             ->execute([client_ip(), $uptime, json_encode($status, JSON_UNESCAPED_UNICODE), $model = mb_substr(ros_clean((string)($rb['model'] ?? $res['board'] ?? '')), 0, 80), $model,

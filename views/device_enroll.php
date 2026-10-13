@@ -27,7 +27,7 @@
     </div>
   </aside>
 </div>
-<script>
+<script<?= nonce() ?>>
 (function () {
   var box = document.getElementById('enroll'), msg = document.getElementById('enroll-msg'), id = box.dataset.id;
   var T = <?= json_encode(['recv' => A('Prejemam konfiguracijo …'), 'exp' => A('Koda je potekla – ustvari novo.'), 'from' => A('z routerja')], JSON_UNESCAPED_UNICODE) ?>;

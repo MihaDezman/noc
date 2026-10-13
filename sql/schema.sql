@@ -78,6 +78,9 @@ CREATE TABLE devices (
   upd_attempt_at  DATETIME NULL,
   fwlog_enabled   TINYINT(1) NOT NULL DEFAULT 0,
   fwlog_seen_at   DATETIME NULL,
+  tls_check       TINYINT(1) NOT NULL DEFAULT 0,
+  tls_ok          TINYINT(1) NULL,
+  tls_seen_at     DATETIME NULL,
   api_key_hash   CHAR(64) NULL UNIQUE,
   api_key_enc    TEXT NULL,
   export_raw     MEDIUMTEXT NULL,                      -- /export, iz katerega je bila naprava dodana
@@ -373,6 +376,20 @@ CREATE TABLE IF NOT EXISTS out_5m (
   PRIMARY KEY (device_id, ts, ip),
   KEY ix_ts (ts),
   FOREIGN KEY (device_id) REFERENCES devices(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- čakalna vrsta obvestil (pošilja cron)
+CREATE TABLE IF NOT EXISTS notify_queue (
+  id         INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  device_id  INT UNSIGNED NOT NULL,
+  dname      VARCHAR(200) NOT NULL DEFAULT '',
+  sev        ENUM('info','warning','critical') NOT NULL,
+  resolved   TINYINT(1) NOT NULL DEFAULT 0,
+  msg        VARCHAR(600) NOT NULL DEFAULT '',
+  alert_id   INT UNSIGNED NULL,
+  sent_at    DATETIME NULL,
+  KEY ix_pending (sent_at, id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE settings (
