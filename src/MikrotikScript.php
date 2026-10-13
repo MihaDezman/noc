@@ -39,7 +39,11 @@ final class MikrotikScript
         return $v;
     }
 
-    public static function invalidate(int $id): void { db()->prepare('DELETE FROM settings WHERE k=?')->execute(['sv:' . $id]); }
+    public static function invalidate(int $id): void
+    {
+        db()->prepare('DELETE FROM settings WHERE k=?')->execute(['sv:' . $id]);
+        db()->prepare('UPDATE devices SET upd_attempt_at=NULL WHERE id=?')->execute([$id]);   // posodobitev že ob naslednjem pushu
+    }
 
     /** Stanje skripte na routerju: [razred, besedilo] */
     public static function scriptState(array $d): array

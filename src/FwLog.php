@@ -30,8 +30,8 @@ final class FwLog
         return "# --- varnostna analiza (NOC): odstrani prejsnje nastavitve\n"
             . ":do { /ip firewall filter remove [find comment~\"^noc-log\"] } on-error={}\n"
             . ":do { /ip firewall raw remove [find comment~\"^noc-log\"] } on-error={}\n"
-            . ":do { /system logging remove [find action=noc-syslog] } on-error={}\n"
-            . ":do { /system logging action remove [find name=noc-syslog] } on-error={}\n"
+            . ":do { /system logging remove [find action=nocsyslog] } on-error={}\n"
+            . ":do { /system logging action remove [find name=nocsyslog] } on-error={}\n"
             . ":foreach r in=[/system logging find] do={ :if ([:tostr [/system logging get \$r topics]] = \"info;!fetch;!firewall\") do={ /system logging set \$r topics=info,!fetch } }\n";
     }
 
@@ -45,41 +45,44 @@ final class FwLog
         $sel = self::wanSel($d);
         $wan = self::q((string)$d['wan_iface']);
         $s .= "\n# --- varnostna analiza: zapisi pozarnega zidu -> NOC (syslog UDP $port), omejeni na 20/min na izvorni naslov\n"
+            . "# (ime akcije za belezenje sme vsebovati samo crke in stevilke)\n"
             . ":do {\n"
-            . "    :do {\n"
-            . "        /system logging action add name=noc-syslog target=remote remote=$noc remote-port=$port\n"
-            . "        /system logging add topics=firewall action=noc-syslog\n"
-            . "    } on-error={ :log warning \"noc: posiljanje logov pozarnega zidu ni nastavljeno\" }\n"
+            . "    :onerror e in={\n"
+            . "        /system logging action add name=nocsyslog target=remote remote=$noc remote-port=$port\n"
+            . "        /system logging add topics=firewall action=nocsyslog\n"
+            . "    } do={ :log warning (\"noc: posiljanje logov pozarnega zidu ni nastavljeno - \" . \$e) }\n"
             . "    # zapisi pozarnega zidu ne polnijo lokalnega loga routerja\n"
             . "    :foreach r in=[/system logging find] do={ :if ([:tostr [/system logging get \$r topics]] = \"info;!fetch\") do={ /system logging set \$r topics=info,!fetch,!firewall } }\n";
         if ($sel !== '') {
             $add = "/ip firewall filter add chain=input $sel connection-state=new action=log log-prefix=\"noc-in\" dst-limit=20/1m,40,src-address/5m comment=\"noc-log: zavrnjeno z interneta\"";
             $s .= "    # belezenje tik pred prvim splosnim drop/reject v input (= poskusi z interneta, ki jih router zavrne)\n"
                 . "    :local nocTgt \"\"\n"
-                . "    :foreach r in=[/ip firewall filter find where chain=input dynamic=no disabled=no] do={\n"
-                . "        :if ([:len \$nocTgt] = 0) do={\n"
+                . "    :local nocFound false\n"
+                . "    :foreach r in=[/ip firewall filter find where chain=input dynamic=no] do={\n"
+                . "        :if (!\$nocFound) do={\n"
                 . "            :local x [/ip firewall filter get \$r]\n"
                 . "            :local a [:tostr (\$x->\"action\")]\n"
                 . "            :local ii [:tostr (\$x->\"in-interface\")]\n"
                 . "            :local il [:tostr (\$x->\"in-interface-list\")]\n"
-                . "            :if ((\$a = \"drop\" || \$a = \"reject\") && [:len [:tostr (\$x->\"protocol\")]] = 0 && [:len [:tostr (\$x->\"dst-port\")]] = 0 && [:len [:tostr (\$x->\"src-address\")]] = 0 && [:len [:tostr (\$x->\"src-address-list\")]] = 0 && [:len [:tostr (\$x->\"connection-state\")]] = 0 && ([:len \$ii] = 0 || \$ii = \"$wan\") && ([:len \$il] = 0 || \$il = \"WAN\" || \$il = \"!LAN\")) do={ :set nocTgt \$r }\n"
+                . "            # disabled preverimo tu: 'find where disabled=no' na nekaterih verzijah RouterOS ne najde nicesar\n"
+                . "            :if ([:tostr (\$x->\"disabled\")] != \"true\" && (\$a = \"drop\" || \$a = \"reject\") && [:len [:tostr (\$x->\"protocol\")]] = 0 && [:len [:tostr (\$x->\"dst-port\")]] = 0 && [:len [:tostr (\$x->\"src-address\")]] = 0 && [:len [:tostr (\$x->\"src-address-list\")]] = 0 && [:len [:tostr (\$x->\"connection-state\")]] = 0 && ([:len \$ii] = 0 || \$ii = \"$wan\") && ([:len \$il] = 0 || \$il = \"WAN\" || \$il = \"!LAN\")) do={ :set nocTgt \$r; :set nocFound true }\n"
                 . "        }\n"
                 . "    }\n"
-                . "    :do {\n"
-                . "        :if ([:len \$nocTgt] > 0) do={ $add place-before=\$nocTgt } else={ $add }\n"
-                . "    } on-error={ :log warning \"noc: pravilo za belezenje pozarnega zidu ni dodano\" }\n";
+                . "    :onerror e in={\n"
+                . "        :if (\$nocFound) do={ $add place-before=\$nocTgt } else={ $add }\n"
+                . "    } do={ :log warning (\"noc: pravilo za belezenje pozarnega zidu ni dodano - \" . \$e) }\n";
         } else {
             $s .= "    # WAN vmesnik ni znan - belezenje poskusov z interneta ni nastavljeno\n";
         }
         $s .= "    # zadetki varnostne IP liste (samo ce je vklopljena zascita z varnostnimi listami)\n"
             . "    :local nocBl [/ip firewall raw find where comment~\"^noc-filter: varnostna\"]\n"
             . "    :if ([:len \$nocBl] > 0) do={\n"
-            . "        :do {\n"
+            . "        :onerror e in={\n"
             . "            /ip firewall raw add chain=prerouting src-address-list=noc-filter-drop action=log log-prefix=\"noc-bl-in\" dst-limit=10/1m,20,src-address/5m comment=\"noc-log: varnostna lista (vhod)\" place-before=(\$nocBl->0)\n"
             . "            /ip firewall raw add chain=prerouting dst-address-list=noc-filter-drop action=log log-prefix=\"noc-bl-out\" dst-limit=10/1m,20,src-address/5m comment=\"noc-log: varnostna lista (izhod)\" place-before=(\$nocBl->0)\n"
-            . "        } on-error={ :log warning \"noc: belezenje varnostne liste ni dodano\" }\n"
+            . "        } do={ :log warning (\"noc: belezenje varnostne liste ni dodano - \" . \$e) }\n"
             . "    }\n"
-            . "} on-error={ :log warning \"noc: varnostna analiza ni nastavljena\" }\n\n";
+            . "} on-error={ :log warning \"noc: varnostna analiza ni nastavljena\" }\n\n";   // zunanji :do lovi vse ostalo
         return $s;
     }
 
