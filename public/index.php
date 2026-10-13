@@ -325,11 +325,34 @@ if (($seg[0] ?? '') === 'devices' && ctype_digit($seg[1] ?? '')) {
         audit('device.fw', $d['name'] . ' ' . implode(',', (array)($_POST['fx'] ?? [])));
         back("/devices/$id?tab=protect#fw", A('Izbira shranjena. Na routerju se uveljavi z namestitvenim ukazom – z varovalko, ki vse povrne, če router po spremembi ne doseže NOC.'));
     }
+    // pragovi RX moči optičnega porta (dBm): prazno = privzeto po hitrosti modula; kritično < opozorilo < premočno
+    $sfpTh = function (string $w, string $c, string $hi) {
+        $n = function ($v) { $v = str_replace([',', '−', '–', ' '], ['.', '-', '-', ''], trim($v)); return $v === '' ? null : (is_numeric($v) ? round((float)$v, 2) : false); };   // tudi −18 in -18,5
+        [$w, $c, $hi] = [$n($w), $n($c), $n($hi)];
+        if (in_array(false, [$w, $c, $hi], true)) return A('Prag mora biti število v dBm, npr. -18 ali -18,5.');
+        foreach ([$w, $c, $hi] as $v) if ($v !== null && ($v < -40 || $v > 10)) return A('Pragovi morajo biti med −40 in +10 dBm.');
+        if ($w !== null && $c !== null && $c >= $w) return A('Kritična meja mora biti nižja od opozorila (npr. opozorilo −20, kritično −23).');
+        if ($hi !== null && $w !== null && $hi <= $w) return A('Meja za premočan signal mora biti višja od opozorila.');
+        return [$w, $c, $hi];
+    };
+    if ($sub === 'sfp-th' && $method === 'POST') {   // vsi optični porti naprave naenkrat (Nastavitve)
+        $up = db()->prepare('UPDATE sfp_state SET th_warn=?, th_crit=?, th_high=? WHERE device_id=? AND iface=?'); $n = 0;
+        foreach ((array)($_POST['sfp'] ?? []) as $iface => $v) {
+            if (!is_array($v)) continue;
+            $r = $sfpTh((string)($v['warn'] ?? ''), (string)($v['crit'] ?? ''), (string)($v['high'] ?? ''));
+            if (is_string($r)) back("/devices/$id?tab=settings#sfp-th", $iface . ': ' . $r, 'err');
+            $up->execute([...$r, $id, (string)$iface]); $n++;
+        }
+        audit('device.sfp-th', $d['name'] . " ($n)");
+        back("/devices/$id?tab=settings#sfp-th", A('Pragovi optičnih portov shranjeni – veljajo od naslednjega pusha.'));
+    }
     if ($sub === 'sfp' && $method === 'POST') {
         $num = fn($k) => is_numeric(str_replace(',', '.', post($k))) ? (float)str_replace(',', '.', post($k)) : null;
+        $r = $sfpTh(post('th_warn'), post('th_crit'), post('th_high'));
+        if (is_string($r)) back("/devices/$id?tab=ifaces&i=" . urlencode(post('i', $d['wan_iface'])), $r, 'err');
         [$pd, $pi] = array_pad(explode('|', post('peer'), 2), 2, '');
         db()->prepare('UPDATE sfp_state SET th_warn=?, th_crit=?, th_high=?, peer_device=?, peer_iface=?, remote_tx=? WHERE device_id=? AND iface=?')
-            ->execute([$num('th_warn'), $num('th_crit'), $num('th_high'), (int)$pd ?: null, (int)$pd ? mb_substr($pi, 0, 64) : '', $num('remote_tx'), $id, post('iface')]);
+            ->execute([$r[0], $r[1], $r[2], (int)$pd ?: null, (int)$pd ? mb_substr($pi, 0, 64) : '', $num('remote_tx'), $id, post('iface')]);
         audit('device.sfp', $d['name'] . ' ' . post('iface'));
         back("/devices/$id?tab=ifaces&i=" . urlencode(post('i', $d['wan_iface'])), A('Nastavitve SFP shranjene.'));
     }

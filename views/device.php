@@ -640,6 +640,39 @@ $upd = $s['upd'] ?? [];
     </div></div></div></section>
   <div class="actions"><button class="btn primary"><?= icon('check', 16) ?><?= h(A('Shrani')) ?></button></div>
 </form>
+<?php
+  // optični porti (vstavljen modul, ni bakreni RJ45) + porti z lastnimi pragovi
+  $st = db()->prepare('SELECT * FROM sfp_state WHERE device_id=?'); $st->execute([$id]);
+  $optic = array_values(array_filter($st->fetchAll(), fn($x) => ($x['present'] && !Devices::sfpCopper($x)) || $x['th_warn'] !== null || $x['th_crit'] !== null || $x['th_high'] !== null));
+  usort($optic, fn($a, $b) => strnatcasecmp($a['iface'], $b['iface']));
+  $dbm = fn($v) => $v === null ? '' : rtrim(rtrim(number_format((float)$v, 2, ',', ''), '0'), ',');
+?>
+<section class="panel" id="sfp-th" style="margin-top:20px">
+  <div class="panel-head"><h2><?= icon('sliders', 18) ?><?= h(A('Optični porti – pragovi alarmov')) ?></h2><span class="small muted"><?= h(A('RX moč v dBm · prazno = privzeto za hitrost modula')) ?></span></div>
+  <?php if (!$optic): ?><div class="panel-body small muted"><?= h(A('Naprava nima optičnih modulov (ali jih še ni sporočila).')) ?></div>
+  <?php else: ?>
+  <form method="post" action="/devices/<?= $id ?>/sfp-th"><?= Auth::csrf() ?>
+  <div class="tbl-wrap"><table class="tbl sfp-th">
+    <thead><tr><th><?= h(A('Port')) ?></th><th><?= h(A('Modul')) ?></th><th class="num"><?= h(A('RX zdaj')) ?></th><th><?= h(A('Opozorilo pod')) ?></th><th><?= h(A('Kritično pod')) ?></th><th><?= h(A('Premočno nad')) ?></th></tr></thead>
+    <tbody><?php foreach ($optic as $o): $def = Alerts::SFP_TH[$o['speed_class']] ?? Alerts::SFP_TH['1g']; $t = Alerts::sfpThresholds($o);
+      $cls = $o['rx'] === null ? 'muted' : ((float)$o['rx'] <= $t['crit'] ? 'rx-down' : ((float)$o['rx'] <= $t['warn'] || (float)$o['rx'] >= $t['high'] ? 'rx-warn' : 'rx-up')); $k = h($o['iface']); ?>
+      <tr>
+        <td class="mono"><a href="/devices/<?= $id ?>?tab=ifaces&amp;i=<?= urlencode($o['iface']) ?>"><?= $k ?></a></td>
+        <td class="small"><?= h(trim($o['vendor'] . ' ' . $o['part']) ?: '–') ?> <span class="tag violet"><?= h(strtoupper($o['speed_class'])) ?></span><?= $o['present'] ? '' : ' <span class="tag down">' . h(A('ni vstavljen')) . '</span>' ?></td>
+        <td class="num mono <?= $cls ?>"><?= $o['rx'] !== null ? h($dbm($o['rx'])) : h(A('brez DDM')) ?></td>
+        <td><input type="text" inputmode="decimal" name="sfp[<?= $k ?>][warn]" value="<?= h($dbm($o['th_warn'])) ?>" placeholder="<?= h($dbm($def['warn'])) ?>" aria-label="<?= h(A('Opozorilo pod')) ?>"></td>
+        <td><input type="text" inputmode="decimal" name="sfp[<?= $k ?>][crit]" value="<?= h($dbm($o['th_crit'])) ?>" placeholder="<?= h($dbm($def['crit'])) ?>" aria-label="<?= h(A('Kritično pod')) ?>"></td>
+        <td><input type="text" inputmode="decimal" name="sfp[<?= $k ?>][high]" value="<?= h($dbm($o['th_high'])) ?>" placeholder="<?= h($dbm($def['high'])) ?>" aria-label="<?= h(A('Premočno nad')) ?>"></td>
+      </tr>
+    <?php endforeach; ?></tbody>
+  </table></div>
+  <div class="panel-body" style="display:flex;gap:14px;align-items:center;justify-content:space-between;flex-wrap:wrap">
+    <small class="muted"><?= h(A('Opozorilo, ko RX pade pod prvo mejo, kritičen alarm pod drugo. Premočan signal pomeni, da manjka atenuator. Vpiši npr. −18 ali -18,5.')) ?></small>
+    <button class="btn primary"><?= icon('check', 16) ?><?= h(A('Shrani pragove')) ?></button>
+  </div>
+  </form>
+  <?php endif; ?>
+</section>
 <section class="panel" style="margin-top:20px">
   <div class="panel-head"><h2><?= icon('file', 18) ?><?= h(A('Zadnji surovi push')) ?></h2>
     <span class="small muted"><?= $rawPush ? h(date('d.m.Y H:i:s', $rawPush['at']) . ' · ' . fmt_bytes($rawPush['size'])) : h(A('še ni')) ?>

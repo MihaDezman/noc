@@ -30,7 +30,7 @@
       <tr>
         <td class="nowrap"><a class="rowlink dev-link" href="/devices/<?= (int)$d['id'] ?>"><?= device_art((string)$d['model'], (string)$d['kind'], 32) ?><?= h($d['name']) ?></a><?php if (($d['filter_profile'] ?? 'off') !== 'off'): ?> <span class="tag up" title="<?= h(A('Zaščita') . ': ' . Filter::label($d['filter_profile'])) ?>"><?= icon('shield', 12) ?></span><?php endif; ?></td>
         <td><?= h($d['tenant_name'] ?: '–') ?><?php if ($d['site']): ?><div class="small muted"><?= h($d['site']) ?></div><?php endif; ?></td>
-        <td class="nowrap"><?= state_tag($d) ?><?php if ($d['alert_count']): ?> <span class="tag"><?= icon('bell', 12) ?><?= (int)$d['alert_count'] ?></span><?php endif; ?><div class="small muted"><?= h(fmt_ago($d['last_seen_at'])) ?></div></td>
+        <td class="nowrap"><?= state_tag($d) ?><?php if ($d['alert_count']): ?> <a class="tag" href="/devices/<?= (int)$d['id'] ?>?tab=alerts" title="<?= h(A('Odpri alarme')) ?>"><?= icon('bell', 12) ?><?= (int)$d['alert_count'] ?></a><?php endif; ?><div class="small muted"><?= h(fmt_ago($d['last_seen_at'])) ?></div></td>
         <td class="col-model nowrap"><?= h($d['model'] ?: '–') ?><div class="small muted mono"><?= h($d['os_version'] ? 'RouterOS ' . preg_replace('/\s.*$/', '', $d['os_version']) : '') ?></div></td>
         <td class="col-ip mono nowrap"><?= h($d['public_ip'] ?: '–') ?></td>
         <td class="num nowrap"><?php if ($wan): ?><span class="down-c"><?= icon('arrow-down', 13) ?><?= h(fmt_bps($wan['rx_bps'])) ?></span><div class="up-c small"><?= icon('arrow-up', 12) ?><?= h(fmt_bps($wan['tx_bps'])) ?></div><?php else: ?>–<?php endif; ?></td>
