@@ -58,6 +58,12 @@ for f in $(ls -1 sql/update-*.sql 2>/dev/null | sort -V); do
     ok "baza: $b"
 done
 
+# 4b. sprejem logov požarnega zidu (rsyslog, UDP 5514) – idempotentno, ob napaki samo opozorilo
+if [ -f bin/fwlog-setup.sh ]; then
+    if R=$(bash bin/fwlog-setup.sh 2>&1); then ok "logi požarnega zidu: $(echo "$R" | tail -n 1)"
+    else echo -e "  \e[33m! logi požarnega zidu niso nastavljeni: $(echo "$R" | tail -n 1)\e[0m"; fi
+fi
+
 # 5. git commit + push
 G add -A
 if ! G diff --cached --quiet; then G commit -qm "NOC v$VER"; ok "commit: NOC v$VER"; fi

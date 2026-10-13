@@ -85,6 +85,10 @@ final class Metrics
                     SELECT device_id, ip, DATE(ts), SUM(up_bytes), SUM(down_bytes) FROM host_5m
                     WHERE ts >= CURDATE() - INTERVAL 3 DAY AND ts < CURDATE() GROUP BY device_id, ip, DATE(ts)
                     ON DUPLICATE KEY UPDATE up_bytes=VALUES(up_bytes), down_bytes=VALUES(down_bytes)');
+        $pdo->exec('INSERT INTO fw_daily (device_id, day, kind, hits, sources, ports)
+                    SELECT device_id, DATE(ts), kind, SUM(hits), COUNT(DISTINCT src), COUNT(DISTINCT port) FROM fw_5m
+                    WHERE ts >= CURDATE() - INTERVAL 3 DAY AND ts < CURDATE() GROUP BY device_id, DATE(ts), kind
+                    ON DUPLICATE KEY UPDATE hits=VALUES(hits), sources=VALUES(sources), ports=VALUES(ports)');
         $pdo->exec('DELETE FROM iface_1m WHERE ts < NOW() - INTERVAL 48 HOUR');
         $pdo->exec('DELETE FROM health_1m WHERE ts < NOW() - INTERVAL 48 HOUR');
         $pdo->exec('DELETE FROM iface_5m WHERE ts < NOW() - INTERVAL 35 DAY');
@@ -95,6 +99,9 @@ final class Metrics
         $pdo->exec('DELETE FROM logs WHERE ts < NOW() - INTERVAL 90 DAY');
         $pdo->exec('DELETE FROM sfp_5m WHERE ts < NOW() - INTERVAL 35 DAY');
         $pdo->exec('DELETE FROM iface_events WHERE ts < NOW() - INTERVAL 365 DAY');
+        $pdo->exec('DELETE FROM fw_5m WHERE ts < NOW() - INTERVAL 7 DAY');
+        $pdo->exec('DELETE FROM out_5m WHERE ts < NOW() - INTERVAL 7 DAY');
+        $pdo->exec('DELETE FROM fw_daily WHERE day < CURDATE() - INTERVAL 400 DAY');
         $pdo->exec('DELETE FROM alerts WHERE ended_at < NOW() - INTERVAL 365 DAY');
         $pdo->exec('DELETE FROM lan_hosts WHERE last_seen < NOW() - INTERVAL 180 DAY');
         $pdo->exec('DELETE FROM login_attempts WHERE at < NOW() - INTERVAL 7 DAY');

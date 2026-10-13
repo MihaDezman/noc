@@ -30,6 +30,18 @@ $num = function (string $k, string $label, string $unit, string $hint = '') {
   </div></section>
   </div>
 
+  <?php $fwAll = db()->query('SELECT COUNT(*) n, COALESCE(SUM(fwlog_enabled),0) on_ FROM devices WHERE active=1')->fetch(); ?>
+  <section class="panel" id="fwlog"><div class="panel-head"><h2><?= icon('scroll', 18) ?><?= h(A('Varnostna analiza')) ?></h2>
+    <div class="actions"><span class="small muted"><?= h(A('vklopljena pri {a} od {n} naprav', ['a' => (int)$fwAll['on_'], 'n' => (int)$fwAll['n']])) ?></span>
+      <?php if ((int)$fwAll['on_'] < (int)$fwAll['n']): ?><button class="btn sm primary" form="fwlog-on" type="submit"><?= icon('zap', 14) ?><?= h(A('Vklopi pri vseh')) ?></button><?php endif; ?>
+      <?php if ((int)$fwAll['on_'] > 0): ?><button class="btn sm" form="fwlog-off" type="submit"><?= icon('x', 14) ?><?= h(A('Izklopi pri vseh')) ?></button><?php endif; ?></div></div>
+    <div class="panel-body form">
+      <div class="row c3"><?= $num('th_fw_ports', A('Skeniranje: različnih portov'), A('v 15 min'), A('z istega naslova – dogodek (info)')) ?><?= $num('th_fw_hits', A('Vztrajni poskusi'), A('v 15 min'), A('z istega naslova – dogodek (info)')) ?><?= $num('th_fw_spike', A('Porast poskusov'), A('× običajno'), A('v zadnji uri glede na prejšnje dni – opozorilo')) ?></div>
+      <div class="row c3"><?= $num('th_fw_spike_min', A('… vsaj'), A('poskusov/h'), A('pod tem porast ni alarm')) ?><?= $num('th_out_ips', A('Okužena naprava: ciljev na en port'), A('v 5 min'), A('TCP, brez 80/443 – opozorilo')) ?><?= $num('th_out_smtp', A('Spam: SMTP strežnikov'), A('v 5 min'), A('port 25 – opozorilo')) ?></div>
+      <div class="row c3"><?= $num('th_out_bl', A('Varnostna lista: tokov'), A('v 15 min'), A('naprava v LAN-u – opozorilo')) ?></div>
+      <p class="small muted" style="margin:0"><?= h(A('Skeniranje z interneta je vsakdanje, zato je samo dogodek (info) – na Telegram pride, če je tam nastavljeno "vse". Porast in sumljiva naprava v LAN-u sta opozorili. Isti napadalec ali naprava se javi največ enkrat na 6 ur.')) ?></p>
+    </div></section>
+
   <div class="grid g2">
     <section class="panel"><div class="panel-head"><h2><?= icon('mail', 18) ?><?= h(A('E-pošta')) ?></h2></div><div class="panel-body form">
       <label class="f"><?= h(A('Prejemniki')) ?><input type="text" name="notify_emails" value="<?= h(setting('notify_emails')) ?>" placeholder="miha@dezman.net"><small><?= h(A('Več naslovov loči z vejico. SMTP je v config.php.')) ?></small></label>
@@ -54,6 +66,8 @@ $num = function (string $k, string $label, string $unit, string $hint = '') {
   <label class="check"><input type="checkbox" name="notify_resolved" value="1" <?= setting('notify_resolved', '1') === '1' ? 'checked' : '' ?>> <?= h(A('Obvesti tudi, ko se težava razreši')) ?></label>
   <div class="actions"><button class="btn primary"><?= icon('check', 16) ?><?= h(A('Shrani nastavitve')) ?></button></div>
 </form>
+<form id="fwlog-on" method="post" action="/settings/fwlog-all" data-confirm="<?= h(A('Vklopim varnostno analizo pri vseh napravah? Routerji dobijo pravila za beleženje s samodejno posodobitvijo.')) ?>"><?= Auth::csrf() ?><input type="hidden" name="on" value="1"></form>
+<form id="fwlog-off" method="post" action="/settings/fwlog-all" data-confirm="<?= h(A('Izklopim varnostno analizo pri vseh napravah?')) ?>"><?= Auth::csrf() ?><input type="hidden" name="on" value="0"></form>
 
 <section class="panel" style="margin-top:20px"><div class="panel-head"><h2><?= icon('zap', 18) ?><?= h(A('Preizkus')) ?></h2></div><div class="panel-body actions">
   <form method="post" action="/settings/test"><?= Auth::csrf() ?><input type="hidden" name="what" value="mail"><button class="btn"><?= icon('mail', 16) ?><?= h(A('Testni e-mail')) ?></button></form>

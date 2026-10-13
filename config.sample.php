@@ -19,6 +19,9 @@ return [
     'nfdump'    => '/usr/bin/nfdump',
     'data_dir'  => '/var/lib/noc',             // zadnji surovi push vsake naprave (diagnostika)
     'ufw_list'  => '/var/lib/noc/flow-ips.txt', // seznam IP-jev routerjev za ufw (bin/ufw-sync.sh)
+    // Varnostna analiza: routerji pošiljajo zapise požarnega zidu (syslog UDP) -> rsyslog (bin/fwlog-setup.sh) -> datoteka
+    'fwlog_port' => 5514,
+    'fwlog_file' => '/var/log/noc-fw/fw.log',
 
     // Pošta (alarmi)
     'smtp' => [

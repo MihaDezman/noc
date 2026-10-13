@@ -30,7 +30,7 @@ final class Ufw
     {
         // vpisan javni IP in naslov, s katerega router dejansko pošilja push (router z več WAN naslovi)
         $ips = [];
-        foreach (db()->query('SELECT public_ip, last_seen_ip FROM devices WHERE active=1 AND flow_enabled=1') as $r)
+        foreach (db()->query('SELECT public_ip, last_seen_ip FROM devices WHERE active=1 AND (flow_enabled=1 OR fwlog_enabled=1)') as $r)
             foreach ([$r['public_ip'], $r['last_seen_ip']] as $ip) if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4 | FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE)) $ips[$ip] = true;   // samo javni naslovi
         $ips = array_keys($ips); sort($ips);
         return $ips;

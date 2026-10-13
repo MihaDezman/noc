@@ -1,5 +1,8 @@
 <?php
 $cronDef = ['minute' => [A('Alarmi in ping s strežnika'), 3], 'flows' => [A('Traffic-flow'), 12], 'daily' => [A('Dnevno stiskanje in čiščenje'), 1500]];
+$fwOn = (int)db()->query('SELECT COUNT(*) FROM devices WHERE active=1 AND fwlog_enabled=1')->fetchColumn();
+if ($fwOn) $cronDef['fwlog'] = [A('Varnostna analiza'), 3];
+$fwFile = FwLog::file(); $fwStat = @stat($fwFile);
 ?>
 <div class="page-head"><div><h1><?= h(A('Sistem')) ?></h1><p><?= h(A('Stanje NOC na strežniku.')) ?></p></div></div>
 <div class="grid g3">
@@ -14,6 +17,8 @@ $cronDef = ['minute' => [A('Alarmi in ping s strežnika'), 3], 'flows' => [A('Tr
     <dt><?= h(A('Datotek')) ?></dt><dd><?= count($flowFiles) ?></dd>
     <dt><?= h(A('UDP port')) ?></dt><dd class="mono"><?= (int)cfg('flow_port', 2055) ?></dd>
     <dt><?= h(A('Dovoljeni IP-ji (ufw)')) ?></dt><dd class="mono small"><?= $flowIps ? h(implode(', ', $flowIps)) : '–' ?></dd>
+    <dt><?= h(A('Logi požarnega zidu')) ?></dt><dd><?php if ($fwStat): ?><span class="tag up"><?= h(fmt_bytes($fwStat['size'])) ?></span> <span class="small muted"><?= h(fmt_ago(date('Y-m-d H:i:s', $fwStat['mtime']))) ?></span><?php else: ?><span class="tag <?= $fwOn ? 'warn' : '' ?>"><?= h(A('ni nastavljeno')) ?></span><?php endif; ?></dd>
+    <dt><?= h(A('UDP port (logi)')) ?></dt><dd class="mono"><?= FwLog::port() ?> <span class="small muted"><?= h(A('naprav: {n}', ['n' => $fwOn])) ?></span></dd>
   </dl></div></section>
   <section class="panel"><div class="panel-head"><h2><?= icon('hdd', 18) ?><?= h(A('Disk in baza')) ?></h2></div><div class="panel-body">
     <dl class="kv" style="margin-bottom:14px"><dt><?= h(A('Nočni backup baze')) ?></dt><dd><?= $srvBackup ? h(fmt_ago(date('Y-m-d H:i:s', $srvBackup))) . ($srvBackup < time() - 36 * 3600 ? ' <span class="tag warn">' . h(A('star')) . '</span>' : ' <span class="tag up">OK</span>') : '<span class="tag warn">' . h(A('ni backupa')) . '</span>' ?></dd></dl>

@@ -36,10 +36,11 @@ final class Flows
 
     private static function file(string $f, array $byIp, string $slot): void
     {
-        $cmd = escapeshellcmd((string)cfg('nfdump', '/usr/bin/nfdump')) . ' -r ' . escapeshellarg($f) . ' -q -N -o ' . escapeshellarg('fmt:%ra|%sa|%da|%xsa|%xda|%byt');
+        $cmd = escapeshellcmd((string)cfg('nfdump', '/usr/bin/nfdump')) . ' -r ' . escapeshellarg($f) . ' -q -N -o ' . escapeshellarg('fmt:%ra|%sa|%da|%xsa|%xda|%byt|%pr|%dp');
         $h = popen($cmd, 'r'); if (!$h) return;
         $agg = [];   // [device_id][ip] = [up, down]
-        $netCache = [];
+        $out = [];   // varnostna analiza: [device_id][ip LAN] = tokovi navzven (ciljni naslovi, porti, SMTP, varnostna lista)
+        $netCache = []; $blCache = [];
         while (($line = fgets($h)) !== false) {
             $p = array_map('trim', explode('|', $line));
             if (count($p) < 6) continue;
@@ -49,12 +50,26 @@ final class Flows
             $inS = $netCache[$id][$sa] ??= self::inNets($sa, $d['_nets']);
             $inD = $netCache[$id][$da] ??= self::inNets($da, $d['_nets']);
             if (!$inD && $xda !== '0.0.0.0' && $xda !== '') { $inD = $netCache[$id][$xda] ??= self::inNets($xda, $d['_nets']); if ($inD) $da = $xda; }
-            if ($inS && !$inD) { $agg[$id][$sa][0] = ($agg[$id][$sa][0] ?? 0) + (int)$byt; }
+            if ($inS && !$inD) {
+                $agg[$id][$sa][0] = ($agg[$id][$sa][0] ?? 0) + (int)$byt;
+                if (!empty($d['fwlog_enabled'])) {
+                    $pr = strtoupper($p[6] ?? ''); $dp = (int)($p[7] ?? 0);
+                    $o = &$out[$id][$sa];
+                    $o['f'] = ($o['f'] ?? 0) + 1;
+                    $o['ips'][$da] = 1;
+                    if ($pr === 'TCP' && $dp > 0 && $dp !== 80 && $dp !== 443) $o['pp'][$dp][$da] = 1;
+                    if ($pr === 'TCP' && $dp === 25) $o['smtp'][$da] = 1;
+                    if ($blCache[$da] ??= FwLog::inDrop($da)) { $o['bl'] = ($o['bl'] ?? 0) + 1; $o['bls'] = $da . ($dp ? ":$dp" : ''); }
+                    unset($o);
+                }
+            }
             elseif ($inD && !$inS) { $agg[$id][$da][1] = ($agg[$id][$da][1] ?? 0) + (int)$byt; }
         }
         pclose($h);
         $ins = db()->prepare('INSERT INTO host_5m (device_id, ip, ts, up_bytes, down_bytes) VALUES (?,?,?,?,?) ON DUPLICATE KEY UPDATE up_bytes=up_bytes+VALUES(up_bytes), down_bytes=down_bytes+VALUES(down_bytes)');
         foreach ($agg as $id => $hosts) foreach ($hosts as $ip => $v) $ins->execute([$id, $ip, $slot, $v[0] ?? 0, $v[1] ?? 0]);
+        $devById = []; foreach ($byIp as $d) $devById[(int)$d['id']] = $d;
+        foreach ($out as $id => $hosts) FwLog::outbound($devById[$id], $hosts, $slot);
     }
 
     private static function inNets(string $ip, array $nets): bool

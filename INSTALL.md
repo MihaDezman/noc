@@ -148,6 +148,16 @@ NOC v odgovoru sporoči, da je na voljo nova skripta, router pa jo sam prenese z
 Stikalo je pri napravi v Nastavitvah ("Samodejne posodobitve skripte"), stanje pa v kartici Podatki in na strani Posodobitve.
 Routerji s skripto pred v1.9 se morajo enkrat posodobiti ročno.
 
+## Varnostna analiza (logi požarnega zidu + odhodni promet)
+
+Naprava → **Zaščita** → Varnostna analiza → **Vklopi** (ali Alarmi in obvestila → Varnostna analiza → **Vklopi pri vseh**).
+Router s samodejno posodobitvijo dobi: pravilo za beleženje pred končnim drop v input (`noc-log`, 20 zapisov/min na izvorni naslov),
+beleženje zadetkov varnostne liste (če je vklopljena zaščita z IP listami) in pošiljanje tem `firewall` na NOC (syslog UDP 5514).
+Na strežniku `bin/update.sh` sam pokliče `bin/fwlog-setup.sh` (rsyslog -> `/var/log/noc-fw/fw.log`, logrotate 7 dni),
+`bin/ufw-sync.sh` odpre UDP 5514 samo za IP-je routerjev, `cron/minute.php` zapise povzame in vsakih 5 min analizira.
+Odhodni promet (skeniranje interneta, SMTP mimo strežnika, varnostna lista) se analizira iz traffic-flow (cron/flows.php).
+Rezultati: zavihek **Varnost** pri napravi. Hramba: povzetki 5 min 7 dni, dnevni 400 dni.
+
 ## fail2ban (priporočeno)
 
 NOC v Apache error log piše `noc-login-fail ip=…` (napačna prijava) in `noc-api-badkey ip=…` (neveljaven API ključ).

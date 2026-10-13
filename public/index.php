@@ -244,6 +244,7 @@ if (($seg[0] ?? '') === 'devices' && ctype_digit($seg[1] ?? '')) {
             $st->execute([$id]); $vars['logins'] = $st->fetchAll();
             $st = db()->prepare("SELECT * FROM alerts WHERE device_id=? AND akey LIKE 'attack:%' ORDER BY started_at DESC LIMIT 30");
             $st->execute([$id]); $vars['attacks'] = $st->fetchAll();
+            $vars['fw'] = FwLog::summary($id);
         }
         if ($tab === 'alerts') { $st = db()->prepare('SELECT * FROM alerts WHERE device_id=? ORDER BY started_at DESC LIMIT 200'); $st->execute([$id]); $vars['history'] = $st->fetchAll(); }
         if ($tab === 'settings') {
@@ -277,6 +278,13 @@ if (($seg[0] ?? '') === 'devices' && ctype_digit($seg[1] ?? '')) {
         MikrotikScript::invalidate($id);
         audit('device.save', $f['name']);
         back("/devices/$id?tab=settings", A('Shranjeno. Če si spremenil prehod, ping cilj, filtre logov ali traffic-flow, prenesi in naloži nov paket.'));
+    }
+    if ($sub === 'fwlog' && $method === 'POST') {   // stikalo: varnostna analiza (logi požarnega zidu + odhodni promet)
+        $on = post('on') === '1' ? 1 : 0;
+        db()->prepare('UPDATE devices SET fwlog_enabled=? WHERE id=?')->execute([$on, $id]);
+        MikrotikScript::invalidate($id); Ufw::write();
+        audit('device.fwlog', $d['name'] . ($on ? ' on' : ' off'));
+        back("/devices/$id?tab=protect#fwlog", $on ? A('Varnostna analiza vklopljena. Router dobi nastavitve s samodejno posodobitvijo v nekaj minutah (ali takoj z ukazom s strani Paket).') : A('Varnostna analiza izklopljena. Router nastavitve odstrani ob naslednji posodobitvi.'));
     }
     if ($sub === 'filter' && $method === 'POST') {
         $prof = in_array(post('filter_profile'), ['off', 'basic', 'family'], true) ? post('filter_profile') : 'off';
@@ -481,10 +489,19 @@ if ($path === '/users/delete' && $method === 'POST') {
 }
 
 // ---------------------------------------------------------------- nastavitve
+if ($path === '/settings/fwlog-all' && $method === 'POST') {   // varnostna analiza pri vseh napravah
+    Auth::requireSuper();
+    $on = post('on') === '1' ? 1 : 0;
+    $ids = db()->query('SELECT id FROM devices WHERE active=1')->fetchAll(PDO::FETCH_COLUMN);
+    db()->prepare('UPDATE devices SET fwlog_enabled=? WHERE active=1')->execute([$on]);
+    foreach ($ids as $x) MikrotikScript::invalidate((int)$x);
+    Ufw::write(); audit('fwlog.all', $on ? 'on' : 'off');
+    back('/settings#fwlog', $on ? A('Varnostna analiza vklopljena pri {n} napravah. Routerji se posodobijo samodejno v nekaj minutah.', ['n' => count($ids)]) : A('Varnostna analiza izklopljena pri vseh napravah.'));
+}
 if ($path === '/settings') {
     Auth::requireSuper();
     if ($method === 'POST') {
-        foreach (['th_cpu', 'th_cpu_min', 'th_temp', 'th_mem', 'th_hdd', 'th_gw_loss', 'th_gw_ms', 'th_ext_loss', 'th_ext_ms', 'th_ping_min', 'th_offline_min', 'th_host_gb_h', 'th_host_mbps', 'th_host_min', 'th_attack', 'th_attack_min', 'th_pool', 'th_backup_days'] as $k)
+        foreach (['th_cpu', 'th_cpu_min', 'th_temp', 'th_mem', 'th_hdd', 'th_gw_loss', 'th_gw_ms', 'th_ext_loss', 'th_ext_ms', 'th_ping_min', 'th_offline_min', 'th_host_gb_h', 'th_host_mbps', 'th_host_min', 'th_attack', 'th_attack_min', 'th_pool', 'th_backup_days', 'th_fw_ports', 'th_fw_hits', 'th_fw_spike', 'th_fw_spike_min', 'th_out_ips', 'th_out_smtp', 'th_out_bl'] as $k)
             if (isset($_POST[$k]) && is_numeric($_POST[$k])) setting_set($k, (string)(float)$_POST[$k]);
         setting_set('notify_emails', implode(', ', array_filter(array_map('trim', preg_split('/[\s,;]+/', post('notify_emails'))), fn($e) => filter_var($e, FILTER_VALIDATE_EMAIL))));
         foreach (['notify_mail_min', 'notify_tg_min'] as $k) if (in_array(post($k), ['info', 'warning', 'critical', 'off'], true)) setting_set($k, post($k));

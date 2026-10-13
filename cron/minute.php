@@ -6,5 +6,13 @@ $lock = fopen(sys_get_temp_dir() . '/noc-minute.lock', 'c');
 if (!flock($lock, LOCK_EX | LOCK_NB)) exit;
 Alerts::evaluateCron();
 Ufw::write();   // seznam IP-jev za traffic-flow (ufw-sync.sh ga uveljavi vsakih 5 min)
+// varnostna analiza: zapisi požarnega zidu (rsyslog) -> fw_5m, analiza vsakih 5 min
+if (db()->query('SELECT COUNT(*) FROM devices WHERE active=1 AND fwlog_enabled=1')->fetchColumn()) {
+    try {
+        $fw = FwLog::ingest();
+        if ((int)date('i') % 5 === 3) $fw .= ', ' . FwLog::inbound();
+        cron_mark('fwlog', $fw);
+    } catch (\Throwable $e) { error_log('noc fwlog: ' . $e->getMessage()); cron_mark('fwlog', 'napaka: ' . $e->getMessage()); }
+}
 if ((int)date('i') === 7) { Alerts::backups(); Alerts::serverBackup(); }   // enkrat na uro
 cron_mark('minute');

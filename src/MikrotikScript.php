@@ -326,6 +326,7 @@ ROS;
         $s .= self::$auto ? "# --- pozarni zid: nespremenjen (samodejna posodobitev)\n\n" : Firewall::rsc($d);
         $s .= "# --- fetch,info ne polni loga (vsak push bi zapisal vrstico 'Download ... FINISHED'); napake fetcha se se vedno belezijo\n";
         $s .= ":foreach r in=[/system logging find] do={ :if ([:tostr [/system logging get \$r topics]] = \"info\") do={ /system logging set \$r topics=info,!fetch } }\n\n";
+        $s .= FwLog::rsc($d);   // varnostna analiza (stikalo pri napravi) – tudi pri samodejni posodobitvi
         $s .= "# --- prvi zagon: push takoj, backup konfiguracije + preverjanje posodobitev v ozadju (traja ~20 s)\n/system script run noc-push\n:execute script=\"/system script run noc-backup\"\n:log info \"noc: nameščeno – push vsako minuto, backup zdaj in vsak dan ob " . sprintf('%02d:%02d', $hour, $min) . "\"\n";
         return $s;
     }
@@ -337,6 +338,7 @@ ROS;
             . "/ip firewall filter remove [find comment=\"noc: ping s streznika\"]\n/ip firewall filter remove [find comment=\"noc: ping s tigra\"]\n"
             . "/ip traffic-flow target remove [find dst-address=$noc]\n"
             . ":if ([:len [/ip traffic-flow target find]] = 0) do={ /ip traffic-flow set enabled=no }\n"
+            . FwLog::cleanupRsc()
             . ":foreach r in=[/system logging find] do={ :if ([:tostr [/system logging get \$r topics]] = \"info;!fetch\") do={ /system logging set \$r topics=info } }\n"
             . "/ip firewall nat remove [find comment~\"^noc-filter\"]\n/ip firewall filter remove [find comment~\"^noc-filter\"]\n"
             . "/ip firewall raw remove [find comment~\"^noc-filter\"]\n/ip firewall address-list remove [find comment~\"^noc-filter\"]\n/ip dns static remove [find comment~\"^noc-filter\"]\n"

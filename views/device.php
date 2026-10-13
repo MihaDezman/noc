@@ -384,7 +384,66 @@ $upd = $s['upd'] ?? [];
   </table></div><?php endif; ?>
 </section>
 
-<?php elseif ($tab === 'security'): ?>
+<?php elseif ($tab === 'security'): [$fsCls, $fsTxt] = FwLog::state($d); ?>
+<section class="panel" id="fw">
+  <div class="panel-head"><h2><?= icon('shield', 18) ?><?= h(A('Požarni zid – poskusi z interneta')) ?></h2><span class="tag <?= $fsCls ?>"><?= h($fsTxt) ?></span></div>
+  <?php if (!(int)$d['fwlog_enabled']): ?>
+  <div class="empty"><?= empty_art('search') ?><div><?= h(A('Varnostna analiza je za to napravo izklopljena.')) ?></div>
+    <?php if ($isSuper): ?><a class="btn sm" style="margin-top:10px" href="/devices/<?= $id ?>?tab=protect#fwlog"><?= icon('shield', 15) ?><?= h(A('Vklopi na strani Zaščita')) ?></a><?php endif; ?></div>
+  <?php else: $hrs = $fw['hours']; $mx = max(1, max($hrs)); $i = 0; ?>
+  <div class="panel-body">
+    <div class="fw-stats">
+      <div><span class="small muted"><?= h(A('Zavrnjenih poskusov (24 h)')) ?></span><b><?= number_format((int)$fw['tot']['hits'], 0, ',', '.') ?></b></div>
+      <div><span class="small muted"><?= h(A('Različnih naslovov')) ?></span><b><?= number_format((int)$fw['tot']['src'], 0, ',', '.') ?></b></div>
+      <div><span class="small muted"><?= h(A('Različnih portov')) ?></span><b><?= number_format((int)$fw['tot']['ports'], 0, ',', '.') ?></b></div>
+      <div><span class="small muted"><?= h(A('Z varnostne liste')) ?></span><b><?= number_format($fw['bl_in'], 0, ',', '.') ?></b></div>
+    </div>
+    <svg class="fw-bars" viewBox="0 0 840 110" preserveAspectRatio="none" role="img" aria-label="<?= h(A('Poskusi po urah, zadnjih 7 dni')) ?>">
+      <?php foreach ($hrs as $hk => $n): $bh = $n ? max(2, round($n / $mx * 96)) : 0; ?><rect x="<?= $i * 5 ?>" y="<?= 100 - $bh ?>" width="4" height="<?= $bh ?>"><title><?= h(date('d.m. H:00', strtotime($hk)) . ' – ' . $n) ?></title></rect><?php if (substr($hk, 11, 2) === '00'): ?><line x1="<?= $i * 5 ?>" x2="<?= $i * 5 ?>" y1="0" y2="100" class="day"/><?php endif; $i++; endforeach; ?>
+      <line x1="0" x2="840" y1="100.5" y2="100.5" class="axis"/>
+    </svg>
+    <div class="fw-axis small faint"><span><?= h(date('d.m.', time() - 7 * 86400)) ?></span><span><?= h(A('poskusi po urah, zadnjih 7 dni · najvišja ura {n}', ['n' => $mx])) ?></span><span><?= h(A('zdaj')) ?></span></div>
+  </div>
+  <div class="grid g2 fw-tables">
+    <div><h3 class="fw-h"><?= h(A('Največ poskusov (24 h)')) ?></h3>
+      <?php if (!$fw['src']): ?><div class="empty small"><?= h(A('Ni zapisov v zadnjih 24 urah.')) ?></div><?php else: ?>
+      <div class="tbl-wrap"><table class="tbl"><thead><tr><th><?= h(A('Izvorni IP')) ?></th><th class="num"><?= h(A('Poskusov')) ?></th><th><?= h(A('Porti')) ?></th><th><?= h(A('Zadnjič')) ?></th></tr></thead><tbody>
+      <?php foreach ($fw['src'] as $x): ?><tr><td class="mono"><?= h($x['src']) ?></td><td class="num"><b><?= (int)$x['hits'] ?></b></td><td class="small"><?= (int)$x['ports'] > 6 ? '<b>' . (int)$x['ports'] . '</b> · ' : '' ?><span class="mono muted"><?= h($x['pl']) ?></span></td><td class="small nowrap"><?= h(fmt_ago($x['last'])) ?></td></tr><?php endforeach; ?>
+      </tbody></table></div><?php endif; ?></div>
+    <div><h3 class="fw-h"><?= h(A('Najbolj ciljani porti (24 h)')) ?></h3>
+      <?php if (!$fw['ports']): ?><div class="empty small"><?= h(A('Ni zapisov v zadnjih 24 urah.')) ?></div><?php else: ?>
+      <div class="tbl-wrap"><table class="tbl"><thead><tr><th><?= h(A('Port')) ?></th><th class="num"><?= h(A('Poskusov')) ?></th><th class="num"><?= h(A('Naslovov')) ?></th></tr></thead><tbody>
+      <?php foreach ($fw['ports'] as $x): ?><tr><td class="mono"><?= h(FwLog::portLabel($x['proto'], (int)$x['port'])) ?></td><td class="num"><b><?= (int)$x['hits'] ?></b></td><td class="num"><?= (int)$x['src'] ?></td></tr><?php endforeach; ?>
+      </tbody></table></div><?php endif; ?></div>
+  </div>
+  <?php endif; ?>
+</section>
+
+<?php if ((int)$d['fwlog_enabled']): ?>
+<div class="grid g2">
+  <section class="panel">
+    <div class="panel-head"><h2><?= icon('laptop', 18) ?><?= h(A('Naprave v LAN-u – sumljiv odhodni promet')) ?></h2></div>
+    <?php if (!$fw['out'] && !$fw['bl_out']): ?><div class="empty"><?= empty_art('ok') ?><div><?= h(A('Ni sumljivega odhodnega prometa.')) ?></div><div class="small faint" style="margin-top:4px"><?= h(A('Iz traffic-flow (promet prek CPU routerja) in zadetkov varnostne liste.')) ?></div></div>
+    <?php else: ?><div class="tbl-wrap"><table class="tbl"><thead><tr><th><?= h(A('Naprava')) ?></th><th><?= h(A('Ugotovitev')) ?></th><th><?= h(A('Zadnjič')) ?></th></tr></thead><tbody>
+      <?php foreach ($fw['bl_out'] as $x): ?><tr><td class="mono small"><?= h($x['who']) ?></td><td class="small"><span class="tag down"><?= h(A('varnostna lista')) ?></span> <?= h($x['dl']) ?> · <?= (int)$x['hits'] ?>×</td><td class="small nowrap"><?= h(fmt_ago($x['last'])) ?></td></tr><?php endforeach; ?>
+      <?php $thr = Devices::thresholds($d); foreach ($fw['out'] as $x): $f = [];
+        if ((int)$x['bl_hits']) $f[] = '<span class="tag down">' . h(A('varnostna lista')) . '</span> ' . h((string)$x['bl_sample']) . ' · ' . (int)$x['bl_hits'] . '×';
+        if ((int)$x['smtp_ips']) $f[] = '<span class="tag ' . ((int)$x['smtp_ips'] >= (int)$thr['th_out_smtp'] ? 'warn' : '') . '">SMTP</span> ' . h(A('{n} strežnikov', ['n' => (int)$x['smtp_ips']]));
+        if ((int)$x['scan_ips'] >= (int)$thr['th_out_ips']) $f[] = '<span class="tag warn">' . h(A('skeniranje')) . '</span> ' . h(A('port {p} → {n} naslovov', ['p' => (int)$x['scan_port'], 'n' => (int)$x['scan_ips']]));
+        elseif ((int)$x['scan_ips'] >= 20) $f[] = '<span class="muted">' . h(A('port {p} → {n} naslovov', ['p' => (int)$x['scan_port'], 'n' => (int)$x['scan_ips']])) . '</span>';
+        if (!$f) $f[] = '<span class="muted">' . h(A('{n} različnih ciljev v 5 min', ['n' => (int)$x['dst_ips']])) . '</span>'; ?>
+      <tr><td class="mono small"><?= h($x['who']) ?></td><td class="small"><?= implode(' · ', $f) ?></td><td class="small nowrap"><?= h(fmt_ago($x['last'])) ?></td></tr>
+      <?php endforeach; ?>
+    </tbody></table></div><?php endif; ?>
+  </section>
+  <section class="panel">
+    <div class="panel-head"><h2><?= icon('alert', 18) ?><?= h(A('Zaznani dogodki (30 dni)')) ?></h2></div>
+    <?php if (!$fw['events']): ?><div class="empty"><?= empty_art('ok') ?><div><?= h(A('Ni zaznanih dogodkov.')) ?></div></div><?php else: ?>
+    <ul class="feed"><?php foreach ($fw['events'] as $a): ?><li><span class="sev-bar <?= h($a['severity']) ?>"></span><div class="what"><?= h($a['message']) ?></div><span class="when"><?= h(fmt_dt($a['started_at'])) ?></span></li><?php endforeach; ?></ul><?php endif; ?>
+  </section>
+</div>
+<?php endif; ?>
+
 <section class="panel">
   <div class="panel-head"><h2><?= icon('shield', 18) ?><?= h(A('Neuspele prijave na router (30 dni)')) ?></h2><span class="small muted"><?= h(A('Alarm: {n} poskusov z istega IP-ja v {m} min', ['n' => (int)setting('th_attack', '5'), 'm' => (int)setting('th_attack_min', '15')])) ?></span></div>
   <?php if (!$fails): ?><div class="empty"><?= empty_art('ok') ?><div><?= h(A('Ni neuspelih prijav.')) ?></div></div><?php else: ?>
@@ -542,9 +601,29 @@ $upd = $s['upd'] ?? [];
   <?php endif; ?>
 </section>
 
+<?php [$fsCls, $fsTxt] = FwLog::state($d); $fwOn = (int)$d['fwlog_enabled']; ?>
+<section class="panel" id="fwlog" style="margin-top:20px">
+  <div class="panel-head"><h2><?= icon('scroll', 18) ?><?= h(A('Varnostna analiza')) ?></h2><span class="tag <?= $fsCls ?>"><?= h($fsTxt) ?></span></div>
+  <div class="panel-body fwlog-body">
+    <div>
+      <p style="margin-top:0"><?= h(A('Router pošilja zapise požarnega zidu na NOC, ta pa jih analizira skupaj s tokovi iz traffic-flow. Ob nenavadnem vedenju te obvesti.')) ?></p>
+      <ul class="fwlog-list small">
+        <li><b><?= h(A('Od zunaj:')) ?></b> <?= h(A('skeniranje portov, vztrajni poskusi na en port, nenaden porast poskusov, promet z varnostne liste')) ?></li>
+        <li><b><?= h(A('Iz omrežja:')) ?></b> <?= h(A('naprava, ki skenira internet, pošilja pošto mimo strežnika ali kontaktira omrežja z varnostne liste (možna okužba)')) ?></li>
+      </ul>
+      <p class="small muted"><?= h(A('Na routerju doda samo pravila za beleženje z oznako "noc-log" (promet ne blokirajo), omejena na 20 zapisov na minuto na izvorni naslov. Zapisi ne polnijo lokalnega loga routerja. Rezultati so na zavihku Varnost.')) ?></p>
+    </div>
+    <form method="post" action="/devices/<?= $id ?>/fwlog" class="fwlog-act"><?= Auth::csrf() ?>
+      <input type="hidden" name="on" value="<?= $fwOn ? '0' : '1' ?>">
+      <?php if ($fwOn): ?><a class="btn" href="/devices/<?= $id ?>?tab=security#fw"><?= icon('shield', 16) ?><?= h(A('Rezultati')) ?></a><button class="btn"><?= icon('x', 16) ?><?= h(A('Izklopi')) ?></button>
+      <?php else: ?><button class="btn primary"><?= icon('zap', 16) ?><?= h(A('Vklopi')) ?></button><?php endif; ?>
+    </form>
+  </div>
+</section>
+
 <?php elseif ($tab === 'settings'):
   $f = $d; $th = json_decode((string)$d['thresholds'], true) ?: [];
-  $thLabels = ['th_cpu' => ['CPU %', '%'], 'th_temp' => [A('Temperatura'), '°C'], 'th_gw_loss' => [A('Izguba do prehoda'), '%'], 'th_gw_ms' => [A('Latenca do prehoda'), 'ms'], 'th_ext_loss' => [A('Izguba do interneta'), '%'], 'th_ext_ms' => [A('Latenca do interneta'), 'ms'], 'th_offline_min' => [A('Brez pusha'), 'min'], 'th_host_gb_h' => [A('Naprava v LAN – GB/uro'), 'GB'], 'th_host_mbps' => [A('Naprava v LAN – Mb/s'), 'Mb/s'], 'th_attack' => [A('Napad: neuspelih prijav'), A('št.')], 'th_pool' => [A('Zasedenost IP poola'), '%'], 'th_backup_days' => [A('Brez backupa'), A('dni')]];
+  $thLabels = ['th_cpu' => ['CPU %', '%'], 'th_temp' => [A('Temperatura'), '°C'], 'th_gw_loss' => [A('Izguba do prehoda'), '%'], 'th_gw_ms' => [A('Latenca do prehoda'), 'ms'], 'th_ext_loss' => [A('Izguba do interneta'), '%'], 'th_ext_ms' => [A('Latenca do interneta'), 'ms'], 'th_offline_min' => [A('Brez pusha'), 'min'], 'th_host_gb_h' => [A('Naprava v LAN – GB/uro'), 'GB'], 'th_host_mbps' => [A('Naprava v LAN – Mb/s'), 'Mb/s'], 'th_attack' => [A('Napad: neuspelih prijav'), A('št.')], 'th_pool' => [A('Zasedenost IP poola'), '%'], 'th_backup_days' => [A('Brez backupa'), A('dni')], 'th_fw_ports' => [A('Skeniranje: različnih portov'), A('v 15 min')], 'th_out_ips' => [A('Okužena naprava: ciljev na en port'), A('v 5 min')], 'th_out_smtp' => [A('Spam: SMTP strežnikov'), A('v 5 min')]];
 ?>
 <form class="form" method="post" action="/devices/<?= $id ?>/save">
   <?= Auth::csrf() ?>
