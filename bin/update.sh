@@ -58,6 +58,12 @@ for f in $(ls -1 sql/update-*.sql 2>/dev/null | sort -V); do
     ok "baza: $b"
 done
 
+# 4a. routerji prevzamejo novo skripto že ob naslednjem pushu (brez 30-min čakanja po prejšnjem poskusu)
+#     routerji z isto verzijo skripte se ne posodabljajo, zato je ponastavitev neškodljiva
+if mysql --defaults-extra-file="$MYCNF" noc -e "UPDATE devices SET upd_attempt_at=NULL" 2>/dev/null; then
+    ok "routerji se posodobijo ob naslednjem pushu"
+else echo -e "  \e[33m! čakanje na samodejno posodobitev routerjev ni ponastavljeno (do 30 min)\e[0m"; fi
+
 # 4b. sprejem logov požarnega zidu (rsyslog, UDP 5514) – idempotentno, ob napaki samo opozorilo
 if [ -f bin/fwlog-setup.sh ]; then
     if R=$(bash bin/fwlog-setup.sh 2>&1); then ok "logi požarnega zidu: $(echo "$R" | tail -n 1)"
