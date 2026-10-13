@@ -73,10 +73,18 @@ final class Metrics
         return $out;
     }
 
+    /** Brisanje v kosih po 5000 vrstic (kratki zaklepi; pushi med brisanjem tečejo naprej) */
+    private static function purge(string $table, string $where): void
+    {
+        do { $n = db()->exec("DELETE FROM $table WHERE $where LIMIT 5000"); if ($n === 5000) usleep(50000); } while ($n === 5000);
+    }
+
     /** Vsako noč: dnevni povzetki in brisanje starih podatkov */
     public static function rollup(): void
     {
         $pdo = db();
+        // brez zaklepanja obsegov: nočno brisanje ne sme ustaviti pushov z routerjev
+        $pdo->exec('SET SESSION TRANSACTION ISOLATION LEVEL READ COMMITTED');
         $pdo->exec('INSERT INTO iface_daily (device_id, iface, day, rx_bytes, tx_bytes, rx_peak, tx_peak)
                     SELECT device_id, iface, DATE(ts), SUM(rx_bytes), SUM(tx_bytes), MAX(rx_peak), MAX(tx_peak) FROM iface_5m
                     WHERE ts >= CURDATE() - INTERVAL 3 DAY AND ts < CURDATE() GROUP BY device_id, iface, DATE(ts)
@@ -89,23 +97,26 @@ final class Metrics
                     SELECT device_id, DATE(ts), kind, SUM(hits), COUNT(DISTINCT src), COUNT(DISTINCT port) FROM fw_5m
                     WHERE ts >= CURDATE() - INTERVAL 3 DAY AND ts < CURDATE() GROUP BY device_id, DATE(ts), kind
                     ON DUPLICATE KEY UPDATE hits=VALUES(hits), sources=VALUES(sources), ports=VALUES(ports)');
-        $pdo->exec('DELETE FROM iface_1m WHERE ts < NOW() - INTERVAL 48 HOUR');
-        $pdo->exec('DELETE FROM health_1m WHERE ts < NOW() - INTERVAL 48 HOUR');
-        $pdo->exec('DELETE FROM iface_5m WHERE ts < NOW() - INTERVAL 35 DAY');
-        $pdo->exec('DELETE FROM health_5m WHERE ts < NOW() - INTERVAL 35 DAY');
-        $pdo->exec('DELETE FROM host_5m WHERE ts < NOW() - INTERVAL 8 DAY');
-        $pdo->exec('DELETE FROM iface_daily WHERE day < CURDATE() - INTERVAL 400 DAY');
-        $pdo->exec('DELETE FROM host_daily WHERE day < CURDATE() - INTERVAL 400 DAY');
-        $pdo->exec('DELETE FROM logs WHERE ts < NOW() - INTERVAL 90 DAY');
-        $pdo->exec('DELETE FROM sfp_5m WHERE ts < NOW() - INTERVAL 35 DAY');
-        $pdo->exec('DELETE FROM iface_events WHERE ts < NOW() - INTERVAL 365 DAY');
-        $pdo->exec('DELETE FROM fw_5m WHERE ts < NOW() - INTERVAL 7 DAY');
-        $pdo->exec('DELETE FROM out_5m WHERE ts < NOW() - INTERVAL 7 DAY');
-        $pdo->exec('DELETE FROM fw_daily WHERE day < CURDATE() - INTERVAL 400 DAY');
-        $pdo->exec('DELETE FROM alerts WHERE ended_at < NOW() - INTERVAL 365 DAY');
-        $pdo->exec('DELETE FROM lan_hosts WHERE last_seen < NOW() - INTERVAL 180 DAY');
-        $pdo->exec('DELETE FROM login_attempts WHERE at < NOW() - INTERVAL 7 DAY');
-        $pdo->exec('DELETE FROM backup_parts WHERE at < NOW() - INTERVAL 1 DAY');
+        self::purge('iface_1m', 'ts < NOW() - INTERVAL 48 HOUR');
+        self::purge('health_1m', 'ts < NOW() - INTERVAL 48 HOUR');
+        self::purge('iface_5m', 'ts < NOW() - INTERVAL 35 DAY');
+        self::purge('health_5m', 'ts < NOW() - INTERVAL 35 DAY');
+        self::purge('host_5m', 'ts < NOW() - INTERVAL 8 DAY');
+        self::purge('iface_daily', 'day < CURDATE() - INTERVAL 400 DAY');
+        self::purge('host_daily', 'day < CURDATE() - INTERVAL 400 DAY');
+        self::purge('logs', 'ts < NOW() - INTERVAL 90 DAY');
+        self::purge('sfp_5m', 'ts < NOW() - INTERVAL 35 DAY');
+        self::purge('iface_events', 'ts < NOW() - INTERVAL 365 DAY');
+        self::purge('fw_5m', 'ts < NOW() - INTERVAL 7 DAY');
+        self::purge('out_5m', 'ts < NOW() - INTERVAL 7 DAY');
+        self::purge('fw_daily', 'day < CURDATE() - INTERVAL 400 DAY');
+        self::purge('alerts', 'ended_at < NOW() - INTERVAL 365 DAY');
+        // varnostni dogodki (skeniranja, sumljiv odhodni promet) so pogosti – zavihek Varnost kaže 30 dni
+        self::purge('alerts', "ended_at < NOW() - INTERVAL 90 DAY AND (akey LIKE 'fwscan:%' OR akey = 'fwspike' OR akey LIKE 'outbl:%' OR akey LIKE 'outscan:%' OR akey LIKE 'outsmtp:%')");
+        self::purge('audit', 'at < NOW() - INTERVAL 730 DAY');
+        self::purge('lan_hosts', 'last_seen < NOW() - INTERVAL 180 DAY');
+        self::purge('login_attempts', 'at < NOW() - INTERVAL 7 DAY');
+        self::purge('backup_parts', 'at < NOW() - INTERVAL 1 DAY');
         // backupi: zadnjih 60 sprememb na napravo
         foreach ($pdo->query('SELECT DISTINCT device_id FROM config_backups')->fetchAll(PDO::FETCH_COLUMN) as $id) {
             $pdo->exec('DELETE FROM config_backups WHERE device_id=' . (int)$id . ' AND id NOT IN (SELECT id FROM (SELECT id FROM config_backups WHERE device_id=' . (int)$id . ' ORDER BY created_at DESC LIMIT 60) x)');

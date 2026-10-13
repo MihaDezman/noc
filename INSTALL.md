@@ -16,13 +16,15 @@ GRANT ALL ON noc.* TO 'noc'@'localhost';"
 sudo mkdir -p /var/www/noc
 # razširi zip v /var/www/noc
 cd /var/www/noc
-sudo -u www-data composer install          # PHPMailer
+sudo composer install                      # PHPMailer
 mysql -u noc -p noc < sql/schema.sql
 cp config.sample.php config.php
 php -r "echo bin2hex(random_bytes(32)), PHP_EOL;"   # vrednost za app_secret
 nano config.php                             # geslo baze, app_secret, SMTP, noc_ip
-sudo chown -R www-data:www-data /var/www/noc
-sudo chmod 640 config.php
+# koda v lasti root, splet (www-data) jo samo bere – root skripte v bin/ ne smejo biti zapisljive za splet
+sudo chown -R root:www-data /var/www/noc
+sudo find /var/www/noc -path /var/www/noc/.git -prune -o -type d -exec chmod 750 {} + -o -type f -exec chmod 640 {} +
+sudo chmod 750 /var/www/noc/bin/*.sh
 ```
 
 `app_secret` po zagonu NE spreminjaj – z njim so šifrirani API ključi routerjev in Telegram token.

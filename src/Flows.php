@@ -14,7 +14,7 @@ final class Flows
         $last = setting('flow_last', '');
         $files = glob($dir . '/nfcapd.[0-9]*') ?: [];
         sort($files);
-        $devs = db()->query('SELECT * FROM devices WHERE active=1 AND flow_enabled=1')->fetchAll();
+        $devs = db()->query('SELECT ' . Devices::listCols('d') . ' FROM devices d WHERE d.active=1 AND d.flow_enabled=1')->fetchAll();
         $byIp = [];
         foreach ($devs as $d) {
             $d['_nets'] = Devices::list((string)$d['lan_networks']);

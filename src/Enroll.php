@@ -76,11 +76,13 @@ ROS;
     {
         $upload = preg_replace('/[^0-9a-zA-Z]/', '', $upload);
         if ($upload === '' || $part < 0 || $part > 500 || $size <= 0 || $size > 8 * 1024 * 1024) return ['error' => 'bad'];
+        if ($part * 30000 >= $size) return ['error' => 'bad'];
         $pdo = db();
         $pdo->prepare('REPLACE INTO enroll_parts (enroll_id, upload_id, part, data) VALUES (?,?,?,?)')->execute([$e['id'], $upload, $part, $data]);
         $pdo->prepare("UPDATE enroll_codes SET status='receiving', router_ip=? WHERE id=?")->execute([client_ip(), $e['id']]);
         $st = $pdo->prepare('SELECT data FROM enroll_parts WHERE enroll_id=? AND upload_id=? ORDER BY part'); $st->execute([$e['id'], $upload]);
         $all = implode('', $st->fetchAll(PDO::FETCH_COLUMN));
+        if (strlen($all) > $size + 65536) { $pdo->prepare('DELETE FROM enroll_parts WHERE enroll_id=? AND upload_id=?')->execute([$e['id'], $upload]); return ['error' => 'bad']; }
         if (strlen($all) < $size) return ['ok' => true];
         $pdo->prepare("UPDATE enroll_codes SET status='received', export_raw=? WHERE id=?")->execute([str_replace("\r", '', $all), $e['id']]);
         $pdo->prepare('DELETE FROM enroll_parts WHERE enroll_id=?')->execute([$e['id']]);

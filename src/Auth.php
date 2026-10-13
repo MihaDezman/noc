@@ -10,6 +10,7 @@ final class Auth
     {
         $https = !empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off';
         session_name($https ? '__Host-noc_sid' : 'noc_sid');   // __Host-: samo HTTPS, brez domene – ni ga mogoče podtakniti s poddomene
+        ini_set('session.use_strict_mode', '1');   // ne sprejmi ID-ja seje, ki ga ni ustvaril strežnik
         session_set_cookie_params(['lifetime' => 0, 'path' => '/', 'secure' => $https, 'httponly' => true, 'samesite' => 'Lax']);
         session_start();
         if (!empty($_SESSION['uid'])) {
@@ -26,9 +27,13 @@ final class Auth
 
     public static function loginBlocked(string $email): bool
     {
-        $st = db()->prepare('SELECT (SELECT COUNT(*) FROM login_attempts WHERE email=? AND at > NOW() - INTERVAL 15 MINUTE) a, (SELECT COUNT(*) FROM login_attempts WHERE ip=? AND at > NOW() - INTERVAL 15 MINUTE) b');
-        $st->execute([mb_strtolower($email), client_ip()]); $r = $st->fetch();
-        return $r['a'] >= 5 || $r['b'] >= 15;
+        // 5 poskusov za uporabnika z istega IP, 15 z enega IP skupaj; za uporabnika z vseh IP-jev 50 (porazdeljen napad).
+        // Tuj IP z 5 napačnimi gesli tako ne zaklene prave prijave uporabnika.
+        $st = db()->prepare('SELECT (SELECT COUNT(*) FROM login_attempts WHERE email=? AND ip=? AND at > NOW() - INTERVAL 15 MINUTE) a,
+                                    (SELECT COUNT(*) FROM login_attempts WHERE ip=? AND at > NOW() - INTERVAL 15 MINUTE) b,
+                                    (SELECT COUNT(*) FROM login_attempts WHERE email=? AND at > NOW() - INTERVAL 15 MINUTE) c');
+        $e = mb_strtolower($email); $st->execute([$e, client_ip(), client_ip(), $e]); $r = $st->fetch();
+        return $r['a'] >= 5 || $r['b'] >= 15 || $r['c'] >= 50;
     }
 
     /** Prijava z geslom: 'ok' (prijavljen), 'totp' (čaka na kodo 2FA) ali false */
@@ -37,7 +42,9 @@ final class Auth
         $email = mb_strtolower(trim($email));
         if (self::loginBlocked($email)) return false;
         $st = db()->prepare('SELECT * FROM users WHERE email=? AND active=1'); $st->execute([$email]); $u = $st->fetch();
-        if (!$u || !password_verify($password, $u['pass_hash'])) { self::fail($email); return false; }
+        // neznan uporabnik: vseeno preveri (lažno) geslo, da čas odgovora ne izda, ali uporabnik obstaja
+        if (!$u) { password_verify($password, '$2y$10$usesomesillystringfore7hnbRJHxXVLeakoG8K30oukPsA.ztMG'); self::fail($email); return false; }
+        if (!password_verify($password, $u['pass_hash'])) { self::fail($email); return false; }
         if (!empty($u['totp_secret'])) {
             session_regenerate_id(true);
             $_SESSION['2fa_uid'] = (int)$u['id']; $_SESSION['2fa_at'] = time();
@@ -56,13 +63,23 @@ final class Auth
         if (!$u || self::loginBlocked($u['email'])) return false;
         $step = Totp::verify(dec($u['totp_secret']), $code, $u['totp_last'] !== null ? (int)$u['totp_last'] : null);
         if ($step === null) { self::fail($u['email']); return false; }
-        db()->prepare('UPDATE users SET totp_last=? WHERE id=?')->execute([$step, $uid]);
+        // atomarno: ista koda v dveh hkratnih zahtevah velja samo enkrat
+        $up = db()->prepare('UPDATE users SET totp_last=? WHERE id=? AND (totp_last IS NULL OR totp_last < ?)'); $up->execute([$step, $uid, $step]);
+        if ($up->rowCount() !== 1) { self::fail($u['email']); return false; }
         unset($_SESSION['2fa_uid'], $_SESSION['2fa_at']);
         self::finish($u);
         return true;
     }
 
     public static function pendingTotp(): bool { return !empty($_SESSION['2fa_uid']) && time() - (int)($_SESSION['2fa_at'] ?? 0) <= 300; }
+
+    /** Ponovna potrditev gesla prijavljenega uporabnika (sprememba gesla, izklop 2FA) – z enako omejitvijo poskusov */
+    public static function checkPassword(string $password): bool
+    {
+        $u = self::$user; if (!$u || self::loginBlocked($u['email'])) return false;
+        if (password_verify($password, $u['pass_hash'])) return true;
+        self::fail($u['email']); return false;
+    }
 
     private static function fail(string $email): void
     {

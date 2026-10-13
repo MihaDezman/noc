@@ -12,7 +12,7 @@ final class Ingest
     public static function pushLocked(array $d, array $b): array
     {
         $pdo = db(); $lock = 'noc-push-' . (int)$d['id'];
-        $st = $pdo->prepare('SELECT GET_LOCK(?, 50)'); $st->execute([$lock]);
+        $st = $pdo->prepare('SELECT GET_LOCK(?, 15)'); $st->execute([$lock]);   // dlje ne čakamo: router pošlje znova čez minuto
         if ((int)$st->fetchColumn() !== 1) throw new \RuntimeException('push busy');
         try {
             for ($try = 1; ; $try++) {
@@ -33,6 +33,9 @@ final class Ingest
         $pdo = db(); $id = (int)$d['id']; $now = time(); $ts = date('Y-m-d H:i:00', $now);
         $pdo->beginTransaction();   // push se zapiše v celoti ali sploh ne
         try {
+        // omejitev velikosti polj (zaščita pred prevelikim ali zlonamernim pushom)
+        foreach (['ifs' => 512, 'rates' => 512, 'sfp' => 64, 'leases' => 4096, 'pools' => 64, 'logs' => 300, 'wg' => 64, 'health' => 64] as $k => $max)
+            if (is_array($b[$k] ?? null) && count($b[$k]) > $max) $b[$k] = $k === 'logs' ? array_slice($b[$k], -$max) : array_slice($b[$k], 0, $max, true);   // logi: najnovejši
         $res = is_array($b['res'] ?? null) ? $b['res'] : [];
         $rb = is_array($b['rb'] ?? null) ? $b['rb'] : [];
         $ping = is_array($b['ping'] ?? null) ? $b['ping'] : [];
@@ -195,8 +198,9 @@ final class Ingest
         ];
         $rebooted = $d['last_uptime'] !== null && $uptime !== null && $uptime + 120 < (int)$d['last_uptime'];
         $pdo->prepare('UPDATE devices SET last_seen_at=NOW(), last_seen_ip=?, last_uptime=?, status_json=?, model=IF(?<>"", ?, model), serial=IF(?<>"", ?, serial), os_version=?, firmware=?, arch=? WHERE id=?')
-            ->execute([client_ip(), $uptime, json_encode($status, JSON_UNESCAPED_UNICODE), (string)($rb['model'] ?? $res['board'] ?? ''), (string)($rb['model'] ?? $res['board'] ?? ''),
-                (string)($rb['serial'] ?? ''), (string)($rb['serial'] ?? ''), mb_substr((string)($res['ver'] ?? ''), 0, 40), (string)($rb['fw'] ?? ''), (string)($res['arch'] ?? ''), $id]);
+            ->execute([client_ip(), $uptime, json_encode($status, JSON_UNESCAPED_UNICODE), $model = mb_substr(ros_clean((string)($rb['model'] ?? $res['board'] ?? '')), 0, 80), $model,
+                $serial = mb_substr(ros_clean((string)($rb['serial'] ?? '')), 0, 40), $serial, mb_substr(ros_clean((string)($res['ver'] ?? '')), 0, 40),
+                mb_substr(ros_clean((string)($rb['fw'] ?? '')), 0, 40), mb_substr(ros_clean((string)($res['arch'] ?? '')), 0, 20), $id]);
 
         $pdo->commit();
         } catch (\Throwable $e) { if ($pdo->inTransaction()) $pdo->rollBack(); throw $e; }
@@ -368,23 +372,54 @@ final class Ingest
         $pdo = db(); $id = (int)$d['id'];
         $upload = preg_replace('/[^0-9a-zA-Z]/', '', $upload);
         if ($upload === '' || $part < 0 || $part > 500 || $size <= 0 || $size > 8 * 1024 * 1024) return ['error' => 'bad'];
+        if ($part * 30000 >= $size) return ['error' => 'bad'];   // kos za koncem datoteke
+        // nedokončani prenosi te naprave (starejši od ure) se pobrišejo – v tabeli ne more nastati kup
+        $pdo->prepare('DELETE FROM backup_parts WHERE device_id=? AND upload_id<>? AND at < NOW() - INTERVAL 1 HOUR')->execute([$id, $upload]);
         $pdo->prepare('REPLACE INTO backup_parts (device_id, upload_id, part, data) VALUES (?,?,?,?)')->execute([$id, $upload, $part, $data]);
         $st = $pdo->prepare('SELECT part, data FROM backup_parts WHERE device_id=? AND upload_id=? ORDER BY part'); $st->execute([$id, $upload]);
         $parts = $st->fetchAll(); $all = implode('', array_column($parts, 'data'));
+        if (strlen($all) > $size + 65536) { $pdo->prepare('DELETE FROM backup_parts WHERE device_id=? AND upload_id=?')->execute([$id, $upload]); return ['error' => 'bad']; }
         if (strlen($all) < $size) return ['ok' => true, 'parts' => count($parts)];
         $pdo->prepare('DELETE FROM backup_parts WHERE device_id=? AND (upload_id=? OR at < NOW() - INTERVAL 1 DAY)')->execute([$id, $upload]);
         return self::storeBackup($d, $all);
     }
 
+    /** API ključ naprave (v izvozu je v skripti noc-push) se ne shrani v backup – kopija backupa ne sme omogočiti pošiljanja v NOC */
+    public static function stripKey(array $d, string $content): string
+    {
+        $key = dec($d['api_key_enc'] ?? null);
+        return strlen($key) >= 20 ? str_replace($key, 'NOC-KLJUC-ODSTRANJEN', $content) : $content;
+    }
+
+    /** Enkratno: odstrani ključe iz že shranjenih backupov (sha1 se preračuna, da naslednji backup ne javi spremembe) */
+    public static function stripKeysOnce(): string
+    {
+        if (setting('bk_keys_stripped') === '1') return '';
+        $n = 0; $pdo = db();
+        foreach ($pdo->query('SELECT id, api_key_enc FROM devices')->fetchAll() as $d) {
+            $key = dec($d['api_key_enc'] ?? null); if (strlen($key) < 20) continue;
+            $st = $pdo->prepare('SELECT id, content FROM config_backups WHERE device_id=? AND INSTR(content, ?) > 0'); $st->execute([$d['id'], $key]);
+            $up = $pdo->prepare('UPDATE config_backups SET content=?, sha1=?, bytes=? WHERE id=?');
+            foreach ($st->fetchAll() as $b) {
+                $c = str_replace($key, 'NOC-KLJUC-ODSTRANJEN', $b['content']);
+                $up->execute([$c, sha1(Diff::normalize($c)), strlen($c), $b['id']]); $n++;
+            }
+        }
+        setting_set('bk_keys_stripped', '1');
+        return "kljuci iz backupov: $n";
+    }
+
     public static function storeBackup(array $d, string $content): array
     {
         $pdo = db(); $id = (int)$d['id'];
-        $content = str_replace("\r", '', $content);
+        $content = self::stripKey($d, str_replace("\r", '', $content));
         $norm = Diff::normalize($content); $sha = sha1($norm);
         $st = $pdo->prepare('SELECT id, sha1, content FROM config_backups WHERE device_id=? ORDER BY created_at DESC LIMIT 1'); $st->execute([$id]);
         $last = $st->fetch();
-        if ($last && $last['sha1'] === $sha) { $pdo->prepare('UPDATE config_backups SET created_at=NOW() WHERE id=?')->execute([$last['id']]); return ['ok' => true, 'changed' => false]; }
-        [$add, $rem] = $last ? Diff::count(Diff::normalize($last['content']), $norm) : [substr_count($norm, "\n") + 1, 0];
+        // prejšnji backup primerjamo brez ključa (starejši backupi ga še lahko vsebujejo) – sicer lažna "sprememba"
+        $lastNorm = $last ? Diff::normalize(self::stripKey($d, $last['content'])) : '';
+        if ($last && sha1($lastNorm) === $sha) { $pdo->prepare('UPDATE config_backups SET created_at=NOW() WHERE id=?')->execute([$last['id']]); return ['ok' => true, 'changed' => false]; }
+        [$add, $rem] = $last ? Diff::count($lastNorm, $norm) : [substr_count($norm, "\n") + 1, 0];
         $pdo->prepare('INSERT INTO config_backups (device_id, created_at, sha1, bytes, added, removed, content) VALUES (?, NOW(), ?, ?, ?, ?, ?)')
             ->execute([$id, $sha, strlen($content), $add, $rem, $content]);
         if ($last) Alerts::event($d, 'config', 'info', A('Konfiguracija spremenjena: +{a} / −{r} vrstic', ['a' => $add, 'r' => $rem]));

@@ -14,7 +14,7 @@ final class FwLog
     public static function port(): int { return (int)cfg('fwlog_port', 5514); }
     public static function file(): string { return (string)cfg('fwlog_file', '/var/log/noc-fw/fw.log'); }
 
-    private static function q(string $s): string { return str_replace(['\\', '"', '$'], ['\\\\', '\\"', '\\$'], $s); }
+    private static function q(string $s): string { return ros_esc($s); }
 
     /** Izbira WAN za pravilo: seznam WAN, sicer vmesnik WAN; '' = ni mogoče */
     public static function wanSel(array $d): string
@@ -108,7 +108,11 @@ final class FwLog
         $pos = self::read($f, $pos, $byIp, $agg, $seen, $n, $skip);
         $pdo = db();
         $ins = $pdo->prepare('INSERT INTO fw_5m (device_id, ts, kind, src, dst, proto, port, hits) VALUES (?,?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE hits=hits+VALUES(hits)');
-        foreach ($agg as $k => $hits) { [$id, $ts, $kind, $src, $dst, $proto, $port] = explode('|', $k); $ins->execute([(int)$id, $ts, $kind, $src, $dst, $proto, (int)$port, $hits]); }
+        $pdo->beginTransaction();   // ena transakcija namesto zapisa na disk za vsako vrstico
+        try {
+            foreach ($agg as $k => $hits) { [$id, $ts, $kind, $src, $dst, $proto, $port] = explode('|', $k); $ins->execute([(int)$id, $ts, $kind, $src, $dst, $proto, (int)$port, $hits]); }
+            $pdo->commit();
+        } catch (\Throwable $e) { $pdo->rollBack(); throw $e; }
         $up = $pdo->prepare('UPDATE devices SET fwlog_seen_at=FROM_UNIXTIME(?) WHERE id=?');
         foreach ($seen as $id => $t) $up->execute([$t, $id]);
         setting_set('fwlog_pos', $st['ino'] . ':' . $pos . ':' . self::head($f, $pos));
@@ -128,7 +132,7 @@ final class FwLog
     private static function read(string $f, int $pos, array $byIp, array &$agg, array &$seen, int &$n, int &$skip): int
     {
         $h = fopen($f, 'r'); if (!$h) return $pos;
-        fseek($h, $pos); $limit = $pos + 50 * 1024 * 1024;
+        fseek($h, $pos); $limit = $pos + 50 * 1024 * 1024; $keys = [];
         while ($pos < $limit && ($line = fgets($h)) !== false) {
             if (!str_ends_with($line, "\n")) break;
             $pos += strlen($line);
@@ -137,6 +141,8 @@ final class FwLog
             $id = $byIp[$r['from']] ?? null; if (!$id) { $skip++; continue; }
             $slot = date('Y-m-d H:i:00', $r['t'] - $r['t'] % 300);
             $key = implode('|', [$id, $slot, $r['kind'], $r['src'], $r['dst'], $r['proto'], $r['port']]);
+            // omejitev različnih zapisov na napravo v enem branju (poplava ali ponarejeni UDP paketi ne napihnejo baze)
+            if (!isset($agg[$key]) && ($keys[$id] = ($keys[$id] ?? 0) + 1) > 20000) { $skip++; continue; }
             $agg[$key] = ($agg[$key] ?? 0) + 1; $n++;
             $seen[$id] = max($seen[$id] ?? 0, $r['t']);
         }
@@ -160,7 +166,7 @@ final class FwLog
     public static function inbound(): string
     {
         $out = 0;
-        foreach (db()->query('SELECT * FROM devices WHERE active=1 AND fwlog_enabled=1')->fetchAll() as $d) {
+        foreach (db()->query('SELECT ' . Devices::listCols('d') . ' FROM devices d WHERE d.active=1 AND d.fwlog_enabled=1')->fetchAll() as $d) {
             $d = Devices::decorate($d); $th = Devices::thresholds($d); $id = (int)$d['id'];
             // skeniranje portov / vztrajno napadanje enega porta (zadnjih 15 min, po izvornem naslovu)
             $st = db()->prepare("SELECT src, COUNT(DISTINCT proto, port) ports, SUM(hits) hits, GROUP_CONCAT(DISTINCT port ORDER BY port SEPARATOR ',') pl

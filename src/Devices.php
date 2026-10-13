@@ -4,11 +4,29 @@ declare(strict_types=1);
 /** Naprave: branje z upoštevanjem pravic, stanje, API ključi */
 final class Devices
 {
+    /**
+     * Stolpci naprave brez velikih polj (celoten /export in analiza, 20–200 kB na napravo) – za sezname.
+     * Kdor potrebuje export_raw/analysis_json (paket, verzija skripte, pregled požarnega zidu), ju prebere sam.
+     */
+    public static function listCols(string $alias = 'd'): string
+    {
+        static $cols = null;
+        $cols ??= array_values(array_diff(db()->query('SHOW COLUMNS FROM devices')->fetchAll(PDO::FETCH_COLUMN), ['export_raw', 'analysis_json']));
+        return implode(', ', array_map(fn($c) => "$alias.`$c`", $cols));
+    }
+
+    /** Polna vrstica naprave (z velikimi polji), brez preverjanja pravic – za notranjo rabo */
+    public static function full(int $id): ?array
+    {
+        $st = db()->prepare('SELECT d.*, t.name tenant_name FROM devices d LEFT JOIN tenants t ON t.id=d.tenant_id WHERE d.id=?'); $st->execute([$id]);
+        return $st->fetch() ?: null;
+    }
+
     /** Seznam naprav, ki jih uporabnik vidi; z naročnikom in številom odprtih alarmov */
     public static function all(?int $tenantId = null): array
     {
         [$w, $p] = Auth::deviceScope('d');
-        $sql = "SELECT d.*, t.name tenant_name,
+        $sql = "SELECT " . self::listCols('d') . ", t.name tenant_name,
                   (SELECT MAX(FIELD(a.severity,'info','warning','critical')) FROM alerts a WHERE a.device_id=d.id AND a.ended_at IS NULL) alert_level,
                   (SELECT COUNT(*) FROM alerts a WHERE a.device_id=d.id AND a.ended_at IS NULL) alert_count
                 FROM devices d LEFT JOIN tenants t ON t.id=d.tenant_id WHERE d.active=1 AND $w";
@@ -74,6 +92,17 @@ final class Devices
         usort($rows, fn($a, $b) => strnatcasecmp(self::ifaceSortKey($a), self::ifaceSortKey($b)));
         return $rows;
     }
+    /** Vmesniki več naprav z eno poizvedbo: [device_id => vrstice] (enak vrstni red kot ifaces()) */
+    public static function ifacesMany(array $ids): array
+    {
+        $ids = array_values(array_unique(array_map('intval', $ids))); $out = array_fill_keys($ids, []);
+        if (!$ids) return $out;
+        $st = db()->prepare('SELECT * FROM device_ifaces WHERE device_id IN (' . implode(',', array_fill(0, count($ids), '?')) . ')'); $st->execute($ids);
+        foreach ($st as $r) $out[(int)$r['device_id']][] = $r;
+        foreach ($out as &$rows) usort($rows, fn($a, $b) => strnatcasecmp(self::ifaceSortKey($a), self::ifaceSortKey($b)));
+        return $out;
+    }
+
     private static function ifaceSortKey(array $i): string
     {
         $order = ['ether' => 1, 'sfp' => 1, 'combo' => 1, 'wlan' => 2, 'wifi' => 2, 'bridge' => 3, 'vlan' => 4, 'wg' => 5];
@@ -97,7 +126,7 @@ final class Devices
     public static function byKey(string $key): ?array
     {
         if (strlen($key) < 20) return null;
-        $st = db()->prepare('SELECT * FROM devices WHERE api_key_hash=? AND active=1'); $st->execute([hash('sha256', $key)]);
+        $st = db()->prepare('SELECT ' . self::listCols('d') . ' FROM devices d WHERE d.api_key_hash=? AND d.active=1'); $st->execute([hash('sha256', $key)]);
         return $st->fetch() ?: null;
     }
 

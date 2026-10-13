@@ -19,9 +19,23 @@ final class MikrotikScript
      * Verzija = kratek hash vsebine samodejnega paketa (brez datumov). Ista nastavitev = ista verzija,
      * zato se router posodobi samo, ko se v NOC res kaj spremeni (koda ali nastavitve naprave).
      */
+    /**
+     * Vrednosti naprave brez kontrolnih znakov, preden gredo v .rsc (model, imena, DNS ... pridejo tudi z routerja
+     * ali iz izvoza – nova vrstica bi v skripti začela nov ukaz). export_raw ostane cel (ga beremo kot izvoz).
+     */
+    private static function safe(array $d): array
+    {
+        foreach ($d as $k => $v) if (is_string($v) && $k !== 'export_raw' && $k !== 'notes') $d[$k] = ros_clean($v);
+        $d['cmt_name'] = ros_cmt((string)($d['name'] ?? ''));
+        return $d;
+    }
+
     public static function version(array $d): string
     {
-        $key = dec($d['api_key_enc'] ?? null); $an = json_decode((string)($d['analysis_json'] ?? ''), true) ?: [];
+        // iz seznama naprav (brez velikih polj) – verzija se mora izračunati iz polne vrstice, sicer bi bila napačna
+        if (!array_key_exists('analysis_json', $d) || !array_key_exists('export_raw', $d)) $d = Devices::full((int)$d['id']) ?? $d;
+        $d = self::safe($d);
+        $key = dec($d['api_key_enc'] ?? null); $an = ros_clean_deep(json_decode((string)($d['analysis_json'] ?? ''), true) ?: []);
         [$a, $v] = [self::$auto, self::$ver]; self::$auto = true; self::$ver = '%%VER%%';
         $t = self::install($d, $an, $key);
         [self::$auto, self::$ver] = [$a, $v];
@@ -58,7 +72,8 @@ final class MikrotikScript
     /** Ob pushu: ali naj router prenese novo skripto (največ enkrat na 30 min) */
     public static function needsUpdate(array $d, string $sv): bool
     {
-        db()->prepare('UPDATE devices SET script_ver=? WHERE id=?')->execute([$sv !== '' ? mb_substr($sv, 0, 12) : null, $d['id']]);
+        $svDb = $sv !== '' ? mb_substr($sv, 0, 12) : null;
+        if (($d['script_ver'] ?? null) !== $svDb) db()->prepare('UPDATE devices SET script_ver=? WHERE id=?')->execute([$svDb, $d['id']]);   // zapis samo ob spremembi
         if ($sv === '' || !(int)($d['auto_update'] ?? 1)) return false;
         if ($sv === self::expectedVersion($d)) return false;
         if ($d['upd_attempt_at'] && strtotime($d['upd_attempt_at']) > time() - 1800) return false;
@@ -69,8 +84,9 @@ final class MikrotikScript
 
     public static function package(array $d, bool $auto = false): array
     {
+        $d = self::safe($d);
         $key = dec($d['api_key_enc'] ?? null);
-        $an = json_decode((string)($d['analysis_json'] ?? ''), true) ?: [];
+        $an = ros_clean_deep(json_decode((string)($d['analysis_json'] ?? ''), true) ?: []);
         self::$ver = self::version($d); self::$auto = $auto;
         try { return self::files($d, $an, $key); } finally { self::$auto = false; self::$ver = '%%VER%%'; }
     }
@@ -97,7 +113,7 @@ final class MikrotikScript
         $ext = trim((string)($d['ping_target'] ?? '')) ?: '1.1.1.1';
         $inc = (string)($d['log_include'] ?? ''); $exc = (string)($d['log_exclude'] ?? '');
         return <<<ROS
-# NOC push – {$d['name']} – generirano {$GLOBALS['__gen']}
+# NOC push – {$d['cmt_name']} – generirano {$GLOBALS['__gen']}
 :local url "$base/api/push"
 :local key "$key"
 :local scriptVer "{$ver}"
@@ -265,7 +281,7 @@ ROS;
     {
         $base = rtrim((string)cfg('base_url'), '/');
         return <<<ROS
-# NOC nočni backup konfiguracije + preverjanje posodobitev – {$d['name']}
+# NOC nočni backup konfiguracije + preverjanje posodobitev – {$d['cmt_name']}
 :local url "$base/api/backup"
 :local key "$key"
 :global nocUpd
@@ -302,7 +318,7 @@ ROS;
         $GLOBALS['__gen'] = date('Y-m-d H:i');
         $noc = (string)cfg('noc_ip'); $port = (int)cfg('flow_port', 2055); $pol = self::POLICY;
         $h = crc32('noc-backup-' . $d['id']); $min = 5 + $h % 51; $hour = 2 + intdiv($h, 51) % 3;   // določljivo: ista naprava = ista ura
-        $s = "# NOC – namestitev za \"{$d['name']}\" (" . ($d['model'] ?: 'MikroTik') . ")\n# Generirano " . date('Y-m-d H:i') . " – noc.dezman.net\n# Uvoz: /import noc-install.rsc\n\n";
+        $s = "# NOC – namestitev za \"{$d['cmt_name']}\" (" . (ros_cmt((string)$d['model']) ?: 'MikroTik') . ")\n# Generirano " . date('Y-m-d H:i') . " – noc.dezman.net\n# Uvoz: /import noc-install.rsc\n\n";
         $s .= "# --- počisti prejšnjo namestitev\n/system scheduler remove [find name~\"^noc-\"]\n/system script remove [find name~\"^noc-\"]\n\n";
         $s .= "# --- skripti\n/system script add name=noc-push policy=$pol comment=\"noc.dezman.net\" source=\"" . self::esc(self::pushBody($d, $key)) . "\"\n\n";
         $s .= "/system script add name=noc-backup policy=$pol comment=\"noc.dezman.net\" source=\"" . self::esc(self::backupBody($d, $key)) . "\"\n\n";
@@ -319,7 +335,7 @@ ROS;
         }
         if ((int)$d['flow_enabled'] === 1 && $noc !== '') {
             if (!empty($an['flow_existing'])) {
-                $s .= "# --- traffic-flow je na routerju že nastavljen (" . implode(', ', $an['flow_targets'] ?? []) . ") – dodamo samo NOC kot dodaten cilj\n";
+                $s .= "# --- traffic-flow je na routerju že nastavljen (" . ros_cmt(implode(', ', (array)($an['flow_targets'] ?? []))) . ") – dodamo samo NOC kot dodaten cilj\n";
             } else {
                 $s .= "# --- traffic-flow (promet po napravah v LAN-u)\n/ip traffic-flow set enabled=yes interfaces=all active-flow-timeout=1m inactive-flow-timeout=15s\n";
             }
@@ -338,7 +354,7 @@ ROS;
     private static function remove(array $d): string
     {
         $noc = (string)cfg('noc_ip');
-        return "# NOC – odstranitev z routerja \"{$d['name']}\"\n/system scheduler remove [find name~\"^noc-\"]\n/system script remove [find name~\"^noc-\"]\n"
+        return "# NOC – odstranitev z routerja \"{$d['cmt_name']}\"\n/system scheduler remove [find name~\"^noc-\"]\n/system script remove [find name~\"^noc-\"]\n"
             . "/ip firewall filter remove [find comment=\"noc: ping s streznika\"]\n/ip firewall filter remove [find comment=\"noc: ping s tigra\"]\n"
             . "/ip traffic-flow target remove [find dst-address=$noc]\n"
             . ":if ([:len [/ip traffic-flow target find]] = 0) do={ /ip traffic-flow set enabled=no }\n"

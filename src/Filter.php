@@ -76,10 +76,10 @@ final class Filter
             return $s . "\n";
         }
         $orig = json_decode((string)$d['dns_original'], true) ?: [];
-        $s .= "\n# --- filtrirni DNS: " . self::label($p) . " (prej: " . (($orig['servers'] ?? '') !== '' ? $orig['servers'] : 'od ponudnika') . ")\n"
+        $s .= "\n# --- filtrirni DNS: " . self::label($p) . " (prej: " . (($orig['servers'] ?? '') !== '' ? ros_cmt((string)$orig['servers']) : 'od ponudnika') . ")\n"
             . "/ip dns set servers=" . implode(',', self::PROFILES[$p]) . " allow-remote-requests=yes\n"
             . "/ip dns cache flush\n";
-        $wan = (string)$d['wan_iface'];
+        $wan = ros_esc((string)$d['wan_iface']);
         if ($wan !== '') {
             $s .= "# DNS routerja ni dostopen z interneta\n:if ([:len [/interface find name=\"$wan\"]] > 0) do={\n";
             foreach (['udp', 'tcp'] as $proto) $s .= "    " . self::top('/ip firewall filter', "chain=input in-interface=\"$wan\" protocol=$proto dst-port=53 action=drop comment=\"noc-filter: DNS ni odprt na WAN\"");

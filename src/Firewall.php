@@ -17,7 +17,8 @@ final class Firewall
         $st = db()->prepare('SELECT content, created_at FROM config_backups WHERE device_id=? ORDER BY created_at DESC LIMIT 1');
         $st->execute([$d['id']]); $b = $st->fetch();
         if ($b) return [$b['content'], $b['created_at']];
-        return [(string)($d['export_raw'] ?? ''), $d['created_at']];
+        if (!array_key_exists('export_raw', $d)) $d = Devices::full((int)$d['id']) ?? $d;   // vrstica iz seznama naprav
+        return [(string)($d['export_raw'] ?? ''), $d['created_at'] ?? null];
     }
 
     /** Prebere konfiguracijo v strukturo za preverjanja */
@@ -94,7 +95,7 @@ final class Firewall
         if (trim($rsc) === '') return ['score' => null, 'at' => null, 'findings' => [], 'wanSel' => ''];
         $c = self::read($rsc); $wan = (string)$d['wan_iface'];
         $hasWanList = isset($c['lists']['WAN']); $hasLanList = isset($c['lists']['LAN']);
-        $wanSel = $hasWanList ? 'in-interface-list=WAN' : 'in-interface="' . $wan . '"';
+        $wanSel = $hasWanList ? 'in-interface-list=WAN' : 'in-interface="' . ros_esc($wan) . '"';
         $f = [];
         $add = function (string $id, string $sev, string $title, string $why, bool $fixable = true, string $note = '') use (&$f) { $f[$id] = compact('id', 'sev', 'title', 'why', 'fixable', 'note'); };
 
@@ -159,7 +160,7 @@ final class Firewall
     /** [uveljavi, povrni] za izbrane popravke */
     private static function build(array $d, array $ids, array $orig): array
     {
-        $a = Firewall::audit($d); $ws = $a['wanSel'] ?: 'in-interface="' . $d['wan_iface'] . '"';
+        $a = Firewall::audit($d); $ws = $a['wanSel'] ?: 'in-interface="' . ros_esc((string)$d['wan_iface']) . '"';
         $c = $a['conf'] ?? ['input' => [], 'forward' => [], 'vpn' => []];
         $hasEst = fn(array $rules) => (bool)array_filter($rules, fn($r) => ($r['action'] ?? 'accept') === 'accept' && str_contains($r['connection-state'] ?? '', 'established'));
         $hasInv = fn(array $rules) => (bool)array_filter($rules, fn($r) => self::isDrop($r) && str_contains($r['connection-state'] ?? '', 'invalid'));
@@ -178,7 +179,11 @@ final class Firewall
             // VPN strežniki na routerju morajo ostati dostopni z interneta
             $seenVpn = [];
             foreach ($c['vpn'] as [$what, $proto, $port]) {
+                // vrednosti iz izvoza routerja: samo varni znaki (protokol, port), opis brez narekovajev/novih vrstic
+                $proto = ros_word((string)$proto); $port = ros_word((string)$port);
+                if ($proto === '' || ($port !== '' && !preg_match('/^\d{1,5}(,\d{1,5})*$/', $port))) continue;
                 $k = "$proto/$port"; if (isset($seenVpn[$k])) continue; $seenVpn[$k] = true;
+                $what = ros_esc((string)$what);
                 $ap .= "/ip firewall filter add chain=input protocol=$proto" . ($port !== '' ? " dst-port=$port" : '') . " action=accept comment=\"noc-fw: VPN $what\"\n";
             }
             $ap .= "/ip firewall filter add chain=input $ws action=drop comment=\"noc-fw: vse ostalo z WAN\"\n";   // na konec
@@ -186,10 +191,10 @@ final class Firewall
         // zasebna omrežja (LAN, VLAN-i, WireGuard) + upravljalni naslovi – tako se ne zakleneš tudi prek VPN tunela
         $svcAddr = implode(',', array_unique(array_merge(self::mgmtIps(), ['10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16'])));
         foreach (['telnet', 'ftp', 'www', 'api', 'api-ssl'] as $n) if ($sel('svc_' . $n)) { $ap .= "/ip service set $n disabled=yes\n"; $rb .= "/ip service set $n disabled=" . (($orig['svc'][$n]['on'] ?? true) ? 'no' : 'yes') . "\n"; }
-        foreach (['winbox', 'ssh'] as $n) if ($sel('svc_' . $n . '_addr') && $svcAddr !== '') { $ap .= "/ip service set $n address=$svcAddr\n"; $rb .= "/ip service set $n address=\"" . ($orig['svc'][$n]['address'] ?? '') . "\"\n"; }
-        if ($sel('mac_server')) { $ap .= "/tool mac-server set allowed-interface-list=LAN\n"; $rb .= "/tool mac-server set allowed-interface-list=" . ($orig['mac'] ?? 'all') . "\n"; }
-        if ($sel('mac_winbox')) { $ap .= "/tool mac-server mac-winbox set allowed-interface-list=LAN\n"; $rb .= "/tool mac-server mac-winbox set allowed-interface-list=" . ($orig['macwinbox'] ?? 'all') . "\n"; }
-        if ($sel('neighbor')) { $ap .= "/ip neighbor discovery-settings set discover-interface-list=LAN\n"; $rb .= "/ip neighbor discovery-settings set discover-interface-list=\"" . ($orig['neighbor'] ?? '!dynamic') . "\"\n"; }
+        foreach (['winbox', 'ssh'] as $n) if ($sel('svc_' . $n . '_addr') && $svcAddr !== '') { $ap .= "/ip service set $n address=$svcAddr\n"; $rb .= "/ip service set $n address=\"" . ros_esc((string)($orig['svc'][$n]['address'] ?? '')) . "\"\n"; }
+        if ($sel('mac_server')) { $ap .= "/tool mac-server set allowed-interface-list=LAN\n"; $rb .= "/tool mac-server set allowed-interface-list=" . (ros_word((string)($orig['mac'] ?? '')) ?: 'all') . "\n"; }
+        if ($sel('mac_winbox')) { $ap .= "/tool mac-server mac-winbox set allowed-interface-list=LAN\n"; $rb .= "/tool mac-server mac-winbox set allowed-interface-list=" . (ros_word((string)($orig['macwinbox'] ?? '')) ?: 'all') . "\n"; }
+        if ($sel('neighbor')) { $ap .= "/ip neighbor discovery-settings set discover-interface-list=LAN\n"; $rb .= "/ip neighbor discovery-settings set discover-interface-list=\"" . ros_esc((string)($orig['neighbor'] ?? '!dynamic')) . "\"\n"; }
         foreach (['upnp' => '/ip upnp', 'proxy' => '/ip proxy', 'socks' => '/ip socks', 'bwserver' => '/tool bandwidth-server'] as $id => $menu)
             if ($sel($id)) { $ap .= "$menu set enabled=no\n"; $rb .= "$menu set enabled=yes\n"; }
         return [$ap, $rb];

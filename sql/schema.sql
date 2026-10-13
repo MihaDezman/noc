@@ -126,6 +126,7 @@ CREATE TABLE iface_1m (
   device_id INT UNSIGNED NOT NULL, iface VARCHAR(64) NOT NULL, ts DATETIME NOT NULL,
   rx_bps BIGINT UNSIGNED NOT NULL, tx_bps BIGINT UNSIGNED NOT NULL,
   PRIMARY KEY (device_id, iface, ts),
+  KEY ix_ts (ts),
   FOREIGN KEY (device_id) REFERENCES devices(id) ON DELETE CASCADE
 ) ENGINE=InnoDB;
 CREATE TABLE iface_5m (
@@ -134,6 +135,7 @@ CREATE TABLE iface_5m (
   rx_peak BIGINT UNSIGNED NOT NULL DEFAULT 0, tx_peak BIGINT UNSIGNED NOT NULL DEFAULT 0,
   secs SMALLINT UNSIGNED NOT NULL DEFAULT 0,
   PRIMARY KEY (device_id, iface, ts),
+  KEY ix_ts (ts),
   FOREIGN KEY (device_id) REFERENCES devices(id) ON DELETE CASCADE
 ) ENGINE=InnoDB;
 CREATE TABLE iface_daily (
@@ -153,6 +155,7 @@ CREATE TABLE health_1m (
   ext_ms DECIMAL(7,2) NULL, ext_loss TINYINT UNSIGNED NULL,
   conns INT UNSIGNED NULL, leases SMALLINT UNSIGNED NULL,
   PRIMARY KEY (device_id, ts),
+  KEY ix_ts (ts),
   FOREIGN KEY (device_id) REFERENCES devices(id) ON DELETE CASCADE
 ) ENGINE=InnoDB;
 CREATE TABLE health_5m (
@@ -163,6 +166,7 @@ CREATE TABLE health_5m (
   tiger_ms DECIMAL(7,2) NULL, tiger_loss TINYINT UNSIGNED NULL,
   conns_max INT UNSIGNED NULL, n SMALLINT UNSIGNED NOT NULL DEFAULT 0,
   PRIMARY KEY (device_id, ts),
+  KEY ix_ts (ts),
   FOREIGN KEY (device_id) REFERENCES devices(id) ON DELETE CASCADE
 ) ENGINE=InnoDB;
 
@@ -178,6 +182,7 @@ CREATE TABLE lan_hosts (
   first_seen DATETIME NOT NULL,
   last_seen  DATETIME NOT NULL,
   PRIMARY KEY (device_id, mac), KEY (device_id, ip),
+  KEY ix_last_seen (last_seen),
   FOREIGN KEY (device_id) REFERENCES devices(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -186,12 +191,14 @@ CREATE TABLE host_5m (
   device_id INT UNSIGNED NOT NULL, ip VARCHAR(45) NOT NULL, ts DATETIME NOT NULL,
   up_bytes BIGINT UNSIGNED NOT NULL DEFAULT 0, down_bytes BIGINT UNSIGNED NOT NULL DEFAULT 0,
   PRIMARY KEY (device_id, ip, ts), KEY (device_id, ts),
+  KEY ix_ts (ts),
   FOREIGN KEY (device_id) REFERENCES devices(id) ON DELETE CASCADE
 ) ENGINE=InnoDB;
 CREATE TABLE host_daily (
   device_id INT UNSIGNED NOT NULL, ip VARCHAR(45) NOT NULL, day DATE NOT NULL,
   up_bytes BIGINT UNSIGNED NOT NULL DEFAULT 0, down_bytes BIGINT UNSIGNED NOT NULL DEFAULT 0,
   PRIMARY KEY (device_id, ip, day),
+  KEY ix_dev_day (device_id, day),
   FOREIGN KEY (device_id) REFERENCES devices(id) ON DELETE CASCADE
 ) ENGINE=InnoDB;
 
@@ -220,6 +227,7 @@ CREATE TABLE alerts (
   acked_at    DATETIME NULL,
   notified    TINYINT(1) NOT NULL DEFAULT 0,
   KEY (device_id, akey, ended_at), KEY (ended_at), KEY (started_at),
+  KEY ix_dev_open (device_id, ended_at, severity),
   FOREIGN KEY (device_id) REFERENCES devices(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -245,6 +253,7 @@ CREATE TABLE backup_parts (
   data       MEDIUMTEXT NOT NULL,
   at         DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (device_id, upload_id, part),
+  KEY ix_at (at),
   FOREIGN KEY (device_id) REFERENCES devices(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -279,6 +288,7 @@ CREATE TABLE IF NOT EXISTS iface_events (
   kind       ENUM('down','up','speed','sfp_in','sfp_out','sfp_swap') NOT NULL,
   detail     VARCHAR(255) NOT NULL DEFAULT '',
   KEY (device_id, iface, ts),
+  KEY ix_ts (ts),
   FOREIGN KEY (device_id) REFERENCES devices(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -313,6 +323,7 @@ CREATE TABLE IF NOT EXISTS sfp_5m (
   device_id INT UNSIGNED NOT NULL, iface VARCHAR(64) NOT NULL, ts DATETIME NOT NULL,
   rx DECIMAL(6,2) NULL, tx DECIMAL(6,2) NULL, temp DECIMAL(5,1) NULL,
   PRIMARY KEY (device_id, iface, ts),
+  KEY ix_ts (ts),
   FOREIGN KEY (device_id) REFERENCES devices(id) ON DELETE CASCADE
 ) ENGINE=InnoDB;
 
@@ -331,6 +342,7 @@ CREATE TABLE IF NOT EXISTS fw_5m (
   hits      INT UNSIGNED NOT NULL DEFAULT 0,
   PRIMARY KEY (device_id, ts, kind, src, dst, proto, port),
   KEY (device_id, kind, ts),
+  KEY ix_ts (ts),
   FOREIGN KEY (device_id) REFERENCES devices(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -359,6 +371,7 @@ CREATE TABLE IF NOT EXISTS out_5m (
   bl_hits   INT UNSIGNED NOT NULL DEFAULT 0,      -- tokov proti varnostni listi
   bl_sample VARCHAR(45) NOT NULL DEFAULT '',
   PRIMARY KEY (device_id, ts, ip),
+  KEY ix_ts (ts),
   FOREIGN KEY (device_id) REFERENCES devices(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 

@@ -108,13 +108,16 @@ final class Alerts
     /** Cron vsako minuto: tišina naprav, ping s strežnika */
     public static function evaluateCron(): void
     {
-        $devs = db()->query('SELECT * FROM devices WHERE active=1')->fetchAll();
+        $devs = array_map([Devices::class, 'decorate'], db()->query('SELECT ' . Devices::listCols('d') . ' FROM devices d WHERE d.active=1')->fetchAll());
         $minute = (int)date('i');
+        // vsi pingi hkrati (zaporedno bi pri 100 napravah trajalo več kot minuto)
+        $need = array_filter($devs, fn($d) => filter_var($d['public_ip'], FILTER_VALIDATE_IP) && ($minute % 5 === 0 || !$d['online']));
+        $pings = self::pingMany(array_column($need, 'public_ip'), 5);
         foreach ($devs as $d) {
-            $d = Devices::decorate($d); $th = Devices::thresholds($d);
+            $th = Devices::thresholds($d);
             $ok = null; $ms = null; $loss = null;
-            if (filter_var($d['public_ip'], FILTER_VALIDATE_IP) && ($minute % 5 === 0 || !$d['online'])) {
-                [$ok, $ms, $loss] = self::ping($d['public_ip'], 5);
+            if (isset($pings[$d['public_ip']]) && ($minute % 5 === 0 || !$d['online'])) {
+                [$ok, $ms, $loss] = $pings[$d['public_ip']];
                 db()->prepare('UPDATE devices SET tiger_ping_ok=?, tiger_ping_ms=?, tiger_ping_at=NOW() WHERE id=?')->execute([$ok ? 1 : 0, $ms, $d['id']]);
                 $slot = date('Y-m-d H:i:00', time() - time() % 300);
                 db()->prepare('INSERT INTO health_5m (device_id, ts, tiger_ms, tiger_loss, n) VALUES (?,?,?,?,0) ON DUPLICATE KEY UPDATE tiger_ms=VALUES(tiger_ms), tiger_loss=VALUES(tiger_loss)')->execute([$d['id'], $slot, $ms, $loss]);
@@ -129,10 +132,33 @@ final class Alerts
         }
     }
 
+    /** Več pingov hkrati (po 50): [ip => [ok, ms, loss%]] */
+    public static function pingMany(array $ips, int $count = 5): array
+    {
+        $out = [];
+        foreach (array_chunk(array_values(array_unique($ips)), 50) as $chunk) {
+            $procs = [];
+            foreach ($chunk as $ip) {
+                $p = @proc_open(['ping', '-n', '-c', (string)$count, '-i', '0.3', '-W', '1', $ip], [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
+                if (is_resource($p)) $procs[$ip] = [$p, $pipes]; else $out[$ip] = self::ping($ip, $count);
+            }
+            foreach ($procs as $ip => [$p, $pipes]) {   // procesi tečejo vzporedno; branje čaka na vsakega posebej
+                $txt = (string)stream_get_contents($pipes[1]) . (string)stream_get_contents($pipes[2]);
+                fclose($pipes[1]); fclose($pipes[2]); proc_close($p);
+                $out[$ip] = self::parsePing($txt, $count);
+            }
+        }
+        return $out;
+    }
+
     /** [ok, ms, loss%] */
     public static function ping(string $ip, int $count = 5): array
     {
-        $out = (string)@shell_exec('ping -n -c ' . $count . ' -i 0.3 -W 1 ' . escapeshellarg($ip) . ' 2>&1');
+        return self::parsePing((string)@shell_exec('ping -n -c ' . $count . ' -i 0.3 -W 1 ' . escapeshellarg($ip) . ' 2>&1'), $count);
+    }
+
+    private static function parsePing(string $out, int $count): array
+    {
         $rcv = preg_match('/(\d+) received/', $out, $m) ? (int)$m[1] : 0;
         $ms = preg_match('#= [\d.]+/([\d.]+)/#', $out, $a) ? round((float)$a[1], 1) : null;
         return [$rcv > 0, $ms, (int)round((1 - $rcv / max(1, $count)) * 100)];

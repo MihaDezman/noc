@@ -7,27 +7,39 @@ $method = $_SERVER['REQUEST_METHOD'];
 
 // ================================================================ API naprav (API ključ, brez seje)
 if (str_starts_with($path, '/api/')) {
+    // telo zahteve: push ~48 kB (omejitev fetch na routerju), deli backupa/izvoza po 30 kB – več je napaka ali zloraba
+    $body = static function (int $max): string {
+        $raw = (string)file_get_contents('php://input', false, null, 0, $max + 1);
+        if (strlen($raw) > $max) json_out(['error' => 'too large'], 413);
+        return $raw;
+    };
     // --- dodajanje routerja z enkratno kodo (brez API ključa – koda je ključ, velja 30 min, enkratna)
     if (preg_match('#^/api/enroll/([a-z0-9]+)$#', $path, $m)) {
         $e = Enroll::byCode($m[1]);
         if (!$e) { error_log('noc-api-badkey ip=' . client_ip() . ' path=/api/enroll'); http_response_code(404); header('Content-Type: text/plain'); exit(":log warning \"noc: koda za dodajanje ni veljavna ali je potekla\"\n"); }
         if ($method === 'GET') { header('Content-Type: text/plain; charset=utf-8'); header('Cache-Control: no-store'); echo Enroll::script($m[1]); exit; }
-        if ($method === 'POST') json_out(Enroll::part($e, (string)($_SERVER['HTTP_X_UPLOAD'] ?? ''), (int)($_SERVER['HTTP_X_PART'] ?? -1), (int)($_SERVER['HTTP_X_SIZE'] ?? 0), (string)file_get_contents('php://input')));
+        if ($method === 'POST') json_out(Enroll::part($e, (string)($_SERVER['HTTP_X_UPLOAD'] ?? ''), (int)($_SERVER['HTTP_X_PART'] ?? -1), (int)($_SERVER['HTTP_X_SIZE'] ?? 0), $body(65536)));
         json_out(['error' => 'method'], 405);
     }
     // --- Telegram bot (webhook z lastnim skrivnim žetonom)
     if (preg_match('#^/api/telegram/([a-f0-9]{32})$#', $path, $m) && $method === 'POST') {
-        TgBot::webhook($m[1], (string)($_SERVER['HTTP_X_TELEGRAM_BOT_API_SECRET_TOKEN'] ?? ''), (string)file_get_contents('php://input'));
+        TgBot::webhook($m[1], (string)($_SERVER['HTTP_X_TELEGRAM_BOT_API_SECRET_TOKEN'] ?? ''), $body(262144));
         json_out(['ok' => true]);
     }
 
     $dev = Devices::byKey((string)($_SERVER['HTTP_X_API_KEY'] ?? ''));
     if (!$dev) { error_log('noc-api-badkey ip=' . client_ip() . ' path=' . $path); json_out(['error' => 'unauthorized'], 401); }   // za fail2ban
     if ($path === '/api/push' && $method === 'POST') {
-        $raw = (string)file_get_contents('php://input');
-        $body = json_decode($raw, true);
-        if (!is_array($body)) { error_log('noc push: neveljaven JSON od ' . $dev['name'] . ' (' . strlen($raw) . ' B)'); json_out(['error' => 'bad json'], 400); }
+        $raw = $body(262144);
         $dir = rtrim((string)cfg('data_dir', '/var/lib/noc'), '/') . '/push';
+        // RouterOS :serialize ne očisti vsega: imena DHCP gostov ipd. lahko vsebujejo neveljaven UTF-8 ali kontrolne znake
+        $body = json_decode($raw, true, 512, JSON_INVALID_UTF8_SUBSTITUTE);
+        if (!is_array($body)) $body = json_decode((string)preg_replace('/[\x00-\x1f\x7f]/', ' ', $raw), true, 512, JSON_INVALID_UTF8_SUBSTITUTE);
+        if (!is_array($body)) {
+            error_log('noc push: neveljaven JSON od ' . $dev['name'] . ' (' . strlen($raw) . ' B): ' . json_last_error_msg());
+            if (is_dir($dir) || @mkdir($dir, 0750, true)) @file_put_contents($dir . '/' . (int)$dev['id'] . '.bad.json', $raw);   // za diagnozo
+            json_out(['error' => 'bad json'], 400);
+        }
         if (is_dir($dir) || @mkdir($dir, 0750, true)) @file_put_contents($dir . '/' . (int)$dev['id'] . '.json', $raw);
         try { $resp = Ingest::pushLocked($dev, $body); }
         catch (\RuntimeException $e) { if ($e->getMessage() !== 'push busy') throw $e; json_out(['error' => 'busy'], 503); }   // router pošlje znova čez minuto
@@ -59,7 +71,7 @@ if (str_starts_with($path, '/api/')) {
         echo Filter::dropRsc(); exit;
     }
     if ($path === '/api/backup' && $method === 'POST') {
-        json_out(Ingest::backupPart($dev, (string)($_SERVER['HTTP_X_UPLOAD'] ?? ''), (int)($_SERVER['HTTP_X_PART'] ?? -1), (int)($_SERVER['HTTP_X_SIZE'] ?? 0), (string)file_get_contents('php://input')));
+        json_out(Ingest::backupPart($dev, (string)($_SERVER['HTTP_X_UPLOAD'] ?? ''), (int)($_SERVER['HTTP_X_PART'] ?? -1), (int)($_SERVER['HTTP_X_SIZE'] ?? 0), $body(65536)));
     }
     json_out(['error' => 'not found'], 404);
 }
@@ -106,6 +118,7 @@ if ($path === '/login/2fa') {
     view('login', ['error' => '', 'step2' => true]);
 }
 if (!Auth::$user) redirect('/login');
+header('Cache-Control: no-store, private');   // strani z API ključi in podatki naročnikov ne v predpomnilnik brskalnika/proxyja
 if ($method === 'POST') Auth::checkCsrf();
 if ($path === '/logout') { if ($method === 'POST') { audit('logout'); Auth::logout(); redirect('/login'); } redirect('/'); }   // odjava samo s POST (CSRF)
 
@@ -139,8 +152,7 @@ if ($path === '/') {
     $st->execute($p); $logs = $st->fetchAll();
     $st = db()->prepare("SELECT a.*, d.name device_name FROM alerts a JOIN devices d ON d.id=a.device_id WHERE a.started_at > NOW() - INTERVAL 7 DAY AND $w ORDER BY a.started_at DESC LIMIT 10");
     $st->execute($p); $recent = $st->fetchAll();
-    $ifaces = [];
-    foreach ($devs as $d) $ifaces[$d['id']] = Devices::ifaces((int)$d['id']);
+    $ifaces = Devices::ifacesMany(array_column($devs, 'id'));
     view('dashboard', ['devs' => $devs, 'alerts' => $alerts, 'logs' => $logs, 'recent' => $recent, 'ifaces' => $ifaces, 'title' => A('Pregled'), 'nav' => 'dash', 'autorefresh' => 60]);
 }
 
@@ -573,7 +585,7 @@ if ($path === '/account/2fa' && $method === 'POST') {
     if ($act === 'cancel') { unset($_SESSION['2fa_new']); redirect('/account'); }
     if ($act === 'off') {
         $u = Auth::$user;
-        if (!password_verify(post('current'), $u['pass_hash']) || Totp::verify(dec($u['totp_secret']), post('code')) === null) back('/account#tfa', A('Geslo ali koda ni pravilna.'), 'err');
+        if (!Auth::checkPassword(post('current')) || Totp::verify(dec($u['totp_secret']), post('code'), $u['totp_last'] !== null ? (int)$u['totp_last'] : null) === null) back('/account#tfa', A('Geslo ali koda ni pravilna.'), 'err');
         db()->prepare('UPDATE users SET totp_secret=NULL, totp_last=NULL WHERE id=?')->execute([$u['id']]);
         audit('2fa.off'); back('/account', A('Dvostopenjska prijava je izklopljena.'));
     }
@@ -588,7 +600,7 @@ if ($path === '/users/2fa-reset' && $method === 'POST') {
 }
 if ($path === '/account') {
     if ($method === 'POST') {
-        if (!password_verify(post('current'), Auth::$user['pass_hash'])) back('/account', A('Trenutno geslo ni pravilno.'), 'err');
+        if (!Auth::checkPassword(post('current'))) back('/account', A('Trenutno geslo ni pravilno.'), 'err');
         if (strlen(post('password')) < 10) back('/account', A('Geslo mora imeti vsaj 10 znakov.'), 'err');
         db()->prepare('UPDATE users SET pass_hash=? WHERE id=?')->execute([password_hash(post('password'), PASSWORD_DEFAULT), Auth::$user['id']]);
         audit('account.password');

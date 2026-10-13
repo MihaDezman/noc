@@ -4,6 +4,7 @@ declare(strict_types=1);
 require dirname(__DIR__) . '/src/bootstrap.php';
 Metrics::rollup();
 Enroll::cleanup();
+$bk = Ingest::stripKeysOnce();
 $drop = Filter::updateDropList();
 $info = Report::monthlyCron();   // 1. v mesecu: poročila za prejšnji mesec
-cron_mark('daily', trim($info . ' ' . $drop));
+cron_mark('daily', trim($info . ' ' . $drop . ' ' . $bk));

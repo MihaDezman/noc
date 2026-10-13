@@ -13,7 +13,7 @@ STATE=/var/lib/noc/applied-sql.txt  # že izvedene sql/update-*.sql
 
 ok()   { echo -e "  \e[32m✓\e[0m $*"; }
 fail() { echo -e "  \e[31m✗ $*\e[0m"; exit 1; }
-G()    { git -c safe.directory="$APP" "$@"; }   # repo je v lasti www-data, skripta teče kot root
+G()    { git -c safe.directory="$APP" "$@"; }   # skripta teče kot root (safe.directory: repo je lahko v lasti drugega uporabnika)
 
 [ "$(id -u)" = 0 ] || fail "Poženi kot root: sudo $0 $*"
 
@@ -43,10 +43,13 @@ if ! G diff --cached --quiet; then G commit -qm "stanje pred v$VER"; ok "commit:
 
 # 3. nova koda
 unzip -oq "$ZIP" -d "$APP"
-chown -R www-data:www-data "$APP"
-chmod 640 "$APP/config.php"
-chmod 755 "$APP"/bin/*.sh
-ok "koda razširjena, pravice nastavljene"
+# koda je v lasti root, www-data jo samo bere: spletni strežnik ne more spremeniti skript, ki jih poganja root
+# (bin/ufw-sync.sh v root cronu, bin/fwlog-setup.sh, git hooki). Aplikacija piše samo v /var/lib/noc.
+chown -R root:www-data "$APP"
+find "$APP" -path "$APP/.git" -prune -o -type d -exec chmod 750 {} + -o -type f -exec chmod 640 {} +
+chmod 750 "$APP"/bin/*.sh
+[ -d "$APP/.git" ] && { chown -R root:root "$APP/.git"; chmod 700 "$APP/.git"; }
+ok "koda razširjena, pravice nastavljene (root:www-data, samo branje za splet)"
 
 # 4. spremembe baze (vsaka samo enkrat)
 mkdir -p "$(dirname "$STATE")"; touch "$STATE"

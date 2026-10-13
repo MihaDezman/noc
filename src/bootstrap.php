@@ -2,7 +2,7 @@
 declare(strict_types=1);
 
 define('APP_ROOT', dirname(__DIR__));
-define('APP_VERSION', '1.10.2');
+define('APP_VERSION', '1.11.1');
 
 $config = require APP_ROOT . '/config.php';
 date_default_timezone_set($config['timezone'] ?? 'Europe/Ljubljana');
@@ -139,6 +139,18 @@ function fmt_dt(?string $dt, bool $sec = false): string {
 }
 
 /** RouterOS čas "1w2d03:04:05" ali "3d4h5m6s" -> sekunde */
+// ---- varno vstavljanje vrednosti v RouterOS skripte (.rsc): podatki z routerja ali iz obrazcev ne smejo ubežati iz niza ali komentarja
+/** brez kontrolnih znakov (nova vrstica bi v .rsc začela nov ukaz) */
+function ros_clean(string $s): string { return (string)preg_replace('/[\x00-\x1f\x7f]+/', ' ', $s); }
+/** za vrednost v narekovajih: "..." */
+function ros_esc(string $s): string { return str_replace(['\\', '"', '$'], ['\\\\', '\\"', '\\$'], ros_clean($s)); }
+/** za besedilo v komentarju (# ...) */
+function ros_cmt(string $s): string { return str_replace('\\', '/', ros_clean($s)); }
+/** za vrednost brez narekovajev (port, protokol, ime liste): samo varni znaki, sicer prazno */
+function ros_word(string $s): string { return preg_match('/^[A-Za-z0-9_.,:!\/+-]{1,128}$/', $s) ? $s : ''; }
+/** rekurzivno očisti niz/polje (analiza izvoza, nastavitve naprave) */
+function ros_clean_deep($v) { if (is_string($v)) return ros_clean($v); if (is_array($v)) return array_map('ros_clean_deep', $v); return $v; }
+
 function ros_seconds(string $s): ?int {
     $s = trim($s); if ($s === '') return null;
     $t = 0;
