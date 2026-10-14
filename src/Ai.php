@@ -42,13 +42,16 @@ final class Ai
     {
         $key = self::key(); if ($key === '') return null;
         if ($limit && self::callsToday() >= max(1, (int)setting('ai_daily', '100'))) return null;
-        $body = ['model' => self::model(), 'max_tokens' => $maxTokens, 'system' => $system, 'messages' => [['role' => 'user', 'content' => self::redact($user)]]];
+        // modeli 5.5 imajo razmišljanje vklopljeno privzeto; žetoni razmišljanja štejejo v max_tokens, zato dodamo prostor
+        // in nastavimo nižji napor (krajše razmišljanje = hitreje in ceneje; za kratke diagnoze zadošča)
+        $body = ['model' => self::model(), 'max_tokens' => $maxTokens + 4000, 'output_config' => ['effort' => $kind === 'test' ? 'low' : 'medium'],
+                 'system' => $system, 'messages' => [['role' => 'user', 'content' => self::redact($user)]]];
         [$code, $res] = self::post($key, $body);
         $j = json_decode((string)$res, true);
         $text = '';
         foreach ((array)($j['content'] ?? []) as $c) if (($c['type'] ?? '') === 'text') $text .= $c['text'];
         $ok = $code === 200 && $text !== '';
-        $err = $ok ? '' : mb_substr('HTTP ' . $code . ' ' . (string)($j['error']['message'] ?? $res ?? 'ni odgovora'), 0, 300);
+        $err = $ok ? '' : mb_substr('HTTP ' . $code . ' ' . (string)($j['error']['message'] ?? ($code === 200 ? 'odgovor brez besedila (stop_reason: ' . ($j['stop_reason'] ?? '?') . ')' : ($res ?? 'ni odgovora'))), 0, 300);
         db()->prepare('INSERT INTO ai_log (kind, ref_id, sig, model, in_tok, out_tok, ok, err, result) VALUES (?,?,?,?,?,?,?,?,?)')
             ->execute([$kind, $ref, $sig, self::model(), (int)($j['usage']['input_tokens'] ?? 0), (int)($j['usage']['output_tokens'] ?? 0), $ok ? 1 : 0, $err, $ok ? mb_substr($text, 0, 4000) : null]);
         if (!$ok) error_log('noc ai: ' . $err);
