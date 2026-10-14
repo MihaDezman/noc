@@ -2,6 +2,7 @@
 $cronDef = ['minute' => [A('Alarmi in ping s strežnika'), 3], 'flows' => [A('Traffic-flow'), 12], 'daily' => [A('Dnevno stiskanje in čiščenje'), 1500]];
 $fwOn = (int)db()->query('SELECT COUNT(*) FROM devices WHERE active=1 AND fwlog_enabled=1')->fetchColumn();
 if ($fwOn) $cronDef['fwlog'] = [A('Varnostna analiza'), 3];
+if (Ai::on()) $cronDef['ai'] = [A('AI pomočnik'), 5];
 $fwFile = FwLog::file(); $fwStat = @stat($fwFile);
 ?>
 <div class="page-head"><div><h1><?= h(A('Sistem')) ?></h1><p><?= h(A('Stanje NOC na strežniku.')) ?></p></div></div>

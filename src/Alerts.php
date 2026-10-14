@@ -13,7 +13,7 @@ final class Alerts
         $open = $st->fetch();
         if ($open) {
             if (self::LEVEL[$sev] > self::LEVEL[$open['severity']]) {   // stopnjevanje (npr. warning -> critical)
-                db()->prepare('UPDATE alerts SET severity=?, message=? WHERE id=?')->execute([$sev, $msg, $open['id']]);
+                db()->prepare('UPDATE alerts SET severity=?, message=?, ai_note=NULL WHERE id=?')->execute([$sev, $msg, $open['id']]);   // AI razloži znova
                 Notify::alert($d, $sev, $msg, false, (int)$open['id']);
             }
             return;

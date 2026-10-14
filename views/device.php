@@ -152,7 +152,7 @@ $upd = $s['upd'] ?? [];
     <section class="panel">
       <div class="panel-head"><h2><?= icon('bell', 18) ?><?= h(A('Odprti alarmi')) ?></h2></div>
       <?php if (!$alerts): ?><div class="empty" style="padding:24px"><?= icon('shield', 26) ?><div><?= h(A('Vse v redu.')) ?></div></div>
-      <?php else: ?><ul class="feed"><?php foreach ($alerts as $a): ?><li><span class="sev-bar <?= h($a['severity']) ?>"></span><div class="what"><?= h($a['message']) ?></div><span class="when"><?= h(fmt_ago($a['started_at'])) ?></span></li><?php endforeach; ?></ul><?php endif; ?>
+      <?php else: ?><ul class="feed"><?php foreach ($alerts as $a): ?><li><span class="sev-bar <?= h($a['severity']) ?>"></span><div class="what"><?= h($a['message']) ?><?= ai_note($a['ai_note'] ?? null) ?></div><span class="when"><?= h(fmt_ago($a['started_at'])) ?></span></li><?php endforeach; ?></ul><?php endif; ?>
     </section>
   </div>
 </div>
@@ -492,7 +492,7 @@ $upd = $s['upd'] ?? [];
   <div class="tbl-wrap"><table class="tbl">
     <thead><tr><th><?= h(A('Stopnja')) ?></th><th><?= h(A('Opis')) ?></th><th><?= h(A('Začetek')) ?></th><th><?= h(A('Konec')) ?></th><th><?= h(A('Trajanje')) ?></th></tr></thead>
     <tbody><?php foreach ($history as $a): $dur = ($a['ended_at'] ? strtotime($a['ended_at']) : time()) - strtotime($a['started_at']); ?><tr>
-      <td><?= sev_tag($a['severity']) ?></td><td><?= h($a['message']) ?></td><td class="nowrap"><?= h(fmt_dt($a['started_at'])) ?></td>
+      <td><?= sev_tag($a['severity']) ?></td><td><?= h($a['message']) ?><?= ai_note($a['ai_note'] ?? null) ?></td><td class="nowrap"><?= h(fmt_dt($a['started_at'])) ?></td>
       <td class="nowrap"><?= $a['ended_at'] ? h(fmt_dt($a['ended_at'])) : '<span class="tag down">' . h(A('odprt')) . '</span>' ?></td><td class="nowrap muted"><?= $dur > 59 ? h(fmt_uptime($dur)) : '–' ?></td>
     </tr><?php endforeach; ?></tbody>
   </table></div><?php endif; ?>
@@ -506,7 +506,8 @@ $upd = $s['upd'] ?? [];
     <thead><tr><th><?= h(A('Datum')) ?></th><th><?= h(A('Spremembe')) ?></th><th class="num"><?= h(A('Velikost')) ?></th><th></th></tr></thead>
     <tbody><?php foreach ($backups as $i => $b): ?><tr>
       <td class="nowrap"><b><?= h(date('d.m.Y H:i', strtotime($b['created_at']))) ?></b><?= $i === 0 ? ' <span class="tag violet">' . h(A('trenutna')) . '</span>' : '' ?></td>
-      <td><?php if ($i === count($backups) - 1): ?><span class="muted"><?= h(A('prvi backup')) ?></span><?php else: ?><span class="tag up">+<?= (int)$b['added'] ?></span> <span class="tag down">−<?= (int)$b['removed'] ?></span><?php endif; ?></td>
+      <td><?php if ($i === count($backups) - 1): ?><span class="muted"><?= h(A('prvi backup')) ?></span><?php else: ?><span class="tag up">+<?= (int)$b['added'] ?></span> <span class="tag down">−<?= (int)$b['removed'] ?></span><?php endif; ?>
+        <?php if (($b['ai_risk'] ?? '') === 'warn'): ?> <span class="tag warn"><?= icon('alert', 12) ?><?= h(A('tvegano')) ?></span><?php endif; ?><?= ai_note($b['ai_note'] ?? null, false, (string)($b['ai_risk'] ?? '')) ?></td>
       <td class="num muted"><?= h(fmt_bytes($b['bytes'])) ?></td>
       <td class="num"><a class="btn sm" href="/devices/<?= $id ?>/backups/<?= (int)$b['id'] ?>"><?= icon('diff', 15) ?><?= h(A('Odpri')) ?></a> <a class="btn sm ghost" href="/devices/<?= $id ?>/backups/<?= (int)$b['id'] ?>/download" title="<?= h(A('Prenesi .rsc')) ?>"><?= icon('download', 15) ?></a></td>
     </tr><?php endforeach; ?></tbody>

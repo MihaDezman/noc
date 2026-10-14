@@ -229,6 +229,7 @@ CREATE TABLE alerts (
   acked_by    INT UNSIGNED NULL,
   acked_at    DATETIME NULL,
   notified    TINYINT(1) NOT NULL DEFAULT 0,
+  ai_note     TEXT NULL,                             -- razlaga AI pomočnika
   KEY (device_id, akey, ended_at), KEY (ended_at), KEY (started_at),
   KEY ix_dev_open (device_id, ended_at, severity),
   FOREIGN KEY (device_id) REFERENCES devices(id) ON DELETE CASCADE
@@ -244,6 +245,8 @@ CREATE TABLE config_backups (
   added       INT UNSIGNED NOT NULL DEFAULT 0,
   removed     INT UNSIGNED NOT NULL DEFAULT 0,
   content     MEDIUMTEXT NOT NULL,
+  ai_note     TEXT NULL,
+  ai_risk     ENUM('ok','warn') NULL,
   KEY (device_id, created_at),
   FOREIGN KEY (device_id) REFERENCES devices(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -390,6 +393,22 @@ CREATE TABLE IF NOT EXISTS notify_queue (
   alert_id   INT UNSIGNED NULL,
   sent_at    DATETIME NULL,
   KEY ix_pending (sent_at, id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- AI pomočnik: vsak klic (poraba, dnevna omejitev, samonadzor)
+CREATE TABLE IF NOT EXISTS ai_log (
+  id       INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  at       DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  kind     VARCHAR(20) NOT NULL,              -- alert, config, watch, test
+  ref_id   INT UNSIGNED NULL,
+  sig      VARCHAR(80) NULL,                  -- samonadzor: ista težava največ enkrat na 12 h
+  model    VARCHAR(40) NOT NULL DEFAULT '',
+  in_tok   INT UNSIGNED NOT NULL DEFAULT 0,
+  out_tok  INT UNSIGNED NOT NULL DEFAULT 0,
+  ok       TINYINT(1) NOT NULL DEFAULT 0,
+  err      VARCHAR(300) NOT NULL DEFAULT '',
+  result   TEXT NULL,
+  KEY ix_at (at), KEY ix_kind (kind, at), KEY ix_sig (sig, at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE settings (

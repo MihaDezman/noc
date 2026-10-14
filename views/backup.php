@@ -7,6 +7,7 @@
     <a class="btn" href="/devices/<?= (int)$d['id'] ?>/backups/<?= (int)$b['id'] ?>/download"><?= icon('download', 16) ?><?= h(A('Prenesi .rsc')) ?></a>
   </div>
 </div>
+<?php if (trim((string)($b['ai_note'] ?? '')) !== ''): ?><section class="panel"><div class="panel-body"><?= ai_note($b['ai_note'], true, (string)($b['ai_risk'] ?? '')) ?></div></section><?php endif; ?>
 <section class="panel">
 <?php if ($prev && !$raw): ?>
   <div class="panel-head"><h2><?= icon('diff', 18) ?><span class="tag up">+<?= (int)$b['added'] ?></span> <span class="tag down">−<?= (int)$b['removed'] ?></span></h2></div>

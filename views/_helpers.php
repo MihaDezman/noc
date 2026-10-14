@@ -233,3 +233,10 @@ function greeting(): string {
     $first = preg_split('/\s+/', trim((string)(Auth::$user['name'] ?? '')))[0] ?? '';
     return $g . ($first !== '' ? ', ' . $first : '');
 }
+
+/** Razlaga AI pomočnika pod alarmom ali spremembo konfiguracije (zložljiva) */
+function ai_note(?string $note, bool $open = false, string $risk = ''): string
+{
+    if ($note === null || trim($note) === '') return '';
+    return '<details class="ai-note' . ($risk === 'warn' ? ' warn' : '') . '"' . ($open ? ' open' : '') . '><summary>' . icon('zap', 13) . h(A('AI analiza')) . '</summary><div>' . nl2br(h(trim($note))) . '</div></details>';
+}

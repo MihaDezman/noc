@@ -68,6 +68,27 @@ $num = function (string $k, string $label, string $unit, string $hint = '') {
       </div></div>
     </div></section>
   </div>
+  <?php $aiSet = Ai::key() !== ''; [$aiN, $aiIn, $aiOut] = $aiSet ? Ai::usage() : [0, 0, 0]; ?>
+  <section class="panel" id="ai"><div class="panel-head"><h2><?= icon('zap', 18) ?><?= h(A('AI pomočnik')) ?></h2>
+    <div class="actions"><?= $aiSet ? '<span class="tag up">' . h(A('vklopljen')) . '</span>' : '<span class="tag">' . h(A('ni nastavljen')) . '</span>' ?>
+      <?php if ($aiSet): ?><button class="btn sm" form="ai-test" type="submit"><?= icon('send', 14) ?><?= h(A('Preizkus')) ?></button><?php endif; ?></div></div>
+    <div class="panel-body form">
+      <p class="small muted" style="margin:0"><?= h(A('Claude (Anthropic) razloži alarme, pregleda nočne spremembe konfiguracije in bdi nad samim NOC. Samo bere in svetuje – na routerjih ali v NOC ne spremeni ničesar. Gesla in ključi se pred pošiljanjem odstranijo.')) ?></p>
+      <div class="row c3">
+        <label class="f"><span><?= h(A('API ključ')) ?></span><input type="password" name="ai_key" autocomplete="off" placeholder="<?= $aiSet ? h(A('shranjen – vpiši samo za zamenjavo')) : 'sk-ant-…' ?>"><small><?= h(A('console.anthropic.com → API Keys. Shranjen je šifriran.')) ?></small></label>
+        <label class="f"><span><?= h(A('Model')) ?></span><select name="ai_model"><?php foreach (Ai::MODELS as $k => $l): ?><option value="<?= h($k) ?>" <?= Ai::model() === $k ? 'selected' : '' ?>><?= h($l) ?></option><?php endforeach; ?></select><small><?= h(A('Sonnet: priporočeno · Haiku: cenejši · Opus: najzmogljivejši, najdražji')) ?></small></label>
+        <label class="f"><span><?= h(A('Največ klicev na dan')) ?></span><input type="number" min="1" max="5000" name="ai_daily" value="<?= h(setting('ai_daily', '100')) ?>"><small><?= h(A('danes: {n} · 30 dni: {c} klicev, {t} žetonov', ['n' => $aiSet ? Ai::callsToday() : 0, 'c' => $aiN, 't' => number_format($aiIn + $aiOut, 0, ',', '.')])) ?></small></label>
+      </div>
+      <div class="row c3">
+        <label class="check"><input type="checkbox" name="ai_alerts" value="1" <?= setting('ai_alerts', '1') === '1' ? 'checked' : '' ?>> <?= h(A('Razlaga alarmov (opozorila in kritični)')) ?></label>
+        <label class="check"><input type="checkbox" name="ai_config" value="1" <?= setting('ai_config', '1') === '1' ? 'checked' : '' ?>> <?= h(A('Pregled sprememb konfiguracije')) ?></label>
+        <label class="check"><input type="checkbox" name="ai_watch" value="1" <?= setting('ai_watch', '1') === '1' ? 'checked' : '' ?>> <?= h(A('Samonadzor NOC')) ?></label>
+      </div>
+      <div class="row c3">
+        <label class="check"><input type="checkbox" name="ai_tg" value="1" <?= setting('ai_tg', '1') === '1' ? 'checked' : '' ?>> <?= h(A('Razlage pošlji tudi na Telegram')) ?></label>
+        <?php if ($aiSet): ?><label class="check"><input type="checkbox" name="ai_key_clear" value="1"> <?= h(A('Odstrani ključ (izklopi AI)')) ?></label><?php endif; ?>
+      </div>
+    </div></section>
   <section class="panel"><div class="panel-head"><h2><?= icon('key', 18) ?><?= h(A('Upravljalni naslovi')) ?></h2></div><div class="panel-body form">
     <label class="f"><?= h(A('Tvoji statični IP naslovi')) ?><input type="text" name="mgmt_ips" value="<?= h(setting('mgmt_ips')) ?>" class="mono"><small><?= h(A('Pri popravkih požarnega zidu so ti naslovi na routerjih vedno dovoljeni, zato se ne moreš zakleniti. Ločeno z vejico, dovoljeni so tudi obsegi (npr. 109.123.4.0/24).')) ?></small></label>
   </div></section>
@@ -76,6 +97,7 @@ $num = function (string $k, string $label, string $unit, string $hint = '') {
 </form>
 <form id="fwlog-on" method="post" action="/settings/fwlog-all" data-confirm="<?= h(A('Vklopim varnostno analizo pri vseh napravah? Routerji dobijo pravila za beleženje s samodejno posodobitvijo.')) ?>"><?= Auth::csrf() ?><input type="hidden" name="on" value="1"></form>
 <form id="fwlog-off" method="post" action="/settings/fwlog-all" data-confirm="<?= h(A('Izklopim varnostno analizo pri vseh napravah?')) ?>"><?= Auth::csrf() ?><input type="hidden" name="on" value="0"></form>
+<form id="ai-test" method="post" action="/settings/ai-test"><?= Auth::csrf() ?></form>
 <form id="tls-on" method="post" action="/settings/tls-all" data-confirm="<?= h(A('Vklopim preverjanje certifikata pri vseh napravah? Routerji dobijo novo skripto s samodejno posodobitvijo.')) ?>"><?= Auth::csrf() ?><input type="hidden" name="on" value="1"></form>
 <form id="tls-off" method="post" action="/settings/tls-all" data-confirm="<?= h(A('Izklopim preverjanje certifikata pri vseh napravah?')) ?>"><?= Auth::csrf() ?><input type="hidden" name="on" value="0"></form>
 

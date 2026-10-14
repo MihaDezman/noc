@@ -482,3 +482,10 @@ pre.raw { margin: 0; padding: 16px 20px; font-family: var(--mono); font-size: .8
   .user-chip span { display: none; }
 }
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+
+/* AI pomočnik: razlaga pod alarmom / spremembo konfiguracije */
+.ai-note { margin-top: 6px; font-size: .86rem; }
+.ai-note summary { cursor: pointer; color: var(--violet); display: inline-flex; align-items: center; gap: 5px; font-weight: 500; list-style: none; }
+.ai-note summary::-webkit-details-marker { display: none; }
+.ai-note > div { margin-top: 6px; padding: 9px 12px; border-left: 3px solid var(--violet); background: var(--violet-soft); border-radius: 0 8px 8px 0; color: var(--text); line-height: 1.5; }
+.ai-note.warn summary { color: var(--warn); } .ai-note.warn > div { border-left-color: var(--warn); }

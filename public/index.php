@@ -266,7 +266,7 @@ if (($seg[0] ?? '') === 'devices' && ctype_digit($seg[1] ?? '')) {
             $f = rtrim((string)cfg('data_dir', '/var/lib/noc'), '/') . "/push/$id.json";
             $vars['rawPush'] = is_file($f) ? ['at' => filemtime($f), 'size' => filesize($f), 'json' => json_encode(json_decode((string)file_get_contents($f)), JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)] : null;
         }
-        if ($tab === 'backups') { $st = db()->prepare('SELECT id, created_at, sha1, bytes, added, removed FROM config_backups WHERE device_id=? ORDER BY created_at DESC'); $st->execute([$id]); $vars['backups'] = $st->fetchAll(); }
+        if ($tab === 'backups') { $st = db()->prepare('SELECT id, created_at, sha1, bytes, added, removed, ai_risk, ai_note FROM config_backups WHERE device_id=? ORDER BY created_at DESC'); $st->execute([$id]); $vars['backups'] = $st->fetchAll(); }
         view('device', $vars);
     }
 
@@ -545,6 +545,12 @@ if ($path === '/settings/fwlog-all' && $method === 'POST') {   // varnostna anal
     Ufw::write(); audit('fwlog.all', $on ? 'on' : 'off');
     back('/settings#fwlog', $on ? A('Varnostna analiza vklopljena pri {n} napravah. Routerji se posodobijo samodejno v nekaj minutah.', ['n' => count($ids)]) : A('Varnostna analiza izklopljena pri vseh napravah.'));
 }
+if ($path === '/settings/ai-test' && $method === 'POST') {   // preizkus AI pomočnika (en kratek klic)
+    Auth::requireSuper();
+    $r = Ai::ask('test', null, 'Odgovori v slovenščini z enim kratkim stavkom.', 'Potrdi, da povezava z NOC deluje.', 60, false);
+    $err = $r === null ? (string)db()->query("SELECT err FROM ai_log WHERE kind='test' ORDER BY id DESC LIMIT 1")->fetchColumn() : '';
+    back('/settings#ai', $r !== null ? A('AI pomočnik deluje: {r}', ['r' => mb_substr($r, 0, 200)]) : A('AI pomočnik ne deluje: {e}', ['e' => $err ?: A('ni ključa')]), $r !== null ? 'ok' : 'err');
+}
 if ($path === '/settings/tls-all' && $method === 'POST') {   // preverjanje certifikata pri vseh napravah
     Auth::requireSuper();
     $on = post('on') === '1' ? 1 : 0;
@@ -567,6 +573,12 @@ if ($path === '/settings') {
         setting_set('mgmt_ips', implode(', ', array_filter(array_map('trim', preg_split('/[\s,;]+/', post('mgmt_ips'))), fn($x) => preg_match('#^\d{1,3}(\.\d{1,3}){3}(/\d{1,2})?$#', $x))));
         if (post('tg_token') !== '') setting_set('tg_token_enc', enc(post('tg_token')));
         if (post('tg_token_clear')) setting_set('tg_token_enc', '');
+        // AI pomočnik
+        if (($aiKey = preg_replace('/\s+/', '', post('ai_key'))) !== '') setting_set('ai_key_enc', enc($aiKey));
+        if (post('ai_key_clear')) setting_set('ai_key_enc', '');
+        if (isset(Ai::MODELS[post('ai_model')])) setting_set('ai_model', post('ai_model'));
+        setting_set('ai_daily', (string)max(1, min(5000, (int)post('ai_daily', '100'))));
+        foreach (['ai_alerts', 'ai_config', 'ai_watch', 'ai_tg'] as $k) setting_set($k, post($k) ? '1' : '0');
         setting_set('tg_chat_id', preg_replace('/[^0-9\-]/', '', post('tg_chat_id')));
         audit('settings.save');
         back('/settings', A('Nastavitve shranjene.'));

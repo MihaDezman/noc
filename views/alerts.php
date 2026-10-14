@@ -8,7 +8,7 @@
     <tbody><?php foreach ($open as $a): ?><tr>
       <td><?= sev_tag($a['severity']) ?></td>
       <td><a class="rowlink" href="/devices/<?= (int)$a['device_id'] ?>"><?= h($a['device_name']) ?></a></td>
-      <td><?= h($a['message']) ?></td>
+      <td><?= h($a['message']) ?><?= ai_note($a['ai_note'] ?? null) ?></td>
       <td class="nowrap"><?= h(fmt_dt($a['started_at'])) ?> <span class="faint small">(<?= h(fmt_ago($a['started_at'])) ?>)</span></td>
       <td class="num"><?php if ($a['acked_at']): ?><span class="tag"><?= icon('check', 12) ?><?= h(A('potrjen')) ?></span><?php else: ?><form method="post" action="/alerts/<?= (int)$a['id'] ?>/ack"><?= Auth::csrf() ?><button class="btn sm"><?= icon('check', 14) ?><?= h(A('Potrdi')) ?></button></form><?php endif; ?></td>
     </tr><?php endforeach; ?></tbody>
@@ -28,7 +28,7 @@
     <thead><tr><th><?= h(A('Stopnja')) ?></th><th><?= h(A('Naprava')) ?></th><th><?= h(A('Opis')) ?></th><th><?= h(A('Začetek')) ?></th><th><?= h(A('Trajanje')) ?></th></tr></thead>
     <tbody><?php foreach ($history as $a): $dur = strtotime($a['ended_at']) - strtotime($a['started_at']); ?><tr>
       <td><?= sev_tag($a['severity']) ?></td><td><a href="/devices/<?= (int)$a['device_id'] ?>"><?= h($a['device_name']) ?></a> <span class="small faint"><?= h($a['tenant_name'] ?? '') ?></span></td>
-      <td><?= h($a['message']) ?></td><td class="nowrap"><?= h(fmt_dt($a['started_at'])) ?></td><td class="nowrap muted"><?= $dur > 59 ? h(fmt_uptime($dur)) : '–' ?></td>
+      <td><?= h($a['message']) ?><?= ai_note($a['ai_note'] ?? null) ?></td><td class="nowrap"><?= h(fmt_dt($a['started_at'])) ?></td><td class="nowrap muted"><?= $dur > 59 ? h(fmt_uptime($dur)) : '–' ?></td>
     </tr><?php endforeach; ?></tbody>
   </table></div><?php endif; ?>
 </section>
