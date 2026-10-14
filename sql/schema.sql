@@ -168,6 +168,7 @@ CREATE TABLE health_5m (
   gw_ms DECIMAL(7,2) NULL, gw_loss TINYINT UNSIGNED NULL, ext_ms DECIMAL(7,2) NULL, ext_loss TINYINT UNSIGNED NULL,
   tiger_ms DECIMAL(7,2) NULL, tiger_loss TINYINT UNSIGNED NULL,
   conns_max INT UNSIGNED NULL, n SMALLINT UNSIGNED NOT NULL DEFAULT 0,
+  hdd_pct TINYINT UNSIGNED NULL, pool_pct TINYINT UNSIGNED NULL,
   PRIMARY KEY (device_id, ts),
   KEY ix_ts (ts),
   FOREIGN KEY (device_id) REFERENCES devices(id) ON DELETE CASCADE
@@ -230,8 +231,10 @@ CREATE TABLE alerts (
   acked_at    DATETIME NULL,
   notified    TINYINT(1) NOT NULL DEFAULT 0,
   ai_note     TEXT NULL,                             -- razlaga AI pomočnika
+  incident_id INT UNSIGNED NULL,
   KEY (device_id, akey, ended_at), KEY (ended_at), KEY (started_at),
   KEY ix_dev_open (device_id, ended_at, severity),
+  KEY ix_incident (incident_id),
   FOREIGN KEY (device_id) REFERENCES devices(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -409,6 +412,7 @@ CREATE TABLE IF NOT EXISTS ai_log (
   err      VARCHAR(300) NOT NULL DEFAULT '',
   result   TEXT NULL,
   prompt   TEXT NULL,
+  feedback TINYINT NULL,
   KEY ix_at (at), KEY ix_kind (kind, at), KEY ix_sig (sig, at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -430,6 +434,47 @@ CREATE TABLE IF NOT EXISTS noc_actions (
   sent_at     DATETIME NULL,
   done_at     DATETIME NULL,
   KEY ix_dev_status (device_id, status),
+  FOREIGN KEY (device_id) REFERENCES devices(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- AI: zapiski, incidenti, povzetek poročila, pregled konfiguracije
+CREATE TABLE IF NOT EXISTS ai_notes (
+  id          INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  device_id   INT UNSIGNED NULL,                     -- NULL = velja za vse naprave
+  note        VARCHAR(500) NOT NULL,
+  source      VARCHAR(20) NOT NULL DEFAULT 'splet',  -- splet, telegram
+  created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  created_by  VARCHAR(60) NOT NULL DEFAULT '',
+  KEY ix_dev (device_id),
+  FOREIGN KEY (device_id) REFERENCES devices(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+CREATE TABLE IF NOT EXISTS incidents (
+  id          INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  device_id   INT UNSIGNED NOT NULL,
+  started_at  DATETIME NOT NULL,
+  ended_at    DATETIME NULL,
+  severity    ENUM('warning','critical') NOT NULL DEFAULT 'critical',
+  title       VARCHAR(200) NOT NULL,
+  ai_summary  TEXT NULL,
+  KEY ix_dev (device_id, started_at), KEY ix_open (ended_at),
+  FOREIGN KEY (device_id) REFERENCES devices(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+CREATE TABLE IF NOT EXISTS report_ai (
+  tenant_id   INT UNSIGNED NOT NULL,
+  ym          CHAR(7) NOT NULL,
+  text        TEXT NOT NULL,
+  created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (tenant_id, ym),
+  FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+CREATE TABLE IF NOT EXISTS ai_reviews (
+  id          INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  device_id   INT UNSIGNED NOT NULL,
+  created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  status      ENUM('pending','done','failed') NOT NULL DEFAULT 'pending',
+  findings    MEDIUMTEXT NULL,                       -- JSON: [{title, severity, why, fix, state}]
+  note        VARCHAR(300) NOT NULL DEFAULT '',
+  KEY ix_dev (device_id, id),
   FOREIGN KEY (device_id) REFERENCES devices(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 

@@ -225,6 +225,7 @@ if ($path === '/devices/create' && $method === 'POST') {
     unset($_SESSION['pending_export'], $_SESSION['pending_enroll']);
     Ufw::write();
     audit('device.create', $f['name']);
+    if (Ai::on()) Ai::requestReview($id);   // AI pregled konfiguracije nove naprave (v ozadju)
     back("/devices/$id/install", A('Naprava dodana – prenesi paket in ga naloži na router.'));
 }
 
@@ -313,6 +314,24 @@ if (($seg[0] ?? '') === 'devices' && ctype_digit($seg[1] ?? '')) {
         MikrotikScript::invalidate($id); Ufw::write();
         audit('device.fwlog', $d['name'] . ($on ? ' on' : ' off'));
         back("/devices/$id?tab=protect#fwlog", $on ? A('Varnostna analiza vklopljena. Router dobi nastavitve s samodejno posodobitvijo v nekaj minutah (ali takoj z ukazom s strani Paket).') : A('Varnostna analiza izklopljena. Router nastavitve odstrani ob naslednji posodobitvi.'));
+    }
+    if ($sub === 'note' && $method === 'POST') {   // zapiski za AI pri napravi
+        if (post('op') === 'del') db()->prepare('DELETE FROM ai_notes WHERE id=? AND device_id=?')->execute([(int)post('nid'), $id]);
+        elseif (trim(post('note')) !== '') { Ai::addNote($id, post('note'), 'splet', (string)Auth::$user['email']); audit('ai.note', $d['name']); }
+        back("/devices/$id?tab=settings#ai-notes", A('Zapiski za AI posodobljeni.'));
+    }
+    if ($sub === 'ai-review' && $method === 'POST') {   // AI pregled konfiguracije: zahteva ali stanje ugotovitve
+        if (post('op') === 'state') {
+            $st = db()->prepare('SELECT id, findings FROM ai_reviews WHERE id=? AND device_id=?'); $st->execute([(int)post('rid'), $id]);
+            if ($rv = $st->fetch()) {
+                $f = json_decode((string)$rv['findings'], true) ?: []; $k = (int)post('k');
+                if (isset($f[$k]) && in_array(post('state'), ['open', 'done', 'dismissed'], true)) { $f[$k]['state'] = post('state'); db()->prepare('UPDATE ai_reviews SET findings=? WHERE id=?')->execute([json_encode($f, JSON_UNESCAPED_UNICODE), $rv['id']]); }
+            }
+            back("/devices/$id?tab=protect#ai-review");
+        }
+        if (!Ai::on()) back("/devices/$id?tab=protect#ai-review", A('AI pomočnik ni nastavljen.'), 'err');
+        Ai::requestReview($id); audit('ai.review', $d['name']);
+        back("/devices/$id?tab=protect#ai-review", A('AI pregled konfiguracije se izvaja v ozadju – rezultat bo tu v minuti ali dveh (in na Telegramu).'));
     }
     if ($sub === 'action' && $method === 'POST') {   // blokada IP: ročno, potrditev/zavrnitev predloga, odblokiranje
         $by = (string)(Auth::$user['email'] ?? 'splet');
@@ -444,7 +463,19 @@ if ($path === '/alerts') {
     if (q('sev') !== '') { $sql .= ' AND a.severity=?'; $p[] = q('sev'); }
     if (q('d') !== '') { $sql .= ' AND a.device_id=?'; $p[] = (int)q('d'); }
     $st = db()->prepare($sql . ' ORDER BY a.started_at DESC LIMIT 300'); $st->execute($p);
-    view('alerts', ['open' => Alerts::openList(), 'history' => $st->fetchAll(), 'devs' => Devices::all(), 'title' => A('Alarmi'), 'nav' => 'alerts', 'autorefresh' => 60]);
+    view('alerts', ['open' => Alerts::openList(), 'history' => $st->fetchAll(), 'devs' => Devices::all(), 'incidents' => Incidents::list(null, 30, 20), 'title' => A('Alarmi'), 'nav' => 'alerts', 'autorefresh' => 60]);
+}
+if (($seg[0] ?? '') === 'incidents' && ctype_digit($seg[1] ?? '')) {   // incident: časovnica in povzetek
+    [$w, $p] = Auth::deviceScope('d');
+    $st = db()->prepare("SELECT i.*, d.name device_name FROM incidents i JOIN devices d ON d.id=i.device_id WHERE i.id=? AND $w"); $st->execute(array_merge([(int)$seg[1]], $p));
+    $inc = $st->fetch(); if (!$inc) { http_response_code(404); view('message', ['title' => '404', 'text' => A('Incident ne obstaja.'), 'nav' => 'alerts']); }
+    view('incident', ['i' => $inc, 'timeline' => Incidents::timeline($inc), 'title' => A('Incident'), 'nav' => 'alerts']);
+}
+if (str_starts_with($path, '/settings/note') && $method === 'POST') {   // splošni zapiski za AI
+    Auth::requireSuper();
+    if ($path === '/settings/note' && trim(post('note')) !== '') { Ai::addNote(null, post('note'), 'splet', (string)Auth::$user['email']); audit('ai.note', 'global'); }
+    if ($path === '/settings/note-del') db()->prepare('DELETE FROM ai_notes WHERE id=? AND device_id IS NULL')->execute([(int)post('nid')]);
+    back('/settings#ai-notes', A('Zapiski za AI posodobljeni.'));
 }
 if (($seg[0] ?? '') === 'alerts' && ctype_digit($seg[1] ?? '') && ($seg[2] ?? '') === 'ack' && $method === 'POST') {
     [$w, $p] = Auth::deviceScope('d');
@@ -491,9 +522,18 @@ if ($path === '/reports/send' && $method === 'POST') {
     Auth::requireSuper();
     $tid = (int)post('t'); $ym = preg_match('/^\d{4}-\d{2}$/', post('m')) ? post('m') : date('Y-m');
     $to = post('to') === 'me' ? [Auth::$user['email']] : null;
+    if (Ai::on('report')) { @set_time_limit(120); try { Ai::reportSummary($tid, $ym); } catch (\Throwable $e) { error_log('noc ai report: ' . $e->getMessage()); } }
     $n = Report::send($tid, $ym, $to);
     audit('report.send', "$tid $ym → $n");
     back('/reports', $n ? A('Poročilo poslano na {n} naslov(ov).', ['n' => $n]) : A('Poročilo ni bilo poslano – preveri e-naslove naročnika in SMTP.'), $n ? 'ok' : 'err');
+}
+
+if ($path === '/reports/ai' && $method === 'POST') {   // AI odstavek za naročnika (ustvari ali ustvari znova)
+    Auth::requireSuper(); @set_time_limit(120);
+    $tid = (int)post('t'); $ym = preg_match('/^\d{4}-\d{2}$/', post('m')) ? post('m') : date('Y-m', strtotime('first day of last month'));
+    $txt = Ai::reportSummary($tid, $ym, true);
+    audit('report.ai', "$tid $ym");
+    back('/reports', $txt ? A('AI povzetek pripravljen – viden je na vrhu poročila.') : A('AI povzetka ni bilo mogoče pripraviti (AI izklopljen, ni naprav ali napaka).'), $txt ? 'ok' : 'err');
 }
 
 // ---------------------------------------------------------------- posodobitve
@@ -608,7 +648,7 @@ if ($path === '/settings') {
         if (post('ai_key_clear')) setting_set('ai_key_enc', '');
         if (isset(Ai::MODELS[post('ai_model')])) setting_set('ai_model', post('ai_model'));
         setting_set('ai_daily', (string)max(1, min(5000, (int)post('ai_daily', '100'))));
-        foreach (['ai_alerts', 'ai_config', 'ai_watch', 'ai_tg', 'ai_chat', 'ai_digest'] as $k) setting_set($k, post($k) ? '1' : '0');
+        foreach (['ai_alerts', 'ai_config', 'ai_watch', 'ai_tg', 'ai_chat', 'ai_digest', 'ai_incidents', 'ai_report'] as $k) setting_set($k, post($k) ? '1' : '0');
         setting_set('ai_digest_hour', (string)max(5, min(10, (int)post('ai_digest_hour', '7'))));
         setting_set('tg_chat_id', preg_replace('/[^0-9\-]/', '', post('tg_chat_id')));
         audit('settings.save');

@@ -122,13 +122,13 @@ final class Ingest
         ];
         $pdo->prepare('INSERT IGNORE INTO health_1m (device_id, ts, cpu, mem_pct, hdd_pct, temp, volt, gw_ms, gw_loss, ext_ms, ext_loss, conns, leases) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)')
             ->execute([$id, $ts, $h['cpu'], $h['mem_pct'], $h['hdd_pct'], $h['temp'], $h['volt'], $h['gw_ms'], $h['gw_loss'], $h['ext_ms'], $h['ext_loss'], $h['conns'], $h['leases']]);
-        $pdo->prepare('INSERT INTO health_5m (device_id, ts, cpu_avg, cpu_max, mem_pct, temp_max, gw_ms, gw_loss, ext_ms, ext_loss, conns_max, n) VALUES (?,?,?,?,?,?,?,?,?,?,?,1)
+        $pdo->prepare('INSERT INTO health_5m (device_id, ts, cpu_avg, cpu_max, mem_pct, hdd_pct, temp_max, gw_ms, gw_loss, ext_ms, ext_loss, conns_max, n) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,1)
                        ON DUPLICATE KEY UPDATE cpu_avg=ROUND((COALESCE(cpu_avg,0)*n + COALESCE(VALUES(cpu_avg),0))/(n+1)), cpu_max=GREATEST(COALESCE(cpu_max,0), COALESCE(VALUES(cpu_max),0)),
-                         mem_pct=COALESCE(VALUES(mem_pct), mem_pct), temp_max=GREATEST(COALESCE(temp_max,-99), COALESCE(VALUES(temp_max),-99)),
+                         mem_pct=COALESCE(VALUES(mem_pct), mem_pct), hdd_pct=COALESCE(VALUES(hdd_pct), hdd_pct), temp_max=GREATEST(COALESCE(temp_max,-99), COALESCE(VALUES(temp_max),-99)),
                          gw_ms=IF(VALUES(gw_ms) IS NULL, gw_ms, (COALESCE(gw_ms,VALUES(gw_ms))*n + VALUES(gw_ms))/(n+1)), gw_loss=ROUND((COALESCE(gw_loss,0)*n + COALESCE(VALUES(gw_loss),0))/(n+1)),
                          ext_ms=IF(VALUES(ext_ms) IS NULL, ext_ms, (COALESCE(ext_ms,VALUES(ext_ms))*n + VALUES(ext_ms))/(n+1)), ext_loss=ROUND((COALESCE(ext_loss,0)*n + COALESCE(VALUES(ext_loss),0))/(n+1)),
                          conns_max=GREATEST(COALESCE(conns_max,0), COALESCE(VALUES(conns_max),0)), n=n+1')
-            ->execute([$id, $slot5, $h['cpu'], $h['cpu'], $h['mem_pct'], $h['temp'], $h['gw_ms'], $h['gw_loss'], $h['ext_ms'], $h['ext_loss'], $h['conns']]);
+            ->execute([$id, $slot5, $h['cpu'], $h['cpu'], $h['mem_pct'], $h['hdd_pct'], $h['temp'], $h['gw_ms'], $h['gw_loss'], $h['ext_ms'], $h['ext_loss'], $h['conns']]);
 
         // --- DHCP najemi (vsakih 5 min) + zaznava novih naprav v LAN-u
         $leases = (array)($b['leases'] ?? []);
@@ -167,6 +167,10 @@ final class Ingest
             }
         }
         $oldStatus = json_decode((string)($d['status_json'] ?? ''), true) ?: [];
+        if ($pools) {   // najbolj zaseden pool za napovedi
+            $pp = max(array_map(fn($p) => $p['size'] > 0 ? (int)round($p['used'] / $p['size'] * 100) : 0, $pools));
+            $pdo->prepare('UPDATE health_5m SET pool_pct=? WHERE device_id=? AND ts=?')->execute([min(100, $pp), $id, $slot5]);
+        }
 
         // --- logi (vrstico, ki jo že imamo, zavrnemo – router lahko po ponovnem zagonu ali prenamestitvi pošlje znova)
         $logs = (array)($b['logs'] ?? []);

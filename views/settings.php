@@ -93,6 +93,10 @@ $num = function (string $k, string $label, string $unit, string $hint = '') {
         <label class="check"><input type="checkbox" name="ai_tg" value="1" <?= setting('ai_tg', '1') === '1' ? 'checked' : '' ?>> <?= h(A('Razlage pošlji tudi na Telegram')) ?></label>
       </div>
       <div class="row c3">
+        <label class="check"><input type="checkbox" name="ai_incidents" value="1" <?= setting('ai_incidents', '1') === '1' ? 'checked' : '' ?>> <?= h(A('Povzetek incidenta po koncu')) ?></label>
+        <label class="check"><input type="checkbox" name="ai_report" value="1" <?= setting('ai_report', '1') === '1' ? 'checked' : '' ?>> <?= h(A('Povzetek v mesečnem poročilu')) ?></label>
+      </div>
+      <div class="row c3">
         <?php if ($aiSet): ?><label class="check"><input type="checkbox" name="ai_key_clear" value="1"> <?= h(A('Odstrani ključ (izklopi AI)')) ?></label><?php endif; ?>
       </div>
     </div></section>
@@ -105,6 +109,18 @@ $num = function (string $k, string $label, string $unit, string $hint = '') {
 <form id="fwlog-on" method="post" action="/settings/fwlog-all" data-confirm="<?= h(A('Vklopim varnostno analizo pri vseh napravah? Routerji dobijo pravila za beleženje s samodejno posodobitvijo.')) ?>"><?= Auth::csrf() ?><input type="hidden" name="on" value="1"></form>
 <form id="fwlog-off" method="post" action="/settings/fwlog-all" data-confirm="<?= h(A('Izklopim varnostno analizo pri vseh napravah?')) ?>"><?= Auth::csrf() ?><input type="hidden" name="on" value="0"></form>
 <form id="ai-test" method="post" action="/settings/ai-test"><?= Auth::csrf() ?></form>
+<?php if (Ai::on()): $aiNotes = db()->query('SELECT * FROM ai_notes WHERE device_id IS NULL ORDER BY id')->fetchAll(); ?>
+<section class="panel" id="ai-notes" style="margin-top:20px">
+  <div class="panel-head"><h2><?= icon('file', 18) ?><?= h(A('Splošni zapiski za AI')) ?></h2><span class="small muted"><?= h(A('veljajo za vse naprave · zapiske posamezne naprave urediš pri napravi → Nastavitve')) ?></span></div>
+  <?php if ($aiNotes): ?><ul class="feed"><?php foreach ($aiNotes as $nt): ?><li><span class="sev-bar info"></span><div class="what"><?= h($nt['note']) ?> <span class="small faint">· <?= h($nt['source'] === 'telegram' ? 'Telegram' : A('ročno')) ?>, <?= h(fmt_dt($nt['created_at'])) ?></span></div>
+    <form method="post" action="/settings/note-del" class="when"><?= Auth::csrf() ?><input type="hidden" name="nid" value="<?= (int)$nt['id'] ?>"><button class="btn sm ghost" title="<?= h(A('Izbriši')) ?>"><?= icon('trash', 14) ?></button></form></li><?php endforeach; ?></ul><?php endif; ?>
+  <form class="panel-body form" method="post" action="/settings/note"><?= Auth::csrf() ?>
+    <div class="row" style="grid-template-columns:1fr auto"><label class="f"><span><?= h(A('Nov zapisek')) ?></span><input type="text" name="note" maxlength="500" placeholder="<?= h(A('npr. disk je pri tej napravi vedno okoli 96 % – to je normalno')) ?>"></label>
+      <div style="align-self:end"><button class="btn"><?= icon('plus', 15) ?><?= h(A('Dodaj')) ?></button></div></div>
+  </form>
+</section>
+<?php endif; ?>
+
 <form id="tls-on" method="post" action="/settings/tls-all" data-confirm="<?= h(A('Vklopim preverjanje certifikata pri vseh napravah? Routerji dobijo novo skripto s samodejno posodobitvijo.')) ?>"><?= Auth::csrf() ?><input type="hidden" name="on" value="1"></form>
 <form id="tls-off" method="post" action="/settings/tls-all" data-confirm="<?= h(A('Izklopim preverjanje certifikata pri vseh napravah?')) ?>"><?= Auth::csrf() ?><input type="hidden" name="on" value="0"></form>
 

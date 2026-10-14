@@ -15,6 +15,22 @@
   </table></div><?php endif; ?>
 </section>
 
+<?php if (!empty($incidents)): ?>
+<section class="panel">
+  <div class="panel-head"><h2><?= icon('activity', 18) ?><?= h(A('Incidenti (30 dni)')) ?></h2><span class="small muted"><?= h(A('povezani alarmi ene naprave s časovnico')) ?></span></div>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th><?= h(A('Stopnja')) ?></th><th><?= h(A('Naprava')) ?> / <?= h(A('Opis')) ?></th><th><?= h(A('Začetek')) ?></th><th><?= h(A('Trajanje')) ?></th><th class="num"><?= h(A('Alarmov')) ?></th></tr></thead>
+    <tbody><?php foreach ($incidents as $inc): ?><tr>
+      <td><?= sev_tag($inc['severity']) ?></td>
+      <td><a class="rowlink" href="/incidents/<?= (int)$inc['id'] ?>"><b><?= h($inc['device_name']) ?></b> – <?= h($inc['title']) ?></a><?= trim((string)$inc['ai_summary']) !== '' ? ' <span class="tag violet">AI</span>' : '' ?></td>
+      <td class="nowrap"><?= h(fmt_dt($inc['started_at'])) ?></td>
+      <td class="nowrap"><?= $inc['ended_at'] ? h(Incidents::duration($inc)) : '<span class="tag down">' . h(A('še traja')) . '</span>' ?></td>
+      <td class="num muted"><?= (int)$inc['n_alerts'] ?></td>
+    </tr><?php endforeach; ?></tbody>
+  </table></div>
+</section>
+<?php endif; ?>
+
 <section class="panel">
   <div class="panel-head">
     <h2><?= icon('history', 18) ?><?= h(A('Zgodovina')) ?></h2>

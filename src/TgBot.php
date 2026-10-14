@@ -233,6 +233,14 @@ final class TgBot
             $r = $d ? Actions::create($d, 'block', $m[2], (int)$m[3], 'approved', A('gumb pod alarmom'), 'alarm', null, 'telegram') : A('naprava ne obstaja');
             $note = is_int($r) ? A('Blokada potrjena – router jo izvede ob naslednjem pushu') : A('Ni mogoče: {r}', ['r' => $r]);
             if (is_int($r)) self::reply('🚫 <b>' . self::e($d['name']) . '</b> – ' . A('blokada {ip} za {h} h potrjena (ukrep #{id}). Router jo izvede v minuti ali dveh.', ['ip' => $m[2], 'h' => (int)$m[3], 'id' => $r]));
+        } elseif (preg_match('/^fb:(\d+):([01])$/', $data, $m)) {   // ocena AI razlage 👍/👎
+            db()->prepare('UPDATE ai_log SET feedback=? WHERE id=?')->execute([(int)$m[2], (int)$m[1]]);
+            $note = $m[2] === '1' ? A('Hvala – AI bo podobne razlage pisal tako') : A('Zabeleženo – AI se bo temu izogibal. Popravek lahko napišeš: "zapomni si: …"');
+            if (isset($cq['message']['message_id'])) {   // gumba 👍/👎 zamenja oznaka, ostali gumbi ostanejo
+                $rows = array_values(array_filter((array)($cq['message']['reply_markup']['inline_keyboard'] ?? []), fn($row) => !array_filter((array)$row, fn($b) => str_starts_with((string)($b['callback_data'] ?? ''), 'fb:'))));
+                $rows[] = [['text' => $m[2] === '1' ? '👍 ' . A('ocenjeno') : '👎 ' . A('ocenjeno'), 'callback_data' => 'noop']];
+                Notify::tgApi($tok, 'editMessageReplyMarkup', ['chat_id' => $cq['message']['chat']['id'], 'message_id' => $cq['message']['message_id'], 'reply_markup' => ['inline_keyboard' => $rows]]);
+            }
         } elseif (preg_match('/^act:(\d+):([01])$/', $data, $m)) {   // predlog ukrepa (AI): izvedi / zavrni
             $a = Actions::decide((int)$m[1], $m[2] === '1', 'telegram');
             $note = !$a ? A('Ukrep ne obstaja') : (!$a['changed'] ? A('O ukrepu je že odločeno') : ($a['status'] === 'approved' ? A('Potrjeno – router ga izvede ob naslednjem pushu') : A('Zavrnjeno')));

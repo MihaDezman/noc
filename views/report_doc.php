@@ -49,6 +49,13 @@ $dur = fn(int $s) => $s < 60 ? $s . ' s' : ($s < 3600 ? intdiv($s, 60) . ' min' 
     <div><?= h($t['name'] ?? '') ?> · <?= h($month) ?></div>
   </div>
 
+<?php if (!empty($r['ai'])): ?>
+  <div class="sec">
+    <h2><?= h(A('Povzetek meseca')) ?></h2>
+    <p style="line-height:1.6;margin:0"><?= nl2br(h($r['ai'])) ?></p>
+  </div>
+<?php endif; ?>
+
 <?php if (!$r['devices']): ?>
   <div class="sec"><p><?= h(A('V tem mesecu za naročnika ni bilo spremljanih naprav.')) ?></p></div>
 <?php endif; ?>

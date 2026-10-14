@@ -5,7 +5,7 @@ declare(strict_types=1);
 final class Report
 {
     /** Podatki za naročnika in mesec "Y-m" */
-    public static function build(int $tenantId, string $ym): array
+    public static function build(int $tenantId, string $ym, bool $withAi = true): array
     {
         $pdo = db();
         $st = $pdo->prepare('SELECT * FROM tenants WHERE id=?'); $st->execute([$tenantId]);
@@ -51,7 +51,9 @@ final class Report
             $q->execute([$id, $from, $to]); $hosts = (int)$q->fetchColumn();
             $devices[] = compact('d', 'sla', 'daily', 'rx', 'tx', 'peakRx', 'peakTx', 'lat', 'al', 'attacks', 'reboots', 'changes', 'top', 'hosts');
         }
-        return ['tenant' => $tenant, 'ym' => $ym, 'from' => $from, 'to' => $to, 'devices' => $devices];
+        $ai = null;
+        if ($withAi) { $q = $pdo->prepare('SELECT text FROM report_ai WHERE tenant_id=? AND ym=?'); $q->execute([$tenantId, $ym]); $ai = $q->fetchColumn() ?: null; }
+        return ['tenant' => $tenant, 'ym' => $ym, 'from' => $from, 'to' => $to, 'devices' => $devices, 'ai' => $ai];
     }
 
     public static function monthName(string $ym): string
@@ -90,7 +92,10 @@ final class Report
         $ym = date('Y-m', strtotime('first day of last month'));
         if (setting('report_sent') === $ym) return '';
         $n = 0;
-        foreach (db()->query('SELECT id FROM tenants WHERE report_enabled=1 AND report_emails<>""')->fetchAll(PDO::FETCH_COLUMN) as $tid) $n += self::send((int)$tid, $ym);
+        foreach (db()->query('SELECT id FROM tenants WHERE report_enabled=1 AND report_emails<>""')->fetchAll(PDO::FETCH_COLUMN) as $tid) {
+            try { Ai::reportSummary((int)$tid, $ym); } catch (\Throwable $e) { error_log('noc ai report: ' . $e->getMessage()); }   // AI odstavek (če je vklopljen)
+            $n += self::send((int)$tid, $ym);
+        }
         setting_set('report_sent', $ym);
         return "poročila $ym: $n";
     }

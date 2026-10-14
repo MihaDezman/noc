@@ -10,8 +10,11 @@ declare(strict_types=1);
  */
 final class Ai
 {
+    private static string $chatQ = '';
     public const MODELS = ['claude-sonnet-5-5' => 'Claude Sonnet 5.5', 'claude-haiku-5-5' => 'Claude Haiku 5.5', 'claude-opus-5-5' => 'Claude Opus 5.5'];
     private const API = 'https://api.anthropic.com/v1/messages';
+    /** id zadnjega zapisa v ai_log (za gumba 👍/👎) */
+    public static ?int $lastId = null;
 
     public static function key(): string { return dec(setting('ai_key_enc', '')); }
     public static function model(): string { $m = setting('ai_model', 'claude-sonnet-5-5'); return isset(self::MODELS[$m]) ? $m : 'claude-sonnet-5-5'; }
@@ -55,6 +58,7 @@ final class Ai
         $err = $ok ? '' : mb_substr('HTTP ' . $code . ' ' . (string)($j['error']['message'] ?? ($code === 200 ? 'odgovor brez besedila (stop_reason: ' . ($j['stop_reason'] ?? '?') . ')' : ($res ?? 'ni odgovora'))), 0, 300);
         db()->prepare('INSERT INTO ai_log (kind, ref_id, sig, model, in_tok, out_tok, ok, err, result) VALUES (?,?,?,?,?,?,?,?,?)')
             ->execute([$kind, $ref, $sig, self::model(), (int)($j['usage']['input_tokens'] ?? 0), (int)($j['usage']['output_tokens'] ?? 0), $ok ? 1 : 0, $err, $ok ? mb_substr($text, 0, 4000) : null]);
+        self::$lastId = (int)db()->lastInsertId();
         if (!$ok) error_log('noc ai: ' . $err);
         return $ok ? trim($text) : null;
     }
@@ -101,6 +105,40 @@ final class Ai
         . 'Odgovarjaš v slovenščini, kratko in konkretno, brez uvoda in brez markdowna (brez **, #, tabel). Največ 6 kratkih vrstic. '
         . 'Ne ugibaj čez podatke: če podatkov ni dovolj, to povej in predlagaj, kaj preveriti. Ukaze RouterOS piši v enaki obliki, kot se vpišejo v terminal.';
 
+    // ================================================================== znanje: zapiski serviserja in povratna informacija
+    /** Zapiski serviserja za AI (splošni + za napravo) kot besedilo za kontekst */
+    public static function notes(?int $deviceId = null): string
+    {
+        $st = db()->prepare('SELECT device_id, note FROM ai_notes WHERE device_id IS NULL' . ($deviceId ? ' OR device_id=?' : '') . ' ORDER BY device_id IS NULL DESC, id');
+        $st->execute($deviceId ? [$deviceId] : []);
+        $rows = $st->fetchAll(); if (!$rows) return '';
+        return "ZAPISKI SERVISERJA (to velja, upoštevaj pri oceni – npr. kaj je pri tej napravi normalno):\n"
+            . implode("\n", array_map(fn($r) => '- ' . ($r['device_id'] ? '' : '[vse naprave] ') . $r['note'], $rows)) . "\n";
+    }
+
+    public static function addNote(?int $deviceId, string $note, string $source, string $by): int
+    {
+        db()->prepare('INSERT INTO ai_notes (device_id, note, source, created_by) VALUES (?,?,?,?)')->execute([$deviceId, mb_substr(trim(ros_clean($note)), 0, 500), $source, mb_substr($by, 0, 60)]);
+        return (int)db()->lastInsertId();
+    }
+
+    /** Pretekle ocene razlag istega alarma (👍/👎), da se model izogne slabim in ohrani dobre */
+    private static function feedbackExamples(int $deviceId, string $akey): string
+    {
+        $base = explode(':', $akey, 2)[0] . '%';
+        $st = db()->prepare("SELECT l.feedback, l.result FROM ai_log l JOIN alerts a ON a.id=l.ref_id WHERE l.kind='alert' AND l.feedback IS NOT NULL AND a.akey LIKE ? ORDER BY (a.device_id=?) DESC, l.id DESC LIMIT 4");
+        $st->execute([$base, $deviceId]); $rows = $st->fetchAll(); if (!$rows) return '';
+        $o = "PRETEKLE RAZLAGE PODOBNIH ALARMOV, KI JIH JE SERVISER OCENIL:\n";
+        foreach ($rows as $r) $o .= ((int)$r['feedback'] ? '[KORISTNO] ' : '[NI BILO KORISTNO – drugače] ') . mb_substr(str_replace("\n", ' ', (string)$r['result']), 0, 400) . "\n";
+        return $o;
+    }
+
+    /** Gumba za oceno razlage (Telegram) */
+    public static function fbButtons(?int $logId): array
+    {
+        return $logId ? [[['text' => '👍', 'callback_data' => 'fb:' . $logId . ':1'], ['text' => '👎', 'callback_data' => 'fb:' . $logId . ':0']]] : [];
+    }
+
     // ================================================================== 1. razlaga alarmov
     /** Nove alarme (opozorilo/kritično) analizira in pošlje razlago na Telegram. Največ $max na krog. */
     public static function explainAlerts(int $max = 3): string
@@ -112,6 +150,11 @@ final class Ai
                              ORDER BY FIELD(a.severity,'critical','warning'), a.id LIMIT 20")->fetchAll();
         $n = 0;
         foreach ($rows as $a) {
+            // opozorilo znotraj kritičnega incidenta: razloži se kritični alarm in na koncu incident – brez dodatnega sporočila
+            if ($a['severity'] === 'warning' && !empty($a['incident_id'])) {
+                $q = db()->prepare("SELECT severity FROM incidents WHERE id=?"); $q->execute([$a['incident_id']]);
+                if ($q->fetchColumn() === 'critical') { db()->prepare("UPDATE alerts SET ai_note='' WHERE id=?")->execute([$a['id']]); continue; }
+            }
             // isti alarm na isti napravi v zadnjih 24 h že razložen -> ponovi razlago brez novega klica
             $st = db()->prepare("SELECT ai_note FROM alerts WHERE device_id=? AND akey=? AND id<>? AND ai_note IS NOT NULL AND ai_note<>'' AND started_at > NOW() - INTERVAL 24 HOUR ORDER BY id DESC LIMIT 1");
             $st->execute([$a['device_id'], $a['akey'], $a['id']]); $prev = $st->fetchColumn();
@@ -121,7 +164,8 @@ final class Ai
             // napad z zunanjega IP-ja: AI sme predlagati blokado (izvede se šele, ko jo skrbnik potrdi)
             $attIp = preg_match('/^(?:attack|fwscan):(\d{1,3}(?:\.\d{1,3}){3})$/', $a['akey'], $mm) ? $mm[1] : null;
             $sys = self::SYSTEM . ($attIp ? " Če je smiselno blokirati napadalca $attIp na routerju, dodaj v zadnjo vrstico natanko: UKREP: blokiraj $attIp <ure> (1–720). Blokado potrdi serviser z gumbom." : '');
-            $txt = self::ask('alert', (int)$a['id'], $sys, self::alertContext($d, $a));
+            $txt = self::ask('alert', (int)$a['id'], $sys, self::alertContext($d, $a) . "\n" . self::feedbackExamples((int)$d['id'], (string)$a['akey']));
+            $logId = self::$lastId;
             $n++;
             $prop = null;
             if ($txt && $attIp && preg_match('/^\s*UKREP:\s*blokiraj\s+(\S+)\s+(\d+)/mi', $txt, $um)) {
@@ -130,7 +174,7 @@ final class Ai
             }
             db()->prepare('UPDATE alerts SET ai_note=? WHERE id=?')->execute([$txt ?? '', $a['id']]);   // '' = poskus ni uspel, ne ponavljaj
             if ($txt) self::tg('🤖 <b>' . htmlspecialchars($d['name']) . '</b> – ' . htmlspecialchars($a['message']) . "\n\n" . htmlspecialchars(mb_substr($txt, 0, 2500))
-                . ($prop ? "\n\n🚫 " . A('Predlog: blokiraj {ip} za {h} h', ['ip' => $attIp, 'h' => $prop[1]]) : ''), (int)$d['id'], $prop ? Actions::buttons($prop[0], $attIp) : null);
+                . ($prop ? "\n\n🚫 " . A('Predlog: blokiraj {ip} za {h} h', ['ip' => $attIp, 'h' => $prop[1]]) : ''), (int)$d['id'], array_merge($prop ? Actions::buttons($prop[0], $attIp) : [], self::fbButtons($logId)));
         }
         return $n ? "alarmi: $n" : '';
     }
@@ -140,6 +184,8 @@ final class Ai
     {
         $pdo = db(); $id = (int)$d['id']; $st = json_decode((string)($d['status_json'] ?? ''), true) ?: [];
         $o = "NAPRAVA: {$d['name']} · model {$d['model']} · RouterOS {$d['os_version']} · WAN {$d['wan_iface']} · uptime " . fmt_uptime($d['last_uptime'] !== null ? (int)$d['last_uptime'] : null) . "\n";
+        $o .= self::notes($id);
+        $fc = Forecast::forDevice($d); if ($fc) $o .= "NAPOVEDI (trend 14 dni):\n" . implode("\n", array_map(fn($f) => '- ' . $f[1], $fc)) . "\n";
         $o .= "ALARM: [{$a['severity']}] {$a['message']} (ključ {$a['akey']}, začetek {$a['started_at']})\n";
         $q = $pdo->prepare('SELECT COUNT(*) FROM alerts WHERE device_id=? AND akey=? AND started_at > NOW() - INTERVAL 30 DAY'); $q->execute([$id, $a['akey']]);
         $o .= 'Isti alarm v zadnjih 30 dneh: ' . (int)$q->fetchColumn() . "x\n";
@@ -192,8 +238,8 @@ final class Ai
                 . 'Pravila z oznako noc-, noc-log, noc-fw, noc-filter in skripte noc-push/noc-backup dodaja nadzorni sistem NOC sam – te so pričakovane in niso tveganje. '
                 . 'Odgovori SAMO z JSON: {"risk":"ok" ali "warn","summary":"kaj se je spremenilo, po človeško, največ 4 kratke vrstice","why":"če warn: zakaj je tvegano in kaj predlagaš, sicer prazno"}. '
                 . 'warn samo za resnična tveganja: odprt dostop z interneta (winbox, ssh, www, api, dns, proxy, socks), izklopljena ali odstranjena zaščitna pravila požarnega zidu, nov uporabnik z full pravicami, izklopljen NOC (noc- skripte/scheduler odstranjeni), sprememba WAN/IP, ki lahko odreže dostop.';
-            $user = "NAPRAVA: {$d['name']} · model {$d['model']} · RouterOS {$d['os_version']} · WAN {$d['wan_iface']}\nSPREMEMBE:\n" . mb_substr($diff, 0, 12000);
-            $txt = self::ask('config', (int)$b['id'], $sys, $user, 600);
+            $user = "NAPRAVA: {$d['name']} · model {$d['model']} · RouterOS {$d['os_version']} · WAN {$d['wan_iface']}\n" . self::notes((int)$d['id']) . "SPREMEMBE:\n" . mb_substr($diff, 0, 12000);
+            $txt = self::ask('config', (int)$b['id'], $sys, $user, 600); $logId = self::$lastId;
             $n++;
             if ($txt === null) { db()->prepare("UPDATE config_backups SET ai_note='' WHERE id=?")->execute([$b['id']]); continue; }
             $j = json_decode(preg_replace('/^```(?:json)?|```$/m', '', $txt), true);
@@ -207,7 +253,7 @@ final class Ai
                 continue;
             }
             self::tg('🤖 <b>' . htmlspecialchars($d['name']) . '</b> – ' . A('sprememba konfiguracije') . "\n\n" . htmlspecialchars($note)
-                . "\n<a href=\"" . rtrim((string)cfg('base_url'), '/') . '/devices/' . $d['id'] . '/backups/' . $b['id'] . '">' . A('Poglej razlike') . '</a>', (int)$d['id']);
+                . "\n<a href=\"" . rtrim((string)cfg('base_url'), '/') . '/devices/' . $d['id'] . '/backups/' . $b['id'] . '">' . A('Poglej razlike') . '</a>', (int)$d['id'], self::fbButtons($logId));
         }
         return $n ? "konfiguracije: $n" : '';
     }
@@ -289,6 +335,7 @@ final class Ai
     public static function digestContext(): string
     {
         $pdo = db(); $o = 'Čas: ' . date('d.m.Y H:i') . "\n";
+        foreach ($pdo->query('SELECT note FROM ai_notes WHERE device_id IS NULL')->fetchAll(PDO::FETCH_COLUMN) as $nt) $o .= 'Splošni zapisek serviserja: ' . $nt . "\n";
         foreach (array_map([Devices::class, 'decorate'], $pdo->query('SELECT ' . Devices::listCols('d') . ', t.name tenant_name FROM devices d LEFT JOIN tenants t ON t.id=d.tenant_id WHERE d.active=1 ORDER BY d.name')->fetchAll()) as $d) {
             $id = (int)$d['id']; $st = $d['status'];
             $o .= "\n## {$d['name']}" . ($d['tenant_name'] ? " ({$d['tenant_name']})" : '') . " · {$d['model']} · RouterOS " . preg_replace('/\s.*$/', '', (string)$d['os_version']) . ' · stanje ' . $d['state'] . ' · uptime ' . fmt_uptime($d['last_uptime'] !== null ? (int)$d['last_uptime'] : null) . "\n";
@@ -322,6 +369,9 @@ final class Ai
             $fw = $q->fetch(); if ($fw && $fw['y'] !== null && (int)$fw['y'] > 0) $o .= "Zavrnjeni poskusi z interneta včeraj {$fw['y']} (povprečje tedna " . ($fw['w'] ?? '?') . ")\n";
             $q = $pdo->prepare('SELECT MAX(created_at) FROM config_backups WHERE device_id=?'); $q->execute([$id]); $bk = $q->fetchColumn();
             $o .= 'Zadnji backup: ' . ($bk ?: 'nikoli') . "\n";
+            foreach (Forecast::forDevice($d) as $f) $o .= 'NAPOVED: ' . $f[1] . "\n";
+            $q = $pdo->prepare('SELECT note FROM ai_notes WHERE device_id=?'); $q->execute([$id]);
+            foreach ($q->fetchAll(PDO::FETCH_COLUMN) as $nt) $o .= 'Zapisek serviserja: ' . $nt . "\n";
         }
         $q = $pdo->query("SELECT name, info, last_at FROM cron_runs"); $o .= "\nNOC strežnik – cron: " . implode('; ', array_map(fn($r) => "{$r['name']} {$r['last_at']}", $q->fetchAll())) . "\n";
         return mb_substr($o, 0, 30000);
@@ -339,6 +389,7 @@ final class Ai
             ['name' => 'najvec_prometa', 'description' => 'Naprave v LAN-u z največ prometa (traffic-flow), z imeni iz DHCP.', 'input_schema' => ['type' => 'object', 'properties' => ['naprava' => $dev, 'obdobje' => ['type' => 'string', 'enum' => ['1h', '24h', '7d', '30d']]], 'required' => ['naprava']]],
             ['name' => 'log', 'description' => 'Log routerja (zadnje vrstice, po želji filtrirane).', 'input_schema' => ['type' => 'object', 'properties' => ['naprava' => $dev, 'ure' => ['type' => 'integer'], 'filter' => ['type' => 'string', 'description' => 'Besedilo, ki mora biti v vrstici (npr. "login failure", "ether1")']], 'required' => ['naprava']]],
             ['name' => 'varnost', 'description' => 'Varnostna analiza: zavrnjeni poskusi z interneta po dnevih, najpogostejši napadalci in porti, sumljiv odhodni promet, blokade.', 'input_schema' => ['type' => 'object', 'properties' => ['naprava' => $dev], 'required' => ['naprava']]],
+            ['name' => 'zapomni_si', 'description' => 'Shrani trajen zapisek serviserja, ki ga AI upošteva pri vseh prihodnjih analizah (npr. "disk pri Donatu je vedno 96 %, to je normalno"). Uporabi, ko serviser reče "zapomni si", "upoštevaj", "to je normalno". Brez naprave = velja za vse naprave.', 'input_schema' => ['type' => 'object', 'properties' => ['naprava' => $dev, 'zapis' => ['type' => 'string', 'description' => 'Kratek, jasen zapisek v tretji osebi']], 'required' => ['zapis']]],
             ['name' => 'predlagaj_blokado', 'description' => 'Predlagaj blokado zunanjega IP-ja na routerju. NE izvede se: serviser dobi gumb Izvedi/Zavrni. Uporabi samo, ko serviser to želi ali je napad očiten.', 'input_schema' => ['type' => 'object', 'properties' => ['naprava' => $dev, 'ip' => ['type' => 'string'], 'ure' => ['type' => 'integer'], 'razlog' => ['type' => 'string']], 'required' => ['naprava', 'ip', 'ure', 'razlog']]],
         ];
     }
@@ -367,6 +418,15 @@ final class Ai
                           'wan_dol' => $w ? fmt_bps($w['rx_bps']) : null, 'wan_gor' => $w ? fmt_bps($w['tx_bps']) : null, 'odprti_alarmi' => (int)$d['open_alerts'], 'model' => $d['model'], 'routeros' => $d['os_version']];
             }
             return json_encode($out, JSON_UNESCAPED_UNICODE);
+        }
+        if ($name === 'zapomni_si') {
+            // samo na izrecno željo serviserja (ne zaradi besedila iz logov, imen naprav ipd. – prompt injection)
+            if (!preg_match('/zapomni|upo[sš]tevaj|zapi[sš]i|normaln|remember|note/iu', self::$chatQ)) return 'Zapisek ni shranjen: serviser tega ni izrecno zahteval (reči mora npr. "zapomni si ...").';
+            $note = trim((string)($in['zapis'] ?? '')); if ($note === '') return 'Prazen zapisek.';
+            $dev = null;
+            if (trim((string)($in['naprava'] ?? '')) !== '') { [$dev, $err] = self::findDevice((string)$in['naprava']); if (!$dev) return $err; }
+            $nid = self::addNote($dev ? (int)$dev['id'] : null, $note, 'telegram', 'telegram');
+            return "Zapisek #$nid shranjen" . ($dev ? " za {$dev['name']}" : ' (velja za vse naprave)') . '. Serviser ga lahko uredi ali izbriše v NOC.';
         }
         [$d, $err] = self::findDevice((string)($in['naprava'] ?? ''));
         if ($name === 'alarmi' && trim((string)($in['naprava'] ?? '')) === '') $d = null; elseif (!$d) return $err;
@@ -419,13 +479,14 @@ final class Ai
         if (self::callsToday() >= max(1, (int)setting('ai_daily', '100'))) return [A('Dosežena je dnevna omejitev klicev AI.'), []];
         $sys = self::SYSTEM . ' Si asistent v Telegramu nadzornega sistema NOC. Na vprašanja odgovarjaš s pomočjo orodij (podatki NOC, samo branje). '
             . 'Vedno najprej poišči podatke z orodji, nato odgovori kratko s konkretnimi številkami. Brez omejitve 6 vrstic, a največ 15 kratkih vrstic. '
-            . 'Na routerjih ne moreš ničesar spremeniti; edino, kar lahko narediš, je predlog blokade IP-ja, ki ga serviser potrdi z gumbom.';
+            . 'Na routerjih ne moreš ničesar spremeniti; lahko le predlagaš blokado IP-ja (serviser jo potrdi z gumbom) in si zapomniš zapisek serviserja (orodje zapomni_si). '
+            . 'Zapiski serviserja za posamezno napravo so v rezultatu orodja naprava.' . "\n" . self::notes(null);
         // kratek spomin: zadnja vprašanja in odgovori iz zadnjih 30 minut
         $msgs = [];
         foreach (array_reverse(db()->query("SELECT prompt, result FROM ai_log WHERE kind='chat' AND ok=1 AND at > NOW() - INTERVAL 30 MINUTE ORDER BY id DESC LIMIT 3")->fetchAll()) as $h) {
             $msgs[] = ['role' => 'user', 'content' => (string)$h['prompt']]; $msgs[] = ['role' => 'assistant', 'content' => (string)$h['result']];
         }
-        $msgs[] = ['role' => 'user', 'content' => mb_substr($question, 0, 2000)];
+        $msgs[] = ['role' => 'user', 'content' => mb_substr($question, 0, 2000)]; self::$chatQ = $question;
         $proposals = []; $tin = 0; $tout = 0; $text = ''; $err = ''; $calls_n = 0;
         for ($i = 0; $i < 8; $i++) {
             if ($i > 0 && self::callsToday() + $i >= max(1, (int)setting('ai_daily', '100'))) { $err = 'dnevna omejitev'; break; }
@@ -451,6 +512,100 @@ final class Ai
             ->execute(['chat', max(1, $calls_n ?? 1), self::model(), $tin, $tout, $ok ? 1 : 0, mb_substr($err, 0, 300), $ok ? mb_substr($text, 0, 4000) : null, mb_substr($question, 0, 2000)]);
         if (!$ok) error_log('noc ai chat: ' . $err);
         return [$ok ? $text : A('AI ni odgovoril ({e}).', ['e' => $err ?: A('prazen odgovor')]), $proposals];
+    }
+
+    // ================================================================== 6. incidenti: povzetek po koncu
+    /** Zaprti incidenti brez povzetka: vzrok, vpliv, kaj narediti (Telegram + stran incidenta) */
+    public static function incidents(int $max = 2): string
+    {
+        if (!self::on('incidents')) return '';
+        $rows = db()->query("SELECT * FROM incidents WHERE ended_at IS NOT NULL AND ai_summary IS NULL AND ended_at > NOW() - INTERVAL 2 DAY ORDER BY id LIMIT " . (int)$max)->fetchAll();
+        $n = 0;
+        foreach ($rows as $i) {
+            $d = Devices::full((int)$i['device_id']); if (!$d) continue;
+            $ctx = "NAPRAVA: {$d['name']} · {$d['model']} · RouterOS {$d['os_version']} · WAN {$d['wan_iface']}\n" . self::notes((int)$d['id'])
+                . "INCIDENT: {$i['title']} · začetek {$i['started_at']} · konec {$i['ended_at']} · trajanje " . Incidents::duration($i) . "\nČASOVNICA:\n";
+            foreach (Incidents::timeline($i) as $e) $ctx .= substr($e['t'], 5, 14) . ' ' . ['start' => 'ZAČETEK', 'end' => 'KONEC', 'event' => 'DOGODEK', 'log' => 'LOG'][$e['kind']] . ' ' . mb_substr($e['text'], 0, 200) . "\n";
+            $q = db()->prepare('SELECT DATE_FORMAT(ts,"%H:%i") t, cpu, gw_ms, gw_loss, ext_ms, ext_loss FROM health_1m WHERE device_id=? AND ts BETWEEN ? - INTERVAL 15 MINUTE AND ? + INTERVAL 5 MINUTE ORDER BY ts LIMIT 120');
+            $q->execute([$d['id'], $i['started_at'], $i['ended_at']]);
+            $m = $q->fetchAll(); if ($m) $ctx .= "METRIKE (čas cpu gw_ms gw_izguba ext_ms ext_izguba):\n" . implode("\n", array_map(fn($r) => implode(' ', array_map(fn($v) => $v ?? '-', $r)), $m)) . "\n";
+            $sys = self::SYSTEM . ' Pišeš kratek povzetek zaključenega incidenta za serviserja: 1) najverjetnejši vzrok, 2) vpliv (kaj ni delovalo in koliko časa), 3) kaj narediti, da se ne ponovi (če kaj). Največ 6 vrstic.';
+            $txt = self::ask('incident', (int)$i['id'], $sys, mb_substr($ctx, 0, 14000)); $logId = self::$lastId; $n++;
+            db()->prepare('UPDATE incidents SET ai_summary=? WHERE id=?')->execute([$txt ?? '', $i['id']]);
+            if ($txt) self::tg('📋 <b>' . A('Incident zaključen') . ' – ' . htmlspecialchars($d['name']) . '</b>' . "\n" . htmlspecialchars($i['title']) . ' · ' . htmlspecialchars(Incidents::duration($i)) . "\n\n" . htmlspecialchars(mb_substr($txt, 0, 2500))
+                . "\n<a href=\"" . rtrim((string)cfg('base_url'), '/') . '/incidents/' . $i['id'] . '">' . A('Časovnica') . '</a>', (int)$d['id'], self::fbButtons($logId));
+        }
+        return $n ? "incidenti: $n" : '';
+    }
+
+    // ================================================================== 7. mesečno poročilo: odstavek za stranko
+    /** Razumljiv povzetek meseca za naročnika (shrani v report_ai); vrne besedilo ali null */
+    public static function reportSummary(int $tenantId, string $ym, bool $force = false): ?string
+    {
+        if (!self::on('report')) return null;
+        $st = db()->prepare('SELECT text FROM report_ai WHERE tenant_id=? AND ym=?'); $st->execute([$tenantId, $ym]);
+        if (!$force && ($t = $st->fetchColumn())) return $t;
+        $r = Report::build($tenantId, $ym, false);
+        if (!$r['devices']) return null;
+        [$from, $to] = [$r['from'], $r['to']];
+        $ctx = 'NAROČNIK: ' . ($r['tenant']['name'] ?? '') . ' · MESEC: ' . Report::monthName($ym) . "\n";
+        foreach ($r['devices'] as $x) {
+            $d = $x['d'];
+            $ctx .= "\nNAPRAVA {$d['name']}" . ($d['site'] ? " ({$d['site']})" : '') . ': razpoložljivost ' . Sla::fmt($x['sla']['pct']) . ', izpadi ' . (int)($x['sla']['count'] ?? 0) . ', skupni čas izpadov ' . ((int)($x['sla']['down_s'] ?? 0) > 0 ? fmt_uptime((int)$x['sla']['down_s']) : '0')
+                . ', promet ' . fmt_bytes($x['rx'] + $x['tx']) . ', latenca do interneta povprečno ' . ($x['lat']['ext'] !== null ? round((float)$x['lat']['ext'], 1) . ' ms' : '–')
+                . ', izguba paketov ' . ($x['lat']['loss'] !== null ? round((float)$x['lat']['loss'], 2) . ' %' : '–') . ', kritični alarmi ' . (int)($x['al']['critical'] ?? 0) . ', opozorila ' . (int)($x['al']['warning'] ?? 0)
+                . ', napadi na router ' . $x['attacks'] . ', ponovni zagoni ' . $x['reboots'] . ', spremembe konfiguracije ' . $x['changes'] . ', naprav v omrežju ' . $x['hosts'] . "\n";
+            $q = db()->prepare('SELECT title, started_at, ended_at, ai_summary FROM incidents WHERE device_id=? AND started_at >= FROM_UNIXTIME(?) AND started_at < FROM_UNIXTIME(?) ORDER BY started_at');
+            $q->execute([$d['id'], $from, $to]);
+            foreach ($q->fetchAll() as $i) $ctx .= "  incident {$i['started_at']}: {$i['title']} (" . Incidents::duration($i) . ')' . ($i['ai_summary'] ? ' – ' . mb_substr(str_replace("\n", ' ', $i['ai_summary']), 0, 300) : '') . "\n";
+        }
+        $sys = 'Pišeš kratek povzetek mesečnega poročila o omrežju za stranko (podjetje, ne tehnik), v slovenščini, vljudno (vikanje). '
+            . '4–7 stavkov, navadno besedilo brez naštevanja in brez tehničnega žargona (namesto "latenca" reci "odzivnost", namesto "paketna izguba" "prekinitve"). '
+            . 'Povej, kako je omrežje delovalo, pomembne dogodke in kaj je bilo narejeno ali priporočeno. Ne pretiravaj in ne izmišljuj: piši samo, kar izhaja iz podatkov. '
+            . 'Ne omenjaj AI, NOC ali notranjih oznak. Podpisa ne dodaj.';
+        $txt = self::ask('report', $tenantId, $sys, $ctx, 900);
+        if ($txt) db()->prepare('REPLACE INTO report_ai (tenant_id, ym, text) VALUES (?,?,?)')->execute([$tenantId, $ym, mb_substr($txt, 0, 4000)]);
+        return $txt;
+    }
+
+    // ================================================================== 8. AI pregled konfiguracije routerja
+    /** Zahteva za pregled (gumb ali nova naprava); obdela ga cron/ai.php */
+    public static function requestReview(int $deviceId): void
+    {
+        $st = db()->prepare("SELECT COUNT(*) FROM ai_reviews WHERE device_id=? AND status='pending'"); $st->execute([$deviceId]);
+        if (!(int)$st->fetchColumn()) db()->prepare('INSERT INTO ai_reviews (device_id) VALUES (?)')->execute([$deviceId]);
+    }
+
+    public static function reviews(): string
+    {
+        if (!self::on()) return '';
+        $r = db()->query("SELECT * FROM ai_reviews WHERE status='pending' ORDER BY id LIMIT 1")->fetch();
+        if (!$r) return '';
+        $d = Devices::full((int)$r['device_id']);
+        if (!$d) { db()->prepare("UPDATE ai_reviews SET status='failed', note='naprava ne obstaja' WHERE id=?")->execute([$r['id']]); return ''; }
+        [$rsc] = Firewall::source($d);
+        $lines = array_filter(explode("\n", Diff::normalize((string)$rsc)), fn($l) => trim($l) !== '' && !Diff::isNocLine($l));
+        $cfg = mb_substr(implode("\n", $lines), 0, 60000);
+        if (trim($cfg) === '') { db()->prepare("UPDATE ai_reviews SET status='failed', note=? WHERE id=?")->execute([A('ni izvoza konfiguracije'), $r['id']]); return ''; }
+        $sys = 'Si izkušen inženir za MikroTik RouterOS 7. Pregledaš celotno konfiguracijo routerja stranke (/export terse; skrivnosti so zamenjane z ***) in poiščeš konkretne težave: '
+            . 'varnost (dostop z interneta, storitve, uporabniki, požarni zid, DNS, UPnP), zastarele ali nesmiselne nastavitve, napake pri VLAN-ih in bridgih, manjkajoče varovalke (NTP, ura, backup), zmogljivost (fasttrack, nepotrebna pravila). '
+            . 'Pravila in skripte z oznako noc so od nadzornega sistema – teh ne komentiraj. Upoštevaj zapiske serviserja. '
+            . 'Odgovori SAMO z JSON seznamom (največ 12, najpomembnejše najprej): [{"title":"kratek naslov","severity":"critical|warning|info","why":"zakaj je to težava, 1-2 stavka","fix":"ukazi RouterOS za popravek ali prazno"}]. Slovenščina. Brez splošnih nasvetov, samo kar velja za to konfiguracijo.';
+        $user = "NAPRAVA: {$d['name']} · {$d['model']} · RouterOS {$d['os_version']} · WAN {$d['wan_iface']} · LAN {$d['lan_networks']}\n" . self::notes((int)$d['id']) . "KONFIGURACIJA:\n" . $cfg;
+        $txt = self::ask('review', (int)$r['id'], $sys, $user, 5000);
+        $list = $txt ? json_decode((string)preg_replace('/^```(?:json)?|```$/m', '', trim($txt)), true) : null;
+        if (!is_array($list)) { db()->prepare("UPDATE ai_reviews SET status='failed', note=? WHERE id=?")->execute([$txt ? A('odgovor ni v pričakovani obliki') : A('AI ni odgovoril'), $r['id']]); return 'pregled: napaka'; }
+        $out = [];
+        foreach (array_slice($list, 0, 12) as $f) {
+            if (!is_array($f) || trim((string)($f['title'] ?? '')) === '') continue;
+            $out[] = ['title' => mb_substr((string)$f['title'], 0, 200), 'severity' => in_array($f['severity'] ?? '', ['critical', 'warning', 'info'], true) ? $f['severity'] : 'info',
+                      'why' => mb_substr((string)($f['why'] ?? ''), 0, 800), 'fix' => mb_substr((string)($f['fix'] ?? ''), 0, 2000), 'state' => 'open'];
+        }
+        db()->prepare("UPDATE ai_reviews SET status='done', findings=? WHERE id=?")->execute([json_encode($out, JSON_UNESCAPED_UNICODE), $r['id']]);
+        $crit = count(array_filter($out, fn($f) => $f['severity'] !== 'info'));
+        self::tg('🔍 <b>' . A('AI pregled konfiguracije') . ' – ' . htmlspecialchars($d['name']) . '</b>' . "\n" . A('{n} ugotovitev, od tega {c} pomembnih.', ['n' => count($out), 'c' => $crit])
+            . "\n<a href=\"" . rtrim((string)cfg('base_url'), '/') . '/devices/' . $d['id'] . '?tab=protect#ai-review">' . A('Odpri pregled') . '</a>', (int)$d['id']);
+        return 'pregled: ' . $d['name'];
     }
 
     /** Položaj napake v neveljavnem JSON (za okolico v diagnozi) */

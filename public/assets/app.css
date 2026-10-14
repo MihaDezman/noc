@@ -491,3 +491,7 @@ pre.raw { margin: 0; padding: 16px 20px; font-family: var(--mono); font-size: .8
 .ai-note.warn summary { color: var(--warn); } .ai-note.warn > div { border-left-color: var(--warn); }
 .ai-digest { margin-top: 20px; } .ai-digest > summary { cursor: pointer; list-style: none; } .ai-digest > summary::-webkit-details-marker { display: none; }
 .ai-digest .panel-body { line-height: 1.6; font-size: .92rem; }
+.feed.review li.faded { opacity: .55; }
+.feed.review .what pre { white-space: pre-wrap; word-break: break-word; }
+.feed.timeline .what .tag { margin-right: 4px; }
+.sev-bar.ok { background: var(--up); }

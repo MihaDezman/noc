@@ -149,6 +149,12 @@ $upd = $s['upd'] ?? [];
       </div>
     </section>
     <?php endif; ?>
+    <?php $fc = Forecast::forDevice($d); if ($fc): ?>
+    <section class="panel">
+      <div class="panel-head"><h2><?= icon('activity', 18) ?><?= h(A('Napovedi')) ?></h2><span class="small muted"><?= h(A('trend zadnjih 14 dni')) ?></span></div>
+      <ul class="feed"><?php foreach ($fc as [$k, $txt, $days, $sev]): ?><li><span class="sev-bar <?= h($sev) ?>"></span><div class="what"><?= h($txt) ?></div></li><?php endforeach; ?></ul>
+    </section>
+    <?php endif; ?>
     <section class="panel">
       <div class="panel-head"><h2><?= icon('bell', 18) ?><?= h(A('Odprti alarmi')) ?></h2></div>
       <?php if (!$alerts): ?><div class="empty" style="padding:24px"><?= icon('shield', 26) ?><div><?= h(A('Vse v redu.')) ?></div></div>
@@ -517,7 +523,22 @@ $upd = $s['upd'] ?? [];
   </tbody></table></div><?php endif; ?>
 </section>
 
-<?php elseif ($tab === 'alerts'): ?>
+<?php elseif ($tab === 'alerts'): $incidents = Incidents::list($id, 90, 20); ?>
+<?php if ($incidents): ?>
+<section class="panel">
+  <div class="panel-head"><h2><?= icon('activity', 18) ?><?= h(A('Incidenti (90 dni)')) ?></h2></div>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th><?= h(A('Stopnja')) ?></th><th><?= h(A('Opis')) ?></th><th><?= h(A('Začetek')) ?></th><th><?= h(A('Trajanje')) ?></th><th class="num"><?= h(A('Alarmov')) ?></th></tr></thead>
+    <tbody><?php foreach ($incidents as $inc): ?><tr>
+      <td><?= sev_tag($inc['severity']) ?></td>
+      <td><a class="rowlink" href="/incidents/<?= (int)$inc['id'] ?>"><?= h($inc['title']) ?></a><?= trim((string)$inc['ai_summary']) !== '' ? ' <span class="tag violet">AI</span>' : '' ?></td>
+      <td class="nowrap"><?= h(fmt_dt($inc['started_at'])) ?></td>
+      <td class="nowrap"><?= $inc['ended_at'] ? h(Incidents::duration($inc)) : '<span class="tag down">' . h(A('še traja')) . '</span>' ?></td>
+      <td class="num muted"><?= (int)$inc['n_alerts'] ?></td>
+    </tr><?php endforeach; ?></tbody>
+  </table></div>
+</section>
+<?php endif; ?>
 <section class="panel">
   <div class="panel-head"><h2><?= icon('history', 18) ?><?= h(A('Zgodovina alarmov')) ?></h2></div>
   <?php if (!$history): ?><div class="empty"><?= empty_art('ok') ?><div><?= h(A('Še ni bilo alarmov.')) ?></div></div><?php else: ?>
@@ -674,6 +695,35 @@ $upd = $s['upd'] ?? [];
   </div>
 </section>
 
+<?php $st = db()->prepare('SELECT * FROM ai_reviews WHERE device_id=? ORDER BY id DESC LIMIT 1'); $st->execute([$id]); $rv = $st->fetch();
+  $rvF = $rv && $rv['status'] === 'done' ? (json_decode((string)$rv['findings'], true) ?: []) : []; ?>
+<section class="panel" id="ai-review" style="margin-top:20px">
+  <div class="panel-head"><h2><?= icon('zap', 18) ?><?= h(A('AI pregled konfiguracije')) ?></h2>
+    <div class="actions">
+      <?php if ($rv): ?><span class="small muted"><?= h(fmt_dt($rv['created_at'])) ?></span><?php endif; ?>
+      <?php if ($rv && $rv['status'] === 'pending'): ?><span class="tag info"><?= h(A('v teku …')) ?></span>
+      <?php elseif (Ai::on()): ?><form method="post" action="/devices/<?= $id ?>/ai-review"><?= Auth::csrf() ?><button class="btn sm<?= $rv ? '' : ' primary' ?>"><?= icon('zap', 14) ?><?= h($rv ? A('Ponovi pregled') : A('Zaženi pregled')) ?></button></form><?php endif; ?>
+    </div></div>
+  <?php if (!Ai::on()): ?><div class="panel-body small muted"><?= h(A('Za AI pregled vpiši API ključ v Nastavitve → AI pomočnik.')) ?></div>
+  <?php elseif (!$rv): ?><div class="panel-body small muted"><?= h(A('AI pregleda celotno konfiguracijo routerja (zadnji backup) in predlaga konkretne izboljšave: varnost, zastarele nastavitve, VLAN-i, varovalke. Skrivnosti se pred pošiljanjem odstranijo, pravil NOC ne komentira.')) ?></div>
+  <?php elseif ($rv['status'] === 'failed'): ?><div class="panel-body small"><span class="tag down"><?= h(A('ni uspel')) ?></span> <?= h($rv['note']) ?></div>
+  <?php elseif ($rv['status'] === 'pending'): ?><div class="panel-body small muted"><?= h(A('Pregled se izvaja v ozadju – osveži stran čez minuto.')) ?></div>
+  <?php elseif (!$rvF): ?><div class="panel-body small"><?= h(A('AI ni našel ničesar, kar bi bilo treba popraviti.')) ?></div>
+  <?php else: ?>
+  <ul class="feed review"><?php foreach ($rvF as $k => $f): $stt = $f['state'] ?? 'open'; ?>
+    <li class="<?= $stt !== 'open' ? 'faded' : '' ?>"><span class="sev-bar <?= h($f['severity']) ?>"></span>
+      <div class="what"><?= sev_tag($f['severity']) ?> <b><?= h($f['title']) ?></b><?= $stt === 'done' ? ' <span class="tag up">' . h(A('urejeno')) . '</span>' : ($stt === 'dismissed' ? ' <span class="tag">' . h(A('ni pomembno')) . '</span>' : '') ?>
+        <div class="small" style="margin-top:4px"><?= h($f['why']) ?></div>
+        <?php if (trim($f['fix']) !== ''): ?><pre class="raw small" style="margin:6px 0 0"><?= h($f['fix']) ?></pre><?php endif; ?></div>
+      <?php if ($isSuper): ?><div class="when nowrap">
+        <?php foreach ($stt === 'open' ? ['done' => [A('Urejeno'), 'check'], 'dismissed' => [A('Ni pomembno'), 'x']] : ['open' => [A('Odpri znova'), 'refresh']] as $ns => [$lbl, $ic]): ?>
+        <form method="post" action="/devices/<?= $id ?>/ai-review" style="display:inline"><?= Auth::csrf() ?><input type="hidden" name="op" value="state"><input type="hidden" name="rid" value="<?= (int)$rv['id'] ?>"><input type="hidden" name="k" value="<?= (int)$k ?>"><input type="hidden" name="state" value="<?= $ns ?>"><button class="btn sm ghost" title="<?= h($lbl) ?>"><?= icon($ic, 14) ?></button></form>
+        <?php endforeach; ?></div><?php endif; ?>
+    </li><?php endforeach; ?></ul>
+  <p class="panel-body small muted" style="margin:0"><?= h(A('Ukazov AI ne izvede sam – preveri jih in jih po potrebi prilepi v terminal routerja.')) ?></p>
+  <?php endif; ?>
+</section>
+
 <?php elseif ($tab === 'settings'):
   $f = $d; $th = json_decode((string)$d['thresholds'], true) ?: [];
   $thLabels = ['th_cpu' => ['CPU %', '%'], 'th_temp' => [A('Temperatura'), '°C'], 'th_mem' => [A('Pomnilnik'), '%'], 'th_hdd' => [A('Disk'), '%'], 'th_gw_loss' => [A('Izguba do prehoda'), '%'], 'th_gw_ms' => [A('Latenca do prehoda'), 'ms'], 'th_ext_loss' => [A('Izguba do interneta'), '%'], 'th_ext_ms' => [A('Latenca do interneta'), 'ms'], 'th_offline_min' => [A('Brez pusha'), 'min'], 'th_host_gb_h' => [A('Naprava v LAN – GB/uro'), 'GB'], 'th_host_mbps' => [A('Naprava v LAN – Mb/s'), 'Mb/s'], 'th_attack' => [A('Napad: neuspelih prijav'), A('št.')], 'th_pool' => [A('Zasedenost IP poola'), '%'], 'th_backup_days' => [A('Brez backupa'), A('dni')], 'th_fw_ports' => [A('Skeniranje: različnih portov'), A('v 15 min')], 'th_out_ips' => [A('Okužena naprava: ciljev na en port'), A('v 5 min')], 'th_out_smtp' => [A('Spam: SMTP strežnikov'), A('v 5 min')]];
@@ -729,6 +779,16 @@ $upd = $s['upd'] ?? [];
   </div>
   </form>
   <?php endif; ?>
+</section>
+<?php $st = db()->prepare('SELECT * FROM ai_notes WHERE device_id=? ORDER BY id'); $st->execute([$id]); $aiNotes = $st->fetchAll(); ?>
+<section class="panel" id="ai-notes" style="margin-top:20px">
+  <div class="panel-head"><h2><?= icon('file', 18) ?><?= h(A('Zapiski za AI')) ?></h2><span class="small muted"><?= h(A('AI jih upošteva pri vseh analizah te naprave · v Telegramu: "zapomni si: …"')) ?></span></div>
+  <?php if ($aiNotes): ?><ul class="feed"><?php foreach ($aiNotes as $nt): ?><li><span class="sev-bar info"></span><div class="what"><?= h($nt['note']) ?> <span class="small faint">· <?= h($nt['source'] === 'telegram' ? 'Telegram' : A('ročno')) ?>, <?= h(fmt_dt($nt['created_at'])) ?></span></div>
+    <form method="post" action="/devices/<?= $id ?>/note" class="when"><?= Auth::csrf() ?><input type="hidden" name="op" value="del"><input type="hidden" name="nid" value="<?= (int)$nt['id'] ?>"><button class="btn sm ghost" title="<?= h(A('Izbriši')) ?>"><?= icon('trash', 14) ?></button></form></li><?php endforeach; ?></ul><?php endif; ?>
+  <form class="panel-body form" method="post" action="/devices/<?= $id ?>/note"><?= Auth::csrf() ?><input type="hidden" name="op" value="add">
+    <div class="row" style="grid-template-columns:1fr auto"><label class="f"><span><?= h(A('Nov zapisek')) ?></span><input type="text" name="note" maxlength="500" placeholder="<?= h(A('npr. disk je pri tej napravi vedno okoli 96 % – to je normalno')) ?>"></label>
+      <div style="align-self:end"><button class="btn"><?= icon('plus', 15) ?><?= h(A('Dodaj')) ?></button></div></div>
+  </form>
 </section>
 <section class="panel" style="margin-top:20px">
   <div class="panel-head"><h2><?= icon('file', 18) ?><?= h(A('Zadnji surovi push')) ?></h2>
