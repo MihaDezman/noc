@@ -20,4 +20,6 @@ if ((int)date('i') === 7) { Alerts::backups(); Alerts::serverBackup(); }   // en
 // AI pomočnik v ozadju (svoj zaklep) – počasni klici AI ne zamaknejo naslednjega kroga
 if (Ai::on()) exec(escapeshellarg(PHP_BINARY) . ' ' . escapeshellarg(__DIR__ . '/ai.php') . ' > /dev/null 2>&1 &');
 $sent = trim($sent . ' ' . $flush());   // obvestila iz tega kroga (izpadi, ping)
+// meni ukazov Telegram bota osveži po posodobitvi NOC (novi ukazi, npr. /povzetek)
+if (setting('tg_webhook') === '1' && setting('tg_cmds_ver') !== APP_VERSION) { try { TgBot::commands(); } catch (\Throwable $e) { error_log('noc tg commands: ' . $e->getMessage()); } }
 cron_mark('minute', $sent !== '' ? 'obvestila: ' . $sent : '');

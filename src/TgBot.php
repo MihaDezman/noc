@@ -16,8 +16,16 @@ final class TgBot
         $tok = dec(setting('tg_token_enc', ''));
         if ($tok === '') return ['ok' => false, 'description' => 'token'];
         $r = Notify::tgApi($tok, 'setWebhook', ['url' => self::url(), 'secret_token' => self::secret(), 'allowed_updates' => ['message', 'callback_query'], 'drop_pending_updates' => true]);
-        if (!empty($r['ok'])) {
-            Notify::tgApi($tok, 'setMyCommands', ['commands' => [
+        if (!empty($r['ok'])) { self::commands($tok); setting_set('tg_webhook', '1'); }
+        return $r;
+    }
+
+    /** Seznam ukazov v meniju bota (po posodobitvi NOC se osveži sam – cron) */
+    public static function commands(?string $tok = null): array
+    {
+        $tok ??= dec(setting('tg_token_enc', ''));
+        if ($tok === '') return ['ok' => false];
+        $r = Notify::tgApi($tok, 'setMyCommands', ['commands' => [
                 ['command' => 'stanje', 'description' => A('Povzetek vseh naprav')],
                 ['command' => 'alarmi', 'description' => A('Odprti alarmi')],
                 ['command' => 'naprava', 'description' => A('Stanje naprave: /naprava ime')],
@@ -27,8 +35,7 @@ final class TgBot
                 ['command' => 'povzetek', 'description' => A('AI povzetek stanja zdaj')],
                 ['command' => 'pomoc', 'description' => A('Seznam ukazov')],
             ]]);
-            setting_set('tg_webhook', '1');
-        }
+        if (!empty($r['ok'])) setting_set('tg_cmds_ver', APP_VERSION);
         return $r;
     }
 
