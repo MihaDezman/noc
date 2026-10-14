@@ -71,7 +71,9 @@ $num = function (string $k, string $label, string $unit, string $hint = '') {
   <?php $aiSet = Ai::key() !== ''; [$aiN, $aiIn, $aiOut] = $aiSet ? Ai::usage() : [0, 0, 0]; ?>
   <section class="panel" id="ai"><div class="panel-head"><h2><?= icon('zap', 18) ?><?= h(A('AI pomočnik')) ?></h2>
     <div class="actions"><?= $aiSet ? '<span class="tag up">' . h(A('vklopljen')) . '</span>' : '<span class="tag">' . h(A('ni nastavljen')) . '</span>' ?>
-      <?php if ($aiSet): ?><button class="btn sm" form="ai-test" type="submit"><?= icon('send', 14) ?><?= h(A('Preizkus')) ?></button><?php endif; ?></div></div>
+      <?php if ($aiSet): $rvPend = (int)db()->query("SELECT COUNT(*) FROM ai_reviews WHERE status='pending'")->fetchColumn(); ?>
+        <?php if ($rvPend): ?><span class="small muted"><?= h(A('pregled v teku: še {n} naprav', ['n' => $rvPend])) ?></span><?php else: ?><button class="btn sm" form="ai-review-all" type="submit"><?= icon('shield', 14) ?><?= h(A('Preglej konfiguracijo vseh naprav')) ?></button><?php endif; ?>
+        <button class="btn sm" form="ai-test" type="submit"><?= icon('send', 14) ?><?= h(A('Preizkus')) ?></button><?php endif; ?></div></div>
     <div class="panel-body form">
       <p class="small muted" style="margin:0"><?= h(A('Claude (Anthropic) razloži alarme, pregleda nočne spremembe konfiguracije in bdi nad samim NOC. Samo bere in svetuje – na routerjih ali v NOC ne spremeni ničesar. Gesla in ključi se pred pošiljanjem odstranijo.')) ?></p>
       <div class="row c3">
@@ -109,6 +111,7 @@ $num = function (string $k, string $label, string $unit, string $hint = '') {
 <form id="fwlog-on" method="post" action="/settings/fwlog-all" data-confirm="<?= h(A('Vklopim varnostno analizo pri vseh napravah? Routerji dobijo pravila za beleženje s samodejno posodobitvijo.')) ?>"><?= Auth::csrf() ?><input type="hidden" name="on" value="1"></form>
 <form id="fwlog-off" method="post" action="/settings/fwlog-all" data-confirm="<?= h(A('Izklopim varnostno analizo pri vseh napravah?')) ?>"><?= Auth::csrf() ?><input type="hidden" name="on" value="0"></form>
 <form id="ai-test" method="post" action="/settings/ai-test"><?= Auth::csrf() ?></form>
+<form id="ai-review-all" method="post" action="/settings/ai-review-all" data-confirm="<?= h(A('AI pregleda konfiguracijo vseh naprav (en klic na napravo). Za vsako dobiš sporočilo na Telegram. Nadaljujem?')) ?>"><?= Auth::csrf() ?></form>
 <?php if (Ai::on()): $aiNotes = db()->query('SELECT * FROM ai_notes WHERE device_id IS NULL ORDER BY id')->fetchAll(); ?>
 <section class="panel" id="ai-notes" style="margin-top:20px">
   <div class="panel-head"><h2><?= icon('file', 18) ?><?= h(A('Splošni zapiski za AI')) ?></h2><span class="small muted"><?= h(A('veljajo za vse naprave · zapiske posamezne naprave urediš pri napravi → Nastavitve')) ?></span></div>

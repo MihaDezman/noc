@@ -543,10 +543,11 @@ $upd = $s['upd'] ?? [];
   <div class="panel-head"><h2><?= icon('history', 18) ?><?= h(A('Zgodovina alarmov')) ?></h2></div>
   <?php if (!$history): ?><div class="empty"><?= empty_art('ok') ?><div><?= h(A('Še ni bilo alarmov.')) ?></div></div><?php else: ?>
   <div class="tbl-wrap"><table class="tbl">
-    <thead><tr><th><?= h(A('Stopnja')) ?></th><th><?= h(A('Opis')) ?></th><th><?= h(A('Začetek')) ?></th><th><?= h(A('Konec')) ?></th><th><?= h(A('Trajanje')) ?></th></tr></thead>
+    <thead><tr><th><?= h(A('Stopnja')) ?></th><th><?= h(A('Opis')) ?></th><th><?= h(A('Začetek')) ?></th><th><?= h(A('Konec')) ?></th><th><?= h(A('Trajanje')) ?></th><th></th></tr></thead>
     <tbody><?php foreach ($history as $a): $dur = ($a['ended_at'] ? strtotime($a['ended_at']) : time()) - strtotime($a['started_at']); ?><tr>
       <td><?= sev_tag($a['severity']) ?></td><td><?= h($a['message']) ?><?= ai_note($a['ai_note'] ?? null) ?></td><td class="nowrap"><?= h(fmt_dt($a['started_at'])) ?></td>
       <td class="nowrap"><?= $a['ended_at'] ? h(fmt_dt($a['ended_at'])) : '<span class="tag down">' . h(A('odprt')) . '</span>' ?></td><td class="nowrap muted"><?= $dur > 59 ? h(fmt_uptime($dur)) : '–' ?></td>
+      <td class="num"><?php if (!$a['ended_at']): ?><?php if ($a['acked_at']): ?><span class="tag"><?= icon('check', 12) ?><?= h(A('potrjen')) ?></span><?php else: ?><form method="post" action="/alerts/<?= (int)$a['id'] ?>/ack"><?= Auth::csrf() ?><button class="btn sm"><?= icon('check', 14) ?><?= h(A('Potrdi')) ?></button></form><?php endif; ?><?php endif; ?></td>
     </tr><?php endforeach; ?></tbody>
   </table></div><?php endif; ?>
 </section>

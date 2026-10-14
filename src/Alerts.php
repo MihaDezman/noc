@@ -11,7 +11,7 @@ final class Alerts
     {
         return ['hdd' => A('Disk zaseden'), 'mem' => A('Pomnilnik zaseden'), 'cpu' => A('CPU obremenjen'), 'temp' => A('Temperatura'),
                 'update' => A('Na voljo nov RouterOS'), 'reboot' => A('Ponovni zagon'), 'config' => A('Sprememba konfiguracije'), 'backup' => A('Brez backupa'),
-                'pool' => A('Zasedenost IP poola'), 'attack' => A('Napad na router (prijave)'), 'fwscan' => A('Skeniranje z interneta')];
+                'pool' => A('Zasedenost IP poola'), 'attack' => A('Napad na router (prijave)'), 'fwscan' => A('Skeniranje z interneta'), 'fwspike' => A('Porast poskusov z interneta')];
     }
 
     /** Ali je ta vrsta alarma pri napravi izklopljena (Nastavitve naprave) */

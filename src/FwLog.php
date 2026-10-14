@@ -193,10 +193,11 @@ final class FwLog
             }
             $min = max(50, (int)$th['th_fw_spike_min']); $factor = max(1.5, (float)$th['th_fw_spike']);
             $base = $days >= 2 ? $sum / $days : null;
-            $limit = $base === null ? $min * 3 : max($min, $base * $factor);
+            // brez vsaj 2 dni primerjave (npr. takoj po vklopu beleženja) porasta ni mogoče oceniti – ni alarma
+            $limit = $base === null ? PHP_INT_MAX : max($min, $base * $factor);
             $open = db()->query("SELECT COUNT(*) FROM alerts WHERE device_id=$id AND akey='fwspike' AND ended_at IS NULL")->fetchColumn();
-            if ($cur >= $limit) Alerts::raise($d, 'fwspike', 'warning', A('Nenaden porast poskusov z interneta: {n} v zadnji uri (običajno {b})', ['n' => $cur, 'b' => $base === null ? '–' : '~' . (int)round($base)]));
-            elseif ($open && $cur < $limit / 2) Alerts::clear($d, 'fwspike');
+            if ($base !== null && $cur >= $limit) Alerts::raise($d, 'fwspike', 'warning', A('Nenaden porast poskusov z interneta: {n} v zadnji uri (običajno ~{b})', ['n' => $cur, 'b' => (int)round($base)]));
+            elseif ($open && ($base === null || $cur < $limit / 2)) Alerts::clear($d, 'fwspike');
             // naprava v LAN-u proti varnostni listi (zapisi routerja, zadnjih 15 min)
             $st = db()->prepare("SELECT src, SUM(hits) hits, GROUP_CONCAT(DISTINCT CONCAT(dst, ':', port) SEPARATOR ', ') dl FROM fw_5m
                                  WHERE device_id=? AND kind='bl_out' AND ts > NOW() - INTERVAL 15 MINUTE GROUP BY src HAVING hits >= ? LIMIT 10");

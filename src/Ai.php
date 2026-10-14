@@ -576,17 +576,35 @@ final class Ai
         if (!(int)$st->fetchColumn()) db()->prepare('INSERT INTO ai_reviews (device_id) VALUES (?)')->execute([$deviceId]);
     }
 
+    /** Pregled vseh aktivnih naprav (gumb v Nastavitve → AI); vrne število naprav v vrsti */
+    public static function requestReviewAll(): int
+    {
+        $ids = db()->query('SELECT id FROM devices WHERE active=1 ORDER BY name')->fetchAll(PDO::FETCH_COLUMN);
+        foreach ($ids as $id) self::requestReview((int)$id);
+        $rv = db()->query("SELECT id FROM ai_reviews WHERE status='pending'")->fetchAll(PDO::FETCH_COLUMN);
+        setting_set('ai_review_batch', implode(',', array_map('intval', $rv)));
+        return count($ids);
+    }
+
     public static function reviews(): string
     {
         if (!self::on()) return '';
         $r = db()->query("SELECT * FROM ai_reviews WHERE status='pending' ORDER BY id LIMIT 1")->fetch();
         if (!$r) return '';
+        // dnevna omejitev klicev: pregled počaka na naslednji dan (ne označi se kot neuspešen)
+        if (self::callsToday() >= max(1, (int)setting('ai_daily', '100'))) return '';
         $d = Devices::full((int)$r['device_id']);
-        if (!$d) { db()->prepare("UPDATE ai_reviews SET status='failed', note='naprava ne obstaja' WHERE id=?")->execute([$r['id']]); return ''; }
+        $fail = function (string $why) use ($r, $d): string {
+            db()->prepare("UPDATE ai_reviews SET status='failed', note=? WHERE id=?")->execute([$why, $r['id']]);
+            if ($d && self::inBatch((int)$r['id'])) self::tg('🔍 <b>' . htmlspecialchars($d['name']) . '</b> – ' . A('AI pregled ni uspel: {e}', ['e' => htmlspecialchars($why)]), (int)$d['id']);
+            self::batchDone();
+            return 'pregled: napaka';
+        };
+        if (!$d) return $fail('naprava ne obstaja');
         [$rsc] = Firewall::source($d);
         $lines = array_filter(explode("\n", Diff::normalize((string)$rsc)), fn($l) => trim($l) !== '' && !Diff::isNocLine($l));
         $cfg = mb_substr(implode("\n", $lines), 0, 60000);
-        if (trim($cfg) === '') { db()->prepare("UPDATE ai_reviews SET status='failed', note=? WHERE id=?")->execute([A('ni izvoza konfiguracije'), $r['id']]); return ''; }
+        if (trim($cfg) === '') return $fail(A('ni izvoza konfiguracije'));
         $sys = 'Si izkušen inženir za MikroTik RouterOS 7. Pregledaš celotno konfiguracijo routerja stranke (/export terse; skrivnosti so zamenjane z ***) in poiščeš konkretne težave: '
             . 'varnost (dostop z interneta, storitve, uporabniki, požarni zid, DNS, UPnP), zastarele ali nesmiselne nastavitve, napake pri VLAN-ih in bridgih, manjkajoče varovalke (NTP, ura, backup), zmogljivost (fasttrack, nepotrebna pravila). '
             . 'Pravila in skripte z oznako noc so od nadzornega sistema – teh ne komentiraj. Upoštevaj zapiske serviserja. '
@@ -594,18 +612,70 @@ final class Ai
         $user = "NAPRAVA: {$d['name']} · {$d['model']} · RouterOS {$d['os_version']} · WAN {$d['wan_iface']} · LAN {$d['lan_networks']}\n" . self::notes((int)$d['id']) . "KONFIGURACIJA:\n" . $cfg;
         $txt = self::ask('review', (int)$r['id'], $sys, $user, 5000);
         $list = $txt ? json_decode((string)preg_replace('/^```(?:json)?|```$/m', '', trim($txt)), true) : null;
-        if (!is_array($list)) { db()->prepare("UPDATE ai_reviews SET status='failed', note=? WHERE id=?")->execute([$txt ? A('odgovor ni v pričakovani obliki') : A('AI ni odgovoril'), $r['id']]); return 'pregled: napaka'; }
+        if (!is_array($list)) return $fail($txt ? A('odgovor ni v pričakovani obliki') : A('AI ni odgovoril'));
         $out = [];
         foreach (array_slice($list, 0, 12) as $f) {
             if (!is_array($f) || trim((string)($f['title'] ?? '')) === '') continue;
             $out[] = ['title' => mb_substr((string)$f['title'], 0, 200), 'severity' => in_array($f['severity'] ?? '', ['critical', 'warning', 'info'], true) ? $f['severity'] : 'info',
                       'why' => mb_substr((string)($f['why'] ?? ''), 0, 800), 'fix' => mb_substr((string)($f['fix'] ?? ''), 0, 2000), 'state' => 'open'];
         }
+        // ugotovitve, ki si jih serviser pri prejšnjem pregledu označil kot nepomembne/urejene, ostanejo označene
+        $pv = db()->prepare("SELECT findings FROM ai_reviews WHERE device_id=? AND status='done' AND id<>? ORDER BY id DESC LIMIT 1"); $pv->execute([$d['id'], $r['id']]);
+        $prev = [];
+        foreach ((array)json_decode((string)$pv->fetchColumn(), true) as $f) if (is_array($f) && ($f['state'] ?? 'open') !== 'open') $prev[mb_strtolower(trim((string)$f['title']))] = $f['state'];
+        foreach ($out as &$f) if (isset($prev[mb_strtolower(trim($f['title']))])) $f['state'] = $prev[mb_strtolower(trim($f['title']))];
+        unset($f);
         db()->prepare("UPDATE ai_reviews SET status='done', findings=? WHERE id=?")->execute([json_encode($out, JSON_UNESCAPED_UNICODE), $r['id']]);
-        $crit = count(array_filter($out, fn($f) => $f['severity'] !== 'info'));
-        self::tg('🔍 <b>' . A('AI pregled konfiguracije') . ' – ' . htmlspecialchars($d['name']) . '</b>' . "\n" . A('{n} ugotovitev, od tega {c} pomembnih.', ['n' => count($out), 'c' => $crit])
-            . "\n<a href=\"" . rtrim((string)cfg('base_url'), '/') . '/devices/' . $d['id'] . '?tab=protect#ai-review">' . A('Odpri pregled') . '</a>', (int)$d['id']);
+        self::tg(self::reviewMsg($d, $out), (int)$d['id']);
+        self::batchDone();
         return 'pregled: ' . $d['name'];
+    }
+
+    /** Telegram sporočilo s povzetkom pregleda ene naprave */
+    private static function reviewMsg(array $d, array $out): string
+    {
+        $ico = ['critical' => '🔴', 'warning' => '🟠', 'info' => '🔵'];
+        $open = array_values(array_filter($out, fn($f) => $f['state'] === 'open'));
+        $imp = array_values(array_filter($open, fn($f) => $f['severity'] !== 'info'));
+        $cnt = fn(string $s) => count(array_filter($open, fn($f) => $f['severity'] === $s));
+        $m = '🔍 <b>' . A('AI pregled konfiguracije') . ' – ' . htmlspecialchars($d['name']) . '</b>' . "\n";
+        if (!$imp) $m .= '✅ ' . A('Brez pomembnih težav.') . ($cnt('info') ? ' ' . A('{n} manjših predlogov.', ['n' => $cnt('info')]) : '') . "\n";
+        else {
+            $m .= "🔴 {$cnt('critical')} · 🟠 {$cnt('warning')} · 🔵 {$cnt('info')}\n";
+            foreach (array_slice($imp, 0, 6) as $f) $m .= $ico[$f['severity']] . ' ' . htmlspecialchars(mb_strimwidth($f['title'], 0, 90, '…')) . "\n";
+            if (count($imp) > 6) $m .= '… ' . A('in še {n}', ['n' => count($imp) - 6]) . "\n";
+        }
+        return $m . '<a href="' . rtrim((string)cfg('base_url'), '/') . '/devices/' . $d['id'] . '?tab=protect#ai-review">' . A('Odpri pregled') . '</a>';
+    }
+
+    private static function inBatch(int $reviewId): bool
+    {
+        return in_array($reviewId, self::batchIds(), true);
+    }
+
+    /** Id-ji pregledov skupnega pregleda (neposredno iz baze – setting() je predpomnjen za ves proces) */
+    private static function batchIds(): array
+    {
+        $st = db()->prepare('SELECT v FROM settings WHERE k=?'); $st->execute(['ai_review_batch']);
+        return array_map('intval', array_filter(explode(',', (string)$st->fetchColumn())));
+    }
+
+    /** Ko so pregledane vse naprave iz skupnega pregleda: zbirno sporočilo v Telegram */
+    private static function batchDone(): void
+    {
+        $ids = self::batchIds(); if (!$ids) return;
+        $in = implode(',', $ids);
+        if ((int)db()->query("SELECT COUNT(*) FROM ai_reviews WHERE id IN ($in) AND status='pending'")->fetchColumn()) return;
+        setting_set('ai_review_batch', '');
+        $rows = db()->query("SELECT r.status, r.findings, d.name FROM ai_reviews r JOIN devices d ON d.id=r.device_id WHERE r.id IN ($in) ORDER BY d.name")->fetchAll();
+        $m = '📋 <b>' . A('AI pregled vseh naprav končan') . "</b>\n";
+        foreach ($rows as $x) {
+            if ($x['status'] !== 'done') { $m .= '⚪ ' . htmlspecialchars($x['name']) . ' – ' . A('ni uspel') . "\n"; continue; }
+            $f = array_filter((array)json_decode((string)$x['findings'], true), fn($f) => is_array($f) && ($f['state'] ?? 'open') === 'open');
+            $c = count(array_filter($f, fn($f) => ($f['severity'] ?? '') === 'critical')); $w = count(array_filter($f, fn($f) => ($f['severity'] ?? '') === 'warning'));
+            $m .= ($c ? '🔴' : ($w ? '🟠' : '✅')) . ' ' . htmlspecialchars($x['name']) . ($c || $w ? " – $c / $w" : '') . "\n";
+        }
+        self::tg($m . '<i>' . A('kritičnih / opozoril') . '</i>');
     }
 
     /** Položaj napake v neveljavnem JSON (za okolico v diagnozi) */

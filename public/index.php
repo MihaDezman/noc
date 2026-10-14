@@ -621,6 +621,12 @@ if ($path === '/settings/ai-test' && $method === 'POST') {   // preizkus AI pomo
     $err = $r === null ? (string)db()->query("SELECT err FROM ai_log WHERE kind='test' ORDER BY id DESC LIMIT 1")->fetchColumn() : '';
     back('/settings#ai', $r !== null ? A('AI pomočnik deluje: {r}', ['r' => mb_substr($r, 0, 200)]) : A('AI pomočnik ne deluje: {e}', ['e' => $err ?: A('ni ključa')]), $r !== null ? 'ok' : 'err');
 }
+if ($path === '/settings/ai-review-all' && $method === 'POST') {   // AI pregled konfiguracije vseh naprav (v ozadju, ena na minuto)
+    Auth::requireSuper();
+    if (!Ai::on()) back('/settings#ai', A('AI pomočnik ni nastavljen.'), 'err');
+    $n = Ai::requestReviewAll(); audit('ai.review.all', (string)$n);
+    back('/settings#ai', A('AI pregled {n} naprav se izvaja v ozadju (približno ena naprava na minuto). Za vsako dobiš sporočilo na Telegram, na koncu še zbirno.', ['n' => $n]));
+}
 if ($path === '/settings/tls-all' && $method === 'POST') {   // preverjanje certifikata pri vseh napravah
     Auth::requireSuper();
     $on = post('on') === '1' ? 1 : 0;
