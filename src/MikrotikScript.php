@@ -147,6 +147,7 @@ final class MikrotikScript
 :local key "$key"
 :local scriptVer "{$ver}"
 :local updUrl "$base/api/install/auto"
+:local actUrl "$base/api/action"
 :local gwFallback "$gwFallback"
 :local extTarget "$ext"
 :local logInc "$inc"
@@ -301,6 +302,10 @@ final class MikrotikScript
             :log info "noc: na voljo nova skripta - samodejna posodobitev"
             :execute script=("/tool fetch url=\"" . \$updUrl . "\"{$updCheck} http-header-field=\"X-Api-Key: " . \$key . "\" dst-path=noc-install.rsc; :delay 2s; /import noc-install.rsc; /file remove noc-install.rsc")
         }
+        # potrjeni ukrepi iz NOC (npr. blokada napadalca) - prenos in uvoz v ozadju
+        :if ([:typeof [:find [:tostr (\$out->"data")] "\"act\":1"]] = "num") do={
+            :execute script=("/tool fetch url=\"" . \$actUrl . "\"{$updCheck} http-header-field=\"X-Api-Key: " . \$key . "\" dst-path=noc-action.rsc; :delay 2s; /import noc-action.rsc; /file remove noc-action.rsc")
+        }
     }
 } do={ :log warning ("noc: push ni uspel - " . \$e) }
 ROS;
@@ -391,6 +396,7 @@ ROS;
             . ":foreach r in=[/system logging find] do={ :if ([:tostr [/system logging get \$r topics]] = \"info;!fetch\") do={ /system logging set \$r topics=info } }\n"
             . "/ip firewall nat remove [find comment~\"^noc-filter\"]\n/ip firewall filter remove [find comment~\"^noc-filter\"]\n"
             . "/ip firewall raw remove [find comment~\"^noc-filter\"]\n/ip firewall address-list remove [find comment~\"^noc-filter\"]\n/ip dns static remove [find comment~\"^noc-filter\"]\n"
+            . "/ip firewall raw remove [find comment~\"^noc-block\"]\n/ip firewall address-list remove [find list=noc-block]\n"
             . Filter::restoreDns($d)
             . Firewall::removeRsc($d)
             . "/system script environment remove [find name~\"^noc\"]\n:log info \"noc: odstranjeno\"\n";

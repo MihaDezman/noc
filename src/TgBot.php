@@ -24,6 +24,7 @@ final class TgBot
                 ['command' => 'promet', 'description' => A('Promet naprave: /promet ime')],
                 ['command' => 'utisaj', 'description' => A('Utišaj obvestila: /utisaj ime 2h')],
                 ['command' => 'porocilo', 'description' => A('Mesečno poročilo: /porocilo ime')],
+                ['command' => 'povzetek', 'description' => A('AI povzetek stanja zdaj')],
                 ['command' => 'pomoc', 'description' => A('Seznam ukazov')],
             ]]);
             setting_set('tg_webhook', '1');
@@ -57,7 +58,11 @@ final class TgBot
         $msg = $u['message'] ?? null;
         if (!$msg || (string)($msg['chat']['id'] ?? '') !== $chat) return;   // tuji pogovori: tiho zavrženo
         $text = trim((string)($msg['text'] ?? ''));
-        if ($text === '' || $text[0] !== '/') { self::reply(A('Ukazi: /pomoc')); return; }
+        if ($text === '') return;
+        if ($text[0] !== '/') {   // prosto vprašanje -> AI asistent (če je vklopljen)
+            if (Ai::on('chat')) self::askAi($text); else self::reply(A('Ukazi: /pomoc'));
+            return;
+        }
         [$cmd, $arg] = array_pad(preg_split('/\s+/', $text, 2), 2, '');
         $cmd = strtolower(preg_replace('/@.*$/', '', substr($cmd, 1)));
         try {
@@ -69,6 +74,7 @@ final class TgBot
                 'promet' => self::traffic($arg),
                 'utisaj', 'mute' => self::mute($arg),
                 'porocilo' => self::report($arg),
+                'povzetek' => Ai::on() ? self::digestNow() : self::reply(A('AI pomočnik ni nastavljen.')),
                 default => self::reply(A('Neznan ukaz. Seznam: /pomoc')),
             };
         } catch (\Throwable $e) {
@@ -86,7 +92,8 @@ final class TgBot
             . "/naprava <i>" . A('ime') . "</i> – " . A('stanje naprave') . "\n"
             . "/promet <i>" . A('ime') . "</i> – " . A('promet in največji porabniki') . "\n"
             . "/utisaj <i>" . A('ime') . "</i> 2h – " . A('utišaj obvestila (0 = vklopi)') . "\n"
-            . "/porocilo <i>" . A('ime') . "</i> – " . A('povezava do mesečnega poročila') . "\n\n"
+            . "/porocilo <i>" . A('ime') . "</i> – " . A('povezava do mesečnega poročila') . "\n"
+            . (Ai::on() ? "/povzetek – " . A('AI povzetek stanja zdaj') . "\n\n🤖 " . A('Vprašaš lahko tudi z navadnim besedilom, npr. "zakaj je Office-GW danes počasen?"') . "\n" : '') . "\n"
             . A('Ime je lahko del imena naprave ali naročnika, npr. /naprava office'));
     }
 
@@ -172,6 +179,34 @@ final class TgBot
             . '<i>' . A('Odpre se v NOC – potrebna je prijava.') . '</i>');
     }
 
+    /** Vprašanje za AI: Telegramu takoj odgovorimo (sicer bi sporočilo poslal znova), AI pa dela naprej */
+    private static function askAi(string $q): void
+    {
+        $tok = dec(setting('tg_token_enc', ''));
+        Notify::tgApi($tok, 'sendChatAction', ['chat_id' => setting('tg_chat_id', ''), 'action' => 'typing']);
+        if (function_exists('fastcgi_finish_request')) {
+            http_response_code(200); header('Content-Type: application/json'); echo '{"ok":true}';
+            fastcgi_finish_request();
+        }
+        ignore_user_abort(true); @set_time_limit(240);
+        try { [$txt, $props] = Ai::chat($q); }
+        catch (\Throwable $e) { error_log('noc ai chat: ' . $e->getMessage()); [$txt, $props] = [A('AI ni odgovoril ({e}).', ['e' => 'napaka']), []]; }
+        $kb = null;
+        foreach ($props as [$id, $dn, $ip, $h]) { $txt .= "\n\n🚫 " . A('Predlog: {d} – blokiraj {ip} za {h} h', ['d' => $dn, 'ip' => $ip, 'h' => $h]); $kb = array_merge($kb ?? [], Actions::buttons($id, $ip)); }
+        self::reply('🤖 ' . self::e(mb_substr($txt, 0, 3500)), $kb);
+        if (function_exists('fastcgi_finish_request')) exit;
+    }
+
+    private static function digestNow(): void
+    {
+        $tok = dec(setting('tg_token_enc', ''));
+        Notify::tgApi($tok, 'sendChatAction', ['chat_id' => setting('tg_chat_id', ''), 'action' => 'typing']);
+        if (function_exists('fastcgi_finish_request')) { http_response_code(200); header('Content-Type: application/json'); echo '{"ok":true}'; fastcgi_finish_request(); }
+        ignore_user_abort(true); @set_time_limit(240);
+        if (Ai::digest(true) !== 'povzetek') self::reply('⚠️ ' . A('Povzetka ni bilo mogoče pripraviti.'));
+        if (function_exists('fastcgi_finish_request')) exit;
+    }
+
     // ------------------------------------------------------------------ gumbi pri alarmih
     /** Gumba pod obvestilom o alarmu */
     public static function alertButtons(int $alertId, int $deviceId): array
@@ -186,6 +221,20 @@ final class TgBot
             db()->prepare('UPDATE alerts SET acked_at=NOW() WHERE id=? AND acked_at IS NULL')->execute([(int)$m[1]]);
             db()->prepare('INSERT INTO audit (user_id, action, detail, ip) VALUES (NULL, ?, ?, ?)')->execute(['tg.ack', '#' . $m[1], 'telegram']);
             $note = A('Alarm potrjen');
+        } elseif (preg_match('/^blk:(\d+):(\d{1,3}(?:\.\d{1,3}){3}):(\d+)$/', $data, $m)) {   // blokada napadalca (gumb pod alarmom)
+            $st = db()->prepare('SELECT * FROM devices WHERE id=?'); $st->execute([(int)$m[1]]); $d = $st->fetch();
+            $r = $d ? Actions::create($d, 'block', $m[2], (int)$m[3], 'approved', A('gumb pod alarmom'), 'alarm', null, 'telegram') : A('naprava ne obstaja');
+            $note = is_int($r) ? A('Blokada potrjena – router jo izvede ob naslednjem pushu') : A('Ni mogoče: {r}', ['r' => $r]);
+            if (is_int($r)) self::reply('🚫 <b>' . self::e($d['name']) . '</b> – ' . A('blokada {ip} za {h} h potrjena (ukrep #{id}). Router jo izvede v minuti ali dveh.', ['ip' => $m[2], 'h' => (int)$m[3], 'id' => $r]));
+        } elseif (preg_match('/^act:(\d+):([01])$/', $data, $m)) {   // predlog ukrepa (AI): izvedi / zavrni
+            $a = Actions::decide((int)$m[1], $m[2] === '1', 'telegram');
+            $note = !$a ? A('Ukrep ne obstaja') : (!$a['changed'] ? A('O ukrepu je že odločeno') : ($a['status'] === 'approved' ? A('Potrjeno – router ga izvede ob naslednjem pushu') : A('Zavrnjeno')));
+            if (isset($cq['message']['message_id'])) {   // zamenja samo vrstico tega predloga, ostali gumbi ostanejo
+                $rows = (array)($cq['message']['reply_markup']['inline_keyboard'] ?? []);
+                $done = [['text' => ($a && $a['status'] === 'approved' ? '✅ ' : '✖ ') . ($a['ip'] ?? '') . ' – ' . $note, 'callback_data' => 'noop']];
+                $rows = array_map(fn($row) => array_filter((array)$row, fn($b) => str_starts_with((string)($b['callback_data'] ?? ''), 'act:' . (int)$m[1] . ':')) ? $done : $row, $rows) ?: [$done];
+                Notify::tgApi($tok, 'editMessageReplyMarkup', ['chat_id' => $cq['message']['chat']['id'], 'message_id' => $cq['message']['message_id'], 'reply_markup' => ['inline_keyboard' => array_values($rows)]]);
+            }
         } elseif (preg_match('/^mute:(\d+):(\d+)$/', $data, $m)) {
             $st = db()->prepare('SELECT * FROM devices WHERE id=?'); $st->execute([(int)$m[1]]); $d = $st->fetch();
             if ($d) { self::doMute(Devices::decorate($d), (int)$m[2]); $note = A('Utišano za {h} h', ['h' => (int)$m[2]]); }

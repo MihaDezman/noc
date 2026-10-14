@@ -116,6 +116,7 @@ final class Metrics
         self::purge('audit', 'at < NOW() - INTERVAL 730 DAY');
         self::purge('notify_queue', 'sent_at < NOW() - INTERVAL 7 DAY');
         self::purge('ai_log', 'at < NOW() - INTERVAL 180 DAY');
+        self::purge('noc_actions', "created_at < NOW() - INTERVAL 365 DAY AND status IN ('done','rejected')");
         self::purge('lan_hosts', 'last_seen < NOW() - INTERVAL 180 DAY');
         self::purge('login_attempts', 'at < NOW() - INTERVAL 7 DAY');
         self::purge('backup_parts', 'at < NOW() - INTERVAL 1 DAY');

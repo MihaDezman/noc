@@ -6,9 +6,35 @@ final class Alerts
 {
     public const LEVEL = ['info' => 1, 'warning' => 2, 'critical' => 3];
 
+    /** Alarmi, ki jih lahko pri posamezni napravi izklopiš (ključ alarma do dvopičja => opis) */
+    public static function offable(): array
+    {
+        return ['hdd' => A('Disk zaseden'), 'mem' => A('Pomnilnik zaseden'), 'cpu' => A('CPU obremenjen'), 'temp' => A('Temperatura'),
+                'update' => A('Na voljo nov RouterOS'), 'reboot' => A('Ponovni zagon'), 'config' => A('Sprememba konfiguracije'), 'backup' => A('Brez backupa'),
+                'pool' => A('Zasedenost IP poola'), 'attack' => A('Napad na router (prijave)'), 'fwscan' => A('Skeniranje z interneta')];
+    }
+
+    /** Ali je ta vrsta alarma pri napravi izklopljena (Nastavitve naprave) */
+    public static function isOff(array $d, string $key): bool
+    {
+        if (!array_key_exists('thresholds', $d)) return false;
+        $off = (json_decode((string)($d['thresholds'] ?? ''), true) ?: [])['off'] ?? [];
+        $base = explode(':', $key, 2)[0];
+        $base = ['cfgrisk' => 'config'][$base] ?? $base;   // AI ocena tvegane spremembe sodi k spremembam konfiguracije
+        return is_array($off) && in_array($base, $off, true);
+    }
+
+    /** Zapre odprte alarme izklopljenih vrst brez obvestila (izklop ni "razrešitev") */
+    public static function closeOff(array $d): void
+    {
+        $off = (json_decode((string)($d['thresholds'] ?? ''), true) ?: [])['off'] ?? [];
+        foreach ((array)$off as $k) db()->prepare("UPDATE alerts SET ended_at=NOW() WHERE device_id=? AND ended_at IS NULL AND (akey=? OR akey LIKE ?)")->execute([$d['id'], $k, $k . ':%']);
+    }
+
     /** Odpre alarm, če še ni odprt (in obvesti) */
     public static function raise(array $d, string $key, string $sev, string $msg): void
     {
+        if (self::isOff($d, $key)) { self::closeOff($d); return; }
         $st = db()->prepare('SELECT id, severity FROM alerts WHERE device_id=? AND akey=? AND ended_at IS NULL'); $st->execute([$d['id'], $key]);
         $open = $st->fetch();
         if ($open) {
@@ -36,8 +62,9 @@ final class Alerts
     /** Enkraten dogodek (ponovni zagon, sprememba konfiguracije, posodobitev) – takoj zaprt */
     public static function event(array $d, string $key, string $sev, string $msg): void
     {
+        if (self::isOff($d, $key)) return;
         db()->prepare('INSERT INTO alerts (device_id, akey, severity, message, started_at, ended_at) VALUES (?,?,?,?,NOW(),NOW())')->execute([$d['id'], $key, $sev, mb_substr($msg, 0, 500)]);
-        Notify::alert($d, $sev, $msg, false);
+        Notify::alert($d, $sev, $msg, false, (int)db()->lastInsertId());
     }
 
     public static function set(array $d, bool $cond, string $key, string $sev, string $msg): void

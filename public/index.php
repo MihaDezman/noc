@@ -47,6 +47,7 @@ if (str_starts_with($path, '/api/')) {
         try { $resp = Ingest::pushLocked($dev, $body); }
         catch (\RuntimeException $e) { if ($e->getMessage() !== 'push busy') throw $e; json_out(['error' => 'busy'], 503); }   // router pošlje znova čez minuto
         if (MikrotikScript::needsUpdate($dev, (string)($body['sv'] ?? ''))) $resp['upd'] = 1;   // router se sam posodobi
+        if (Actions::pending((int)$dev['id'])) $resp['act'] = 1;   // potrjeni ukrepi (npr. blokada IP)
         json_out($resp);
     }
     if ($path === '/api/install/auto' && $method === 'GET') {   // samodejna posodobitev: brez razdelka požarnega zidu
@@ -63,6 +64,15 @@ if (str_starts_with($path, '/api/')) {
         header('Cache-Control: no-store');
         echo MikrotikScript::ascii(MikrotikScript::package($full)['noc-install.rsc']);
         exit;
+    }
+    if ($path === '/api/action' && $method === 'GET') {   // potrjeni ukrepi za ta router (.rsc)
+        $st = db()->prepare('SELECT * FROM devices WHERE id=?'); $st->execute([$dev['id']]);
+        header('Content-Type: text/plain; charset=utf-8'); header('Cache-Control: no-store');
+        echo MikrotikScript::ascii(Actions::rsc($st->fetch())); exit;
+    }
+    if (preg_match('#^/api/action-done/(\d+)$#', $path, $m) && $method === 'GET') {   // router potrdi izvedbo ukrepa
+        Actions::done($dev, (int)$m[1]);
+        json_out(['ok' => true]);
     }
     if ($path === '/api/fw-confirm' && $method === 'GET') {   // router po spremembi požarnega zidu potrdi, da še doseže NOC
         db()->prepare('UPDATE devices SET fw_confirmed_at=NOW() WHERE id=?')->execute([$dev['id']]);
@@ -284,11 +294,14 @@ if (($seg[0] ?? '') === 'devices' && ctype_digit($seg[1] ?? '')) {
         $f = DeviceForm::read();
         $th = [];
         foreach ($_POST['th'] ?? [] as $k => $v) if (preg_match('/^th_[a-z_]+$/', (string)$k) && is_numeric($v)) $th[$k] = (float)$v;
+        $off = array_values(array_intersect(array_keys(Alerts::offable()), (array)($_POST['off'] ?? [])));
+        if ($off) $th['off'] = $off;
         db()->prepare('UPDATE devices SET tenant_id=?, name=?, site=?, public_ip=?, wan_iface=?, wan_gateway=?, ping_target=?, lan_networks=?, monitor_ifaces=?, down_ifaces=?, wan_down_mbps=?, wan_up_mbps=?, flow_enabled=?, log_include=?, log_exclude=?, thresholds=?, notes=? WHERE id=?')
             ->execute([(int)post('tenant_id') ?: null, $f['name'], $f['site'], $f['public_ip'], $f['wan_iface'], $f['wan_gateway'], $f['ping_target'], $f['lan_networks'], $f['monitor_ifaces'], $f['down_ifaces'],
                 $f['wan_down_mbps'], $f['wan_up_mbps'], $f['flow_enabled'], $f['log_include'], $f['log_exclude'], $th ? json_encode($th) : null, $f['notes'], $id]);
         db()->prepare('UPDATE devices SET auto_update=? WHERE id=?')->execute([post('auto_update') ? 1 : 0, $id]);
         db()->prepare('UPDATE devices SET newdev_alert=?, newdev_ignore=? WHERE id=?')->execute([post('newdev_alert') ? 1 : 0, implode(',', Devices::list(post('newdev_ignore'))), $id]);
+        Alerts::closeOff(['id' => $id, 'thresholds' => $th ? json_encode($th) : null]);   // izklopljeni alarmi se zaprejo takoj
         Ufw::write();
         MikrotikScript::invalidate($id);
         audit('device.save', $f['name']);
@@ -300,6 +313,23 @@ if (($seg[0] ?? '') === 'devices' && ctype_digit($seg[1] ?? '')) {
         MikrotikScript::invalidate($id); Ufw::write();
         audit('device.fwlog', $d['name'] . ($on ? ' on' : ' off'));
         back("/devices/$id?tab=protect#fwlog", $on ? A('Varnostna analiza vklopljena. Router dobi nastavitve s samodejno posodobitvijo v nekaj minutah (ali takoj z ukazom s strani Paket).') : A('Varnostna analiza izklopljena. Router nastavitve odstrani ob naslednji posodobitvi.'));
+    }
+    if ($sub === 'action' && $method === 'POST') {   // blokada IP: ročno, potrditev/zavrnitev predloga, odblokiranje
+        $by = (string)(Auth::$user['email'] ?? 'splet');
+        $op = post('op');
+        if ($op === 'approve' || $op === 'reject') {
+            $q = db()->prepare('SELECT device_id FROM noc_actions WHERE id=?'); $q->execute([(int)post('aid')]);
+            if ((int)$q->fetchColumn() !== $id) back("/devices/$id?tab=security#actions", A('Ukrep ne obstaja.'), 'err');
+            $a = Actions::decide((int)post('aid'), $op === 'approve', $by);
+            if (!$a || !$a['changed']) back("/devices/$id?tab=security#actions", A('O ukrepu je že odločeno'), 'err');
+            back("/devices/$id?tab=security#actions", $op === 'approve' ? A('Ukrep potrjen – router ga izvede ob naslednjem pushu.') : A('Ukrep zavrnjen.'));
+        }
+        if ($op === 'block' || $op === 'unblock') {
+            $r = Actions::create($d, $op, post('ip'), (int)post('hours', '24'), 'approved', $op === 'block' ? A('ročno v NOC') : A('ročno odblokiranje'), 'splet', null, $by);
+            if (!is_int($r)) back("/devices/$id?tab=security#actions", A('Ni mogoče: {r}', ['r' => $r]), 'err');
+            back("/devices/$id?tab=security#actions", A('Ukrep #{id} potrjen – router ga izvede ob naslednjem pushu (v minuti ali dveh).', ['id' => $r]));
+        }
+        back("/devices/$id?tab=security#actions");
     }
     if ($sub === 'tls' && $method === 'POST') {   // stikalo: router preverja certifikat NOC
         $on = post('on') === '1' ? 1 : 0;
@@ -547,7 +577,7 @@ if ($path === '/settings/fwlog-all' && $method === 'POST') {   // varnostna anal
 }
 if ($path === '/settings/ai-test' && $method === 'POST') {   // preizkus AI pomočnika (en kratek klic)
     Auth::requireSuper();
-    $r = Ai::ask('test', null, 'Odgovori v slovenščini z enim kratkim stavkom.', 'Potrdi, da povezava z NOC deluje.', 60, false);
+    $r = Ai::ask('test', null, 'To je samodejni preizkus povezave z API-jem. Odgovori natanko z besedilom: Povezava deluje.', 'Preizkus.', 60, false);
     $err = $r === null ? (string)db()->query("SELECT err FROM ai_log WHERE kind='test' ORDER BY id DESC LIMIT 1")->fetchColumn() : '';
     back('/settings#ai', $r !== null ? A('AI pomočnik deluje: {r}', ['r' => mb_substr($r, 0, 200)]) : A('AI pomočnik ne deluje: {e}', ['e' => $err ?: A('ni ključa')]), $r !== null ? 'ok' : 'err');
 }
@@ -578,7 +608,8 @@ if ($path === '/settings') {
         if (post('ai_key_clear')) setting_set('ai_key_enc', '');
         if (isset(Ai::MODELS[post('ai_model')])) setting_set('ai_model', post('ai_model'));
         setting_set('ai_daily', (string)max(1, min(5000, (int)post('ai_daily', '100'))));
-        foreach (['ai_alerts', 'ai_config', 'ai_watch', 'ai_tg'] as $k) setting_set($k, post($k) ? '1' : '0');
+        foreach (['ai_alerts', 'ai_config', 'ai_watch', 'ai_tg', 'ai_chat', 'ai_digest'] as $k) setting_set($k, post($k) ? '1' : '0');
+        setting_set('ai_digest_hour', (string)max(5, min(10, (int)post('ai_digest_hour', '7'))));
         setting_set('tg_chat_id', preg_replace('/[^0-9\-]/', '', post('tg_chat_id')));
         audit('settings.save');
         back('/settings', A('Nastavitve shranjene.'));

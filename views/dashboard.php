@@ -56,6 +56,10 @@ $pct = fn($k) => $n ? round($cnt[$k] / $n * 100, 2) : 0;
   </div>
 </section>
 
+<?php [$dgAt, $dgTxt] = array_pad(explode("\n", (string)setting('ai_digest_text', ''), 2), 2, ''); if ($dgTxt !== '' && Ai::on()): ?>
+<details class="panel ai-digest"><summary class="panel-head"><h2><?= icon('zap', 18) ?><?= h(A('AI povzetek')) ?></h2><span class="small muted"><?= h($dgAt) ?></span></summary>
+  <div class="panel-body"><?= nl2br(h(trim($dgTxt))) ?></div></details>
+<?php endif; ?>
 <div class="page-head" style="margin:30px 0 14px"><h2><?= h(A('Naprave')) ?></h2><a class="small" href="/devices"><?= h(A('Seznam vseh')) ?></a></div>
 <div class="racks">
 <?php foreach ($devs as $d):

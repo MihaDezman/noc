@@ -80,12 +80,19 @@ $num = function (string $k, string $label, string $unit, string $hint = '') {
         <label class="f"><span><?= h(A('Največ klicev na dan')) ?></span><input type="number" min="1" max="5000" name="ai_daily" value="<?= h(setting('ai_daily', '100')) ?>"><small><?= h(A('danes: {n} · 30 dni: {c} klicev, {t} žetonov', ['n' => $aiSet ? Ai::callsToday() : 0, 'c' => $aiN, 't' => number_format($aiIn + $aiOut, 0, ',', '.')])) ?></small></label>
       </div>
       <div class="row c3">
+        <label class="f"><span><?= h(A('Ura povzetka')) ?></span><select name="ai_digest_hour"><?php for ($hh = 5; $hh <= 10; $hh++): ?><option value="<?= $hh ?>" <?= (int)setting('ai_digest_hour', '7') === $hh ? 'selected' : '' ?>><?= sprintf('%02d:00', $hh) ?></option><?php endfor; ?></select></label>
+      </div>
+      <div class="row c3">
         <label class="check"><input type="checkbox" name="ai_alerts" value="1" <?= setting('ai_alerts', '1') === '1' ? 'checked' : '' ?>> <?= h(A('Razlaga alarmov (opozorila in kritični)')) ?></label>
         <label class="check"><input type="checkbox" name="ai_config" value="1" <?= setting('ai_config', '1') === '1' ? 'checked' : '' ?>> <?= h(A('Pregled sprememb konfiguracije')) ?></label>
         <label class="check"><input type="checkbox" name="ai_watch" value="1" <?= setting('ai_watch', '1') === '1' ? 'checked' : '' ?>> <?= h(A('Samonadzor NOC')) ?></label>
       </div>
       <div class="row c3">
+        <label class="check"><input type="checkbox" name="ai_chat" value="1" <?= setting('ai_chat', '1') === '1' ? 'checked' : '' ?>> <?= h(A('Asistent v Telegramu')) ?></label>
+        <label class="check"><input type="checkbox" name="ai_digest" value="1" <?= setting('ai_digest', '1') === '1' ? 'checked' : '' ?>> <?= h(A('Jutranji povzetek')) ?></label>
         <label class="check"><input type="checkbox" name="ai_tg" value="1" <?= setting('ai_tg', '1') === '1' ? 'checked' : '' ?>> <?= h(A('Razlage pošlji tudi na Telegram')) ?></label>
+      </div>
+      <div class="row c3">
         <?php if ($aiSet): ?><label class="check"><input type="checkbox" name="ai_key_clear" value="1"> <?= h(A('Odstrani ključ (izklopi AI)')) ?></label><?php endif; ?>
       </div>
     </div></section>

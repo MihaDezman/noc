@@ -468,6 +468,38 @@ $upd = $s['upd'] ?? [];
     <ul class="feed"><?php foreach ($logins as $l): ?><li><span class="sev-bar info"></span><div class="what mono small"><?= h($l['message']) ?></div><span class="when"><?= h(fmt_dt($l['ts'])) ?></span></li><?php endforeach; ?></ul><?php endif; ?>
   </section>
 </div>
+<?php $acts = Actions::forDevice($id); $unblocked = [];
+  foreach ($acts as $x) if ($x['kind'] === 'unblock' && in_array($x['status'], ['approved', 'sent', 'done'], true)) $unblocked[$x['ip']] = max($unblocked[$x['ip']] ?? 0, (int)$x['id']); ?>
+<section class="panel" id="actions" style="margin-top:20px">
+  <div class="panel-head"><h2><?= icon('shield', 18) ?><?= h(A('Blokade in ukrepi')) ?></h2><span class="small muted"><?= h(A('Router jih izvede ob naslednjem pushu · seznam noc-block (raw)')) ?></span></div>
+  <?php if ($isSuper): ?>
+  <form class="panel-body form" method="post" action="/devices/<?= $id ?>/action" style="padding-bottom:0"><?= Auth::csrf() ?><input type="hidden" name="op" value="block">
+    <div class="row c3">
+      <label class="f"><span><?= h(A('Blokiraj zunanji IP')) ?></span><input type="text" name="ip" class="mono" placeholder="203.0.113.7" required></label>
+      <label class="f"><span><?= h(A('Za')) ?></span><select name="hours"><?php foreach ([1 => '1 h', 24 => '24 h', 168 => '7 d', 720 => '30 d'] as $hv => $hl): ?><option value="<?= $hv ?>" <?= $hv === 24 ? 'selected' : '' ?>><?= $hl ?></option><?php endforeach; ?></select></label>
+      <div style="align-self:end"><button class="btn"><?= icon('shield', 15) ?><?= h(A('Blokiraj')) ?></button></div>
+    </div>
+  </form>
+  <?php endif; ?>
+  <?php if (!$acts): ?><div class="empty small"><?= h(A('Še ni ukrepov. Blokado lahko predlaga AI ali jo potrdiš z gumbom pod obvestilom o napadu.')) ?></div><?php else: ?>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th>IP</th><th><?= h(A('Ukrep')) ?></th><th><?= h(A('Stanje')) ?></th><th><?= h(A('Razlog')) ?></th><th><?= h(A('Čas')) ?></th><th></th></tr></thead>
+    <tbody><?php foreach ($acts as $x): [$sc, $sl] = Actions::statusLabel($x['status']);
+      $isActive = ($x['kind'] === 'block' && in_array($x['status'], ['approved', 'sent'], true)) || (Actions::active($x) && ($unblocked[$x['ip']] ?? 0) < (int)$x['id']); ?><tr>
+      <td class="mono"><?= h($x['ip']) ?></td>
+      <td class="nowrap"><?= $x['kind'] === 'block' ? h(A('blokada {h} h', ['h' => (int)$x['hours']])) : h(A('odblokiranje')) ?> <span class="small faint"><?= h(['ai' => 'AI', 'alarm' => A('alarm'), 'splet' => A('ročno')][$x['source']] ?? $x['source']) ?></span></td>
+      <td class="nowrap"><span class="tag <?= $sc ?>"><?= h($sl) ?></span><?= $isActive && $x['status'] === 'done' ? ' <span class="tag down">' . h(A('aktivna')) . '</span>' : '' ?></td>
+      <td class="small"><?= h($x['reason']) ?></td>
+      <td class="nowrap small muted"><?= h(fmt_dt($x['created_at'])) ?></td>
+      <td class="num nowrap"><?php if ($isSuper && $x['status'] === 'proposed'): ?>
+        <form method="post" action="/devices/<?= $id ?>/action" style="display:inline"><?= Auth::csrf() ?><input type="hidden" name="op" value="approve"><input type="hidden" name="aid" value="<?= (int)$x['id'] ?>"><button class="btn sm primary"><?= icon('check', 14) ?><?= h(A('Izvedi')) ?></button></form>
+        <form method="post" action="/devices/<?= $id ?>/action" style="display:inline"><?= Auth::csrf() ?><input type="hidden" name="op" value="reject"><input type="hidden" name="aid" value="<?= (int)$x['id'] ?>"><button class="btn sm"><?= icon('x', 14) ?><?= h(A('Zavrni')) ?></button></form>
+      <?php elseif ($isSuper && $isActive): ?>
+        <form method="post" action="/devices/<?= $id ?>/action"><?= Auth::csrf() ?><input type="hidden" name="op" value="unblock"><input type="hidden" name="ip" value="<?= h($x['ip']) ?>"><button class="btn sm"><?= icon('x', 14) ?><?= h(A('Odblokiraj')) ?></button></form>
+      <?php endif; ?></td>
+    </tr><?php endforeach; ?></tbody>
+  </table></div><?php endif; ?>
+</section>
 
 <?php elseif ($tab === 'logs'): ?>
 <section class="panel">
@@ -644,7 +676,7 @@ $upd = $s['upd'] ?? [];
 
 <?php elseif ($tab === 'settings'):
   $f = $d; $th = json_decode((string)$d['thresholds'], true) ?: [];
-  $thLabels = ['th_cpu' => ['CPU %', '%'], 'th_temp' => [A('Temperatura'), '°C'], 'th_gw_loss' => [A('Izguba do prehoda'), '%'], 'th_gw_ms' => [A('Latenca do prehoda'), 'ms'], 'th_ext_loss' => [A('Izguba do interneta'), '%'], 'th_ext_ms' => [A('Latenca do interneta'), 'ms'], 'th_offline_min' => [A('Brez pusha'), 'min'], 'th_host_gb_h' => [A('Naprava v LAN – GB/uro'), 'GB'], 'th_host_mbps' => [A('Naprava v LAN – Mb/s'), 'Mb/s'], 'th_attack' => [A('Napad: neuspelih prijav'), A('št.')], 'th_pool' => [A('Zasedenost IP poola'), '%'], 'th_backup_days' => [A('Brez backupa'), A('dni')], 'th_fw_ports' => [A('Skeniranje: različnih portov'), A('v 15 min')], 'th_out_ips' => [A('Okužena naprava: ciljev na en port'), A('v 5 min')], 'th_out_smtp' => [A('Spam: SMTP strežnikov'), A('v 5 min')]];
+  $thLabels = ['th_cpu' => ['CPU %', '%'], 'th_temp' => [A('Temperatura'), '°C'], 'th_mem' => [A('Pomnilnik'), '%'], 'th_hdd' => [A('Disk'), '%'], 'th_gw_loss' => [A('Izguba do prehoda'), '%'], 'th_gw_ms' => [A('Latenca do prehoda'), 'ms'], 'th_ext_loss' => [A('Izguba do interneta'), '%'], 'th_ext_ms' => [A('Latenca do interneta'), 'ms'], 'th_offline_min' => [A('Brez pusha'), 'min'], 'th_host_gb_h' => [A('Naprava v LAN – GB/uro'), 'GB'], 'th_host_mbps' => [A('Naprava v LAN – Mb/s'), 'Mb/s'], 'th_attack' => [A('Napad: neuspelih prijav'), A('št.')], 'th_pool' => [A('Zasedenost IP poola'), '%'], 'th_backup_days' => [A('Brez backupa'), A('dni')], 'th_fw_ports' => [A('Skeniranje: različnih portov'), A('v 15 min')], 'th_out_ips' => [A('Okužena naprava: ciljev na en port'), A('v 5 min')], 'th_out_smtp' => [A('Spam: SMTP strežnikov'), A('v 5 min')]];
 ?>
 <form class="form" method="post" action="/devices/<?= $id ?>/save">
   <?= Auth::csrf() ?>
@@ -658,6 +690,10 @@ $upd = $s['upd'] ?? [];
   <section class="panel"><div class="panel-head"><h2><?= icon('sliders', 18) ?><?= h(A('Pragovi za to napravo')) ?></h2><span class="small muted"><?= h(A('Prazno = globalna nastavitev')) ?></span></div>
     <div class="panel-body"><div class="form"><div class="row c3">
       <?php foreach ($thLabels as $k => [$l, $u]): ?><label class="f"><span><?= h($l) ?> <small>(<?= h($u) ?>)</small></span><input type="number" step="any" name="th[<?= $k ?>]" value="<?= h($th[$k] ?? '') ?>" placeholder="<?= h(setting($k)) ?>"></label><?php endforeach; ?>
+    </div></div></div></section>
+  <section class="panel" id="alarm-off"><div class="panel-head"><h2><?= icon('bell-off', 18) ?><?= h(A('Izklopljeni alarmi za to napravo')) ?></h2><span class="small muted"><?= h(A('Izbrane vrste se pri tej napravi ne javljajo več; odprti se zaprejo ob shranjevanju')) ?></span></div>
+    <div class="panel-body"><div class="form"><div class="row c3">
+      <?php $offNow = (array)($th['off'] ?? []); foreach (Alerts::offable() as $k => $l): ?><label class="check"><input type="checkbox" name="off[]" value="<?= h($k) ?>" <?= in_array($k, $offNow, true) ? 'checked' : '' ?>> <?= h($l) ?></label><?php endforeach; ?>
     </div></div></div></section>
   <div class="actions"><button class="btn primary"><?= icon('check', 16) ?><?= h(A('Shrani')) ?></button></div>
 </form>

@@ -39,6 +39,8 @@ final class Notify
         if ($tg && count($tg) <= self::BATCH) {
             foreach ($tg as $r) {
                 $kb = (!(int)$r['resolved'] && $r['alert_id'] && setting('tg_webhook') === '1') ? TgBot::alertButtons((int)$r['alert_id'], (int)$r['device_id']) : null;   // gumba samo z vklopljenimi ukazi
+                // napad ali skeniranje z zunanjega IP-ja: gumb za blokado na routerju (ukaz potrdi skrbnik s klikom)
+                if ($kb && ($ip = self::attackerIp((int)$r['alert_id'])) !== null) $kb[] = [['text' => '🚫 ' . A('Blokiraj {ip} za 24 h', ['ip' => $ip]), 'callback_data' => 'blk:' . (int)$r['device_id'] . ':' . $ip . ':24']];
                 self::telegram($icon($r) . ' <b>' . htmlspecialchars($r['dname']) . "</b>\n" . htmlspecialchars($r['msg']) . "\n<a href=\"" . $url($r) . '">' . A('Odpri v NOC') . '</a>', null, null, $kb);
             }
         } elseif ($tg) {
@@ -69,6 +71,14 @@ final class Notify
             }
         }
         return count($rows) . ' (tg ' . count($tg) . ', mail ' . count($ml) . ')';
+    }
+
+    /** Zunanji IP napadalca iz ključa alarma (attack:IP, fwscan:IP) ali null */
+    private static function attackerIp(int $alertId): ?string
+    {
+        $st = db()->prepare('SELECT akey FROM alerts WHERE id=?'); $st->execute([$alertId]); $k = (string)$st->fetchColumn();
+        if (!preg_match('/^(?:attack|fwscan):(\d{1,3}(?:\.\d{1,3}){3})$/', $k, $m)) return null;
+        return filter_var($m[1], FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE) ? $m[1] : null;
     }
 
     /** "🔴 12 novih alarmov, 3 razrešeni" */

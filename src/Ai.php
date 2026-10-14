@@ -24,7 +24,8 @@ final class Ai
     /** Klici danes (za dnevno omejitev) */
     public static function callsToday(): int
     {
-        return (int)db()->query('SELECT COUNT(*) FROM ai_log WHERE at >= CURDATE()')->fetchColumn();
+        // pogovor v Telegramu je ena vrstica, a več klicev API (ref_id)
+        return (int)db()->query("SELECT COALESCE(SUM(IF(kind='chat', GREATEST(1, COALESCE(ref_id, 1)), 1)), 0) FROM ai_log WHERE at >= CURDATE()")->fetchColumn();
     }
 
     /** Poraba zadnjih 30 dni: [klicev, vhodnih žetonov, izhodnih žetonov] */
@@ -64,6 +65,11 @@ final class Ai
         if ($f = (string)cfg('ai_mock_file', '')) {   // samo za testiranje
             file_put_contents($f . '.req', json_encode($body, JSON_UNESCAPED_UNICODE) . "\n", FILE_APPEND);
             $mock = is_file($f) ? (string)file_get_contents($f) : 'Testni odgovor.';
+            if (str_starts_with($mock, '[')) {   // zaporedje odgovorov (preizkus orodij): vsak klic vzame naslednjega
+                $seq = json_decode($mock, true); $n = (int)@file_get_contents($f . '.n'); file_put_contents($f . '.n', (string)($n + 1));
+                $c = $seq[min($n, count($seq) - 1)];
+                return [200, json_encode(['content' => $c, 'stop_reason' => array_filter($c, fn($x) => $x['type'] === 'tool_use') ? 'tool_use' : 'end_turn', 'usage' => ['input_tokens' => 100, 'output_tokens' => 20]])];
+            }
             return [200, json_encode(['content' => [['type' => 'text', 'text' => $mock]], 'usage' => ['input_tokens' => 100, 'output_tokens' => 20]])];
         }
         $ctx = stream_context_create(['http' => [
@@ -112,10 +118,19 @@ final class Ai
             if ($prev !== false) { db()->prepare('UPDATE alerts SET ai_note=? WHERE id=?')->execute([$prev, $a['id']]); continue; }
             if ($n >= $max) break;
             $d = Devices::full((int)$a['device_id']); if (!$d) continue;
-            $txt = self::ask('alert', (int)$a['id'], self::SYSTEM, self::alertContext($d, $a));
+            // napad z zunanjega IP-ja: AI sme predlagati blokado (izvede se šele, ko jo skrbnik potrdi)
+            $attIp = preg_match('/^(?:attack|fwscan):(\d{1,3}(?:\.\d{1,3}){3})$/', $a['akey'], $mm) ? $mm[1] : null;
+            $sys = self::SYSTEM . ($attIp ? " Če je smiselno blokirati napadalca $attIp na routerju, dodaj v zadnjo vrstico natanko: UKREP: blokiraj $attIp <ure> (1–720). Blokado potrdi serviser z gumbom." : '');
+            $txt = self::ask('alert', (int)$a['id'], $sys, self::alertContext($d, $a));
             $n++;
+            $prop = null;
+            if ($txt && $attIp && preg_match('/^\s*UKREP:\s*blokiraj\s+(\S+)\s+(\d+)/mi', $txt, $um)) {
+                $txt = trim(preg_replace('/^\s*UKREP:.*$/mi', '', $txt));
+                if ($um[1] === $attIp) { $r = Actions::create($d, 'block', $attIp, (int)$um[2], 'proposed', mb_substr($a['message'], 0, 250), 'ai', (int)$a['id']); if (is_int($r)) $prop = [$r, (int)$um[2]]; }
+            }
             db()->prepare('UPDATE alerts SET ai_note=? WHERE id=?')->execute([$txt ?? '', $a['id']]);   // '' = poskus ni uspel, ne ponavljaj
-            if ($txt) self::tg('🤖 <b>' . htmlspecialchars($d['name']) . '</b> – ' . htmlspecialchars($a['message']) . "\n\n" . htmlspecialchars(mb_substr($txt, 0, 2500)), (int)$d['id']);
+            if ($txt) self::tg('🤖 <b>' . htmlspecialchars($d['name']) . '</b> – ' . htmlspecialchars($a['message']) . "\n\n" . htmlspecialchars(mb_substr($txt, 0, 2500))
+                . ($prop ? "\n\n🚫 " . A('Predlog: blokiraj {ip} za {h} h', ['ip' => $attIp, 'h' => $prop[1]]) : ''), (int)$d['id'], $prop ? Actions::buttons($prop[0], $attIp) : null);
         }
         return $n ? "alarmi: $n" : '';
     }
@@ -247,6 +262,196 @@ final class Ai
         return $n ? "samonadzor: $n" : '';
     }
 
+    // ================================================================== 4. jutranji povzetek
+    /** Enkrat na dan ob nastavljeni uri: kaj se je dogajalo, kaj se počasi slabša, kaj pogledati */
+    public static function digest(bool $force = false): string
+    {
+        if (!self::on('digest') && !$force) return '';
+        $hour = (int)setting('ai_digest_hour', '7');
+        if (!$force && ((int)date('G') !== $hour || setting('ai_digest_last') === date('Y-m-d'))) return '';
+        if (!$force) setting_set('ai_digest_last', date('Y-m-d'));   // tudi ob napaki: največ en poskus na dan (ročni /povzetek ne šteje)
+        $sys = self::SYSTEM . ' Tokrat pišeš jutranji povzetek za vse naprave. Brez omejitve 6 vrstic, a največ 18 kratkih vrstic. Oblika (navadno besedilo, vrstice z "• "):'
+            . ' "Ponoči:" (pomembni dogodki zadnjih 24 h – izpadi, ponovni zagoni, spremembe, napadi; samo bistveno, združi podobno),'
+            . ' "Slabša se:" (počasni trendi: disk, pomnilnik, temperatura, latenca, izgube, SFP signal, naraščanje napadov – samo kjer podatki res kažejo trend),'
+            . ' "Ta teden poglej:" (največ 3 konkretna opravila, npr. posodobitev RouterOS, čiščenje diska).'
+            . ' Če je vse mirno, to povej v eni vrstici. Naprave imenuj z imenom.';
+        $txt = self::ask('digest', null, $sys, self::digestContext(), 1200);
+        if ($txt) {
+            $html = ($force ? '📋 <b>' . A('Povzetek NOC') : '🌅 <b>' . A('Jutranji povzetek NOC')) . '</b> · ' . date('d.m.Y H:i') . "\n\n" . htmlspecialchars(mb_substr($txt, 0, 3000));
+            $force ? Notify::telegram($html) : self::tg($html);   // ročno zahtevan gre vedno na Telegram
+            setting_set('ai_digest_text', date('d.m.Y H:i') . "\n" . mb_substr($txt, 0, 4000));
+        }
+        return $txt ? 'povzetek' : 'povzetek: napaka';
+    }
+
+    /** Podatki za povzetek: po napravi stanje, dogodki 24 h in primerjava zadnjega dne s tednom */
+    public static function digestContext(): string
+    {
+        $pdo = db(); $o = 'Čas: ' . date('d.m.Y H:i') . "\n";
+        foreach (array_map([Devices::class, 'decorate'], $pdo->query('SELECT ' . Devices::listCols('d') . ', t.name tenant_name FROM devices d LEFT JOIN tenants t ON t.id=d.tenant_id WHERE d.active=1 ORDER BY d.name')->fetchAll()) as $d) {
+            $id = (int)$d['id']; $st = $d['status'];
+            $o .= "\n## {$d['name']}" . ($d['tenant_name'] ? " ({$d['tenant_name']})" : '') . " · {$d['model']} · RouterOS " . preg_replace('/\s.*$/', '', (string)$d['os_version']) . ' · stanje ' . $d['state'] . ' · uptime ' . fmt_uptime($d['last_uptime'] !== null ? (int)$d['last_uptime'] : null) . "\n";
+            if (!empty($st['upd']['latest']) && version_compare((string)$st['upd']['latest'], (string)($st['upd']['inst'] ?? ''), '>')) $o .= "Na voljo RouterOS {$st['upd']['latest']}\n";
+            $q = $pdo->prepare("SELECT severity, message, started_at, ended_at FROM alerts WHERE device_id=? AND (started_at > NOW() - INTERVAL 24 HOUR OR ended_at IS NULL) AND severity<>'info' ORDER BY started_at DESC LIMIT 12"); $q->execute([$id]);
+            foreach ($q->fetchAll() as $a) $o .= '- [' . $a['severity'] . '] ' . $a['message'] . ' (' . substr($a['started_at'], 5, 11) . ($a['ended_at'] ? ', zaprt ' . substr($a['ended_at'], 11, 5) : ', ODPRT') . ")\n";
+            $q = $pdo->prepare("SELECT akey, COUNT(*) n FROM alerts WHERE device_id=? AND started_at > NOW() - INTERVAL 24 HOUR AND severity='info' GROUP BY SUBSTRING_INDEX(akey, ':', 1) ORDER BY n DESC LIMIT 6"); $q->execute([$id]);
+            $info = $q->fetchAll(); if ($info) $o .= 'Info dogodki 24 h: ' . implode(', ', array_map(fn($r) => explode(':', $r['akey'])[0] . ' ' . $r['n'] . 'x', $info)) . "\n";
+            // trendi: zadnji dan proti prejšnjim 6 dnem (5-min povprečja)
+            $q = $pdo->prepare('SELECT ROUND(AVG(IF(ts > NOW() - INTERVAL 1 DAY, cpu_avg, NULL))) cpu_d, ROUND(AVG(IF(ts <= NOW() - INTERVAL 1 DAY, cpu_avg, NULL))) cpu_t,
+                                       ROUND(AVG(IF(ts > NOW() - INTERVAL 1 DAY, mem_pct, NULL))) mem_d, ROUND(AVG(IF(ts <= NOW() - INTERVAL 1 DAY, mem_pct, NULL))) mem_t,
+                                       MAX(IF(ts > NOW() - INTERVAL 1 DAY, temp_max, NULL)) temp_d, MAX(IF(ts <= NOW() - INTERVAL 1 DAY, temp_max, NULL)) temp_t,
+                                       ROUND(AVG(IF(ts > NOW() - INTERVAL 1 DAY, gw_ms, NULL)),1) gw_d, ROUND(AVG(IF(ts <= NOW() - INTERVAL 1 DAY, gw_ms, NULL)),1) gw_t,
+                                       ROUND(AVG(IF(ts > NOW() - INTERVAL 1 DAY, ext_loss, NULL)),1) loss_d, ROUND(AVG(IF(ts <= NOW() - INTERVAL 1 DAY, ext_loss, NULL)),1) loss_t
+                                FROM health_5m WHERE device_id=? AND ts > NOW() - INTERVAL 7 DAY'); $q->execute([$id]);
+            $t = $q->fetch();
+            if ($t) {   // samo meritve, ki obstajajo (temperatura -99 = router nima senzorja)
+                $parts = [];
+                foreach (['CPU' => ['cpu_d', 'cpu_t', '%'], 'pomnilnik' => ['mem_d', 'mem_t', '%'], 'temp max' => ['temp_d', 'temp_t', '°C'], 'latenca prehod' => ['gw_d', 'gw_t', 'ms'], 'izguba internet' => ['loss_d', 'loss_t', '%']] as $lbl => [$a1, $a2, $u]) {
+                    $v1 = $t[$a1]; $v2 = $t[$a2];
+                    if ($lbl === 'temp max') { $v1 = $v1 !== null && (float)$v1 > -90 ? $v1 : null; $v2 = $v2 !== null && (float)$v2 > -90 ? $v2 : null; }
+                    if ($v1 !== null) $parts[] = "$lbl $v1" . ($v2 !== null ? "/$v2" : '/–') . " $u";
+                }
+                if ($parts) $o .= 'Zadnji dan / prejšnji teden: ' . implode(', ', $parts) . "\n";
+            }
+            $q = $pdo->prepare('SELECT MAX(IF(ts > NOW() - INTERVAL 10 MINUTE, hdd_pct, NULL)) now_, MAX(IF(ts < NOW() - INTERVAL 40 HOUR, hdd_pct, NULL)) before_ FROM health_1m WHERE device_id=? AND ts > NOW() - INTERVAL 48 HOUR'); $q->execute([$id]);
+            $hd = $q->fetch(); if ($hd && $hd['now_'] !== null) $o .= "Disk zaseden {$hd['now_']} % (pred 2 dnevoma " . ($hd['before_'] ?? '?') . " %)" . (Alerts::isOff($d, 'hdd') ? ' – alarm za disk je pri tej napravi namenoma izklopljen' : '') . "\n";
+            $q = $pdo->prepare('SELECT iface, ROUND(AVG(IF(ts > NOW() - INTERVAL 1 DAY, rx, NULL)),2) d, ROUND(AVG(IF(ts <= NOW() - INTERVAL 1 DAY, rx, NULL)),2) t FROM sfp_5m WHERE device_id=? AND ts > NOW() - INTERVAL 7 DAY AND rx IS NOT NULL GROUP BY iface'); $q->execute([$id]);
+            foreach ($q->fetchAll() as $r) if ($r['d'] !== null && $r['t'] !== null) $o .= "SFP {$r['iface']} RX zadnji dan {$r['d']} dBm, prejšnji teden {$r['t']} dBm\n";
+            $q = $pdo->prepare("SELECT SUM(IF(day = CURDATE() - INTERVAL 1 DAY, hits, 0)) y, ROUND(AVG(IF(day < CURDATE() - INTERVAL 1 DAY, hits, NULL))) w FROM fw_daily WHERE device_id=? AND kind='in' AND day > CURDATE() - INTERVAL 8 DAY"); $q->execute([$id]);
+            $fw = $q->fetch(); if ($fw && $fw['y'] !== null && (int)$fw['y'] > 0) $o .= "Zavrnjeni poskusi z interneta včeraj {$fw['y']} (povprečje tedna " . ($fw['w'] ?? '?') . ")\n";
+            $q = $pdo->prepare('SELECT MAX(created_at) FROM config_backups WHERE device_id=?'); $q->execute([$id]); $bk = $q->fetchColumn();
+            $o .= 'Zadnji backup: ' . ($bk ?: 'nikoli') . "\n";
+        }
+        $q = $pdo->query("SELECT name, info, last_at FROM cron_runs"); $o .= "\nNOC strežnik – cron: " . implode('; ', array_map(fn($r) => "{$r['name']} {$r['last_at']}", $q->fetchAll())) . "\n";
+        return mb_substr($o, 0, 30000);
+    }
+
+    // ================================================================== 5. asistent v Telegramu
+    /** Orodja (samo branje + predlog blokade), ki jih model lahko pokliče */
+    private static function tools(): array
+    {
+        $dev = ['type' => 'string', 'description' => 'Ime naprave ali del imena (ali naročnika)'];
+        return [
+            ['name' => 'naprave', 'description' => 'Seznam vseh naprav s trenutnim stanjem (stanje, CPU, pomnilnik, disk, WAN promet zdaj, odprti alarmi).', 'input_schema' => ['type' => 'object', 'properties' => new \stdClass()]],
+            ['name' => 'naprava', 'description' => 'Podrobnosti naprave: stanje, odprti alarmi, metrike zadnjih 24 h po urah, WAN promet danes/ta mesec, vmesniki z napakami, SFP.', 'input_schema' => ['type' => 'object', 'properties' => ['naprava' => $dev], 'required' => ['naprava']]],
+            ['name' => 'alarmi', 'description' => 'Zgodovina alarmov in dogodkov (lahko za eno napravo).', 'input_schema' => ['type' => 'object', 'properties' => ['naprava' => $dev, 'ure' => ['type' => 'integer', 'description' => 'Koliko ur nazaj (privzeto 24, največ 720)']]]],
+            ['name' => 'najvec_prometa', 'description' => 'Naprave v LAN-u z največ prometa (traffic-flow), z imeni iz DHCP.', 'input_schema' => ['type' => 'object', 'properties' => ['naprava' => $dev, 'obdobje' => ['type' => 'string', 'enum' => ['1h', '24h', '7d', '30d']]], 'required' => ['naprava']]],
+            ['name' => 'log', 'description' => 'Log routerja (zadnje vrstice, po želji filtrirane).', 'input_schema' => ['type' => 'object', 'properties' => ['naprava' => $dev, 'ure' => ['type' => 'integer'], 'filter' => ['type' => 'string', 'description' => 'Besedilo, ki mora biti v vrstici (npr. "login failure", "ether1")']], 'required' => ['naprava']]],
+            ['name' => 'varnost', 'description' => 'Varnostna analiza: zavrnjeni poskusi z interneta po dnevih, najpogostejši napadalci in porti, sumljiv odhodni promet, blokade.', 'input_schema' => ['type' => 'object', 'properties' => ['naprava' => $dev], 'required' => ['naprava']]],
+            ['name' => 'predlagaj_blokado', 'description' => 'Predlagaj blokado zunanjega IP-ja na routerju. NE izvede se: serviser dobi gumb Izvedi/Zavrni. Uporabi samo, ko serviser to želi ali je napad očiten.', 'input_schema' => ['type' => 'object', 'properties' => ['naprava' => $dev, 'ip' => ['type' => 'string'], 'ure' => ['type' => 'integer'], 'razlog' => ['type' => 'string']], 'required' => ['naprava', 'ip', 'ure', 'razlog']]],
+        ];
+    }
+
+    /** Naprava po delu imena; vrne [naprava|null, napaka] */
+    private static function findDevice(string $q): array
+    {
+        $q = mb_strtolower(trim($q));
+        $all = array_map([Devices::class, 'decorate'], db()->query('SELECT ' . Devices::listCols('d') . ', t.name tenant_name FROM devices d LEFT JOIN tenants t ON t.id=d.tenant_id WHERE d.active=1')->fetchAll());
+        $hit = array_values(array_filter($all, fn($d) => mb_strtolower($d['name']) === $q));
+        if (!$hit && $q !== '') $hit = array_values(array_filter($all, fn($d) => str_contains(mb_strtolower($d['name'] . ' ' . ($d['tenant_name'] ?? '') . ' ' . $d['site']), $q)));
+        if (count($hit) === 1) return [$hit[0], ''];
+        return [null, $hit ? 'Več zadetkov: ' . implode(', ', array_column($hit, 'name')) : 'Ni naprave "' . $q . '". Naprave: ' . implode(', ', array_column($all, 'name'))];
+    }
+
+    /** Izvede orodje in vrne rezultat kot besedilo (JSON) */
+    private static function runTool(string $name, array $in, array &$proposals): string
+    {
+        $pdo = db();
+        if ($name === 'naprave') {
+            $out = [];
+            foreach (array_map([Devices::class, 'decorate'], $pdo->query('SELECT ' . Devices::listCols('d') . ', t.name tenant_name, (SELECT COUNT(*) FROM alerts a WHERE a.device_id=d.id AND a.ended_at IS NULL) open_alerts FROM devices d LEFT JOIN tenants t ON t.id=d.tenant_id WHERE d.active=1 ORDER BY d.name')->fetchAll()) as $d) {
+                $h = $d['status']['h'] ?? [];
+                $w = $pdo->prepare('SELECT rx_bps, tx_bps FROM device_ifaces WHERE device_id=? AND name=?'); $w->execute([$d['id'], $d['wan_iface']]); $w = $w->fetch();
+                $out[] = ['ime' => $d['name'], 'narocnik' => $d['tenant_name'], 'stanje' => $d['state'], 'zadnji_push' => $d['last_seen_at'], 'cpu' => $h['cpu'] ?? null, 'pomnilnik' => $h['mem_pct'] ?? null, 'disk' => $h['hdd_pct'] ?? null,
+                          'wan_dol' => $w ? fmt_bps($w['rx_bps']) : null, 'wan_gor' => $w ? fmt_bps($w['tx_bps']) : null, 'odprti_alarmi' => (int)$d['open_alerts'], 'model' => $d['model'], 'routeros' => $d['os_version']];
+            }
+            return json_encode($out, JSON_UNESCAPED_UNICODE);
+        }
+        [$d, $err] = self::findDevice((string)($in['naprava'] ?? ''));
+        if ($name === 'alarmi' && trim((string)($in['naprava'] ?? '')) === '') $d = null; elseif (!$d) return $err;
+        $id = $d ? (int)$d['id'] : 0;
+        switch ($name) {
+            case 'naprava':
+                $full = Devices::full($id);
+                $ctx = self::alertContext($full, ['severity' => '-', 'message' => '(splošno vprašanje, ni alarma)', 'akey' => '-', 'started_at' => date('Y-m-d H:i:s'), 'id' => 0]);
+                $q = $pdo->prepare('SELECT DATE_FORMAT(MIN(ts),"%d.%m %H:00") ura, ROUND(AVG(cpu_avg)) cpu, MAX(mem_pct) mem, ROUND(AVG(gw_ms),1) gw_ms, MAX(gw_loss) gw_izg, ROUND(AVG(ext_ms),1) ext_ms, MAX(ext_loss) ext_izg FROM health_5m WHERE device_id=? AND ts > NOW() - INTERVAL 24 HOUR GROUP BY DATE_FORMAT(ts,"%Y%m%d%H") ORDER BY MIN(ts)'); $q->execute([$id]);
+                $vol = $d['wan_iface'] ? Metrics::volume($id, $d['wan_iface']) : null;
+                $q2 = $pdo->prepare('SELECT name, type, running, rate, rx_error, tx_error, link_downs, last_down FROM device_ifaces WHERE device_id=? AND (rx_error>0 OR tx_error>0 OR link_downs>0)'); $q2->execute([$id]);
+                return mb_substr($ctx, 0, 8000) . "\nPO URAH: " . json_encode($q->fetchAll(), JSON_UNESCAPED_UNICODE)
+                    . "\nWAN PROMET: " . ($vol ? 'danes ' . fmt_bytes($vol['today']['rx'] + $vol['today']['tx']) . ', ta mesec ' . fmt_bytes($vol['month']['rx'] + $vol['month']['tx']) : '-')
+                    . "\nVMESNIKI Z NAPAKAMI: " . json_encode($q2->fetchAll(), JSON_UNESCAPED_UNICODE);
+            case 'alarmi':
+                $h = max(1, min(720, (int)($in['ure'] ?? 24)));
+                $q = $pdo->prepare('SELECT d.name naprava, a.severity, a.message, a.started_at, a.ended_at FROM alerts a JOIN devices d ON d.id=a.device_id WHERE a.started_at > NOW() - INTERVAL ? HOUR' . ($d ? ' AND a.device_id=?' : '') . ' ORDER BY a.started_at DESC LIMIT 80');
+                $q->execute($d ? [$h, $id] : [$h]);
+                return json_encode($q->fetchAll(), JSON_UNESCAPED_UNICODE);
+            case 'najvec_prometa':
+                $r = in_array($in['obdobje'] ?? '', ['1h', '24h', '7d', '30d'], true) ? $in['obdobje'] : '24h';
+                return json_encode(array_map(fn($x) => ['naprava' => ($x['label'] ?? '') ?: (($x['hostname'] ?? '') ?: $x['ip']), 'ip' => $x['ip'], 'mac' => $x['mac'] ?? '', 'gor' => fmt_bytes($x['up']), 'dol' => fmt_bytes($x['down'])], Flows::top($id, $r, 15)), JSON_UNESCAPED_UNICODE);
+            case 'log':
+                $h = max(1, min(168, (int)($in['ure'] ?? 24))); $f = trim((string)($in['filter'] ?? ''));
+                $q = $pdo->prepare("SELECT DATE_FORMAT(ts,'%d.%m %H:%i:%s') t, topics, message FROM logs WHERE device_id=? AND ts > NOW() - INTERVAL ? HOUR" . ($f !== '' ? ' AND message LIKE ?' : '') . ' ORDER BY ts DESC LIMIT 80');
+                $q->execute($f !== '' ? [$id, $h, '%' . $f . '%'] : [$id, $h]);
+                return implode("\n", array_map(fn($l) => "{$l['t']} {$l['topics']} " . mb_substr($l['message'], 0, 200), array_reverse($q->fetchAll()))) ?: 'ni vrstic';
+            case 'varnost':
+                $q = $pdo->prepare('SELECT day, kind, hits, sources, ports FROM fw_daily WHERE device_id=? AND day > CURDATE() - INTERVAL 8 DAY ORDER BY day'); $q->execute([$id]);
+                $q2 = $pdo->prepare("SELECT src, SUM(hits) n, COUNT(DISTINCT port) porti FROM fw_5m WHERE device_id=? AND kind='in' AND ts > NOW() - INTERVAL 24 HOUR GROUP BY src ORDER BY n DESC LIMIT 10"); $q2->execute([$id]);
+                $q3 = $pdo->prepare("SELECT port, proto, SUM(hits) n FROM fw_5m WHERE device_id=? AND kind='in' AND ts > NOW() - INTERVAL 24 HOUR GROUP BY port, proto ORDER BY n DESC LIMIT 10"); $q3->execute([$id]);
+                $q4 = $pdo->prepare("SELECT message, started_at FROM alerts WHERE device_id=? AND (akey LIKE 'out%' OR akey LIKE 'attack:%' OR akey='fwspike') AND started_at > NOW() - INTERVAL 7 DAY ORDER BY started_at DESC LIMIT 15"); $q4->execute([$id]);
+                return json_encode(['po_dnevih' => $q->fetchAll(), 'napadalci_24h' => $q2->fetchAll(), 'porti_24h' => $q3->fetchAll(), 'dogodki_7d' => $q4->fetchAll(),
+                    'blokade' => array_map(fn($a) => ['ip' => $a['ip'], 'status' => $a['status'], 'ure' => $a['hours'], 'cas' => $a['created_at']], Actions::forDevice($id, 10)),
+                    'analiza_vklopljena' => (bool)(int)$d['fwlog_enabled']], JSON_UNESCAPED_UNICODE);
+            case 'predlagaj_blokado':
+                $full = Devices::full($id);
+                $r = Actions::create($full, 'block', (string)($in['ip'] ?? ''), (int)($in['ure'] ?? 24), 'proposed', (string)($in['razlog'] ?? ''), 'ai');
+                if (!is_int($r)) return 'Zavrnjeno: ' . $r;
+                $proposals[] = [$r, $d['name'], (string)$in['ip'], max(1, min(720, (int)($in['ure'] ?? 24)))];
+                return "Predlog #$r ustvarjen. Serviser ga mora potrditi z gumbom Izvedi pod tvojim odgovorom.";
+        }
+        return 'Neznano orodje';
+    }
+
+    /** Odgovor na vprašanje iz Telegrama (z orodji); vrne [besedilo, predlogi ukrepov] */
+    public static function chat(string $question): array
+    {
+        if (!self::on('chat')) return [A('AI asistent je izklopljen (Nastavitve → AI pomočnik).'), []];
+        if (self::callsToday() >= max(1, (int)setting('ai_daily', '100'))) return [A('Dosežena je dnevna omejitev klicev AI.'), []];
+        $sys = self::SYSTEM . ' Si asistent v Telegramu nadzornega sistema NOC. Na vprašanja odgovarjaš s pomočjo orodij (podatki NOC, samo branje). '
+            . 'Vedno najprej poišči podatke z orodji, nato odgovori kratko s konkretnimi številkami. Brez omejitve 6 vrstic, a največ 15 kratkih vrstic. '
+            . 'Na routerjih ne moreš ničesar spremeniti; edino, kar lahko narediš, je predlog blokade IP-ja, ki ga serviser potrdi z gumbom.';
+        // kratek spomin: zadnja vprašanja in odgovori iz zadnjih 30 minut
+        $msgs = [];
+        foreach (array_reverse(db()->query("SELECT prompt, result FROM ai_log WHERE kind='chat' AND ok=1 AND at > NOW() - INTERVAL 30 MINUTE ORDER BY id DESC LIMIT 3")->fetchAll()) as $h) {
+            $msgs[] = ['role' => 'user', 'content' => (string)$h['prompt']]; $msgs[] = ['role' => 'assistant', 'content' => (string)$h['result']];
+        }
+        $msgs[] = ['role' => 'user', 'content' => mb_substr($question, 0, 2000)];
+        $proposals = []; $tin = 0; $tout = 0; $text = ''; $err = ''; $calls_n = 0;
+        for ($i = 0; $i < 8; $i++) {
+            if ($i > 0 && self::callsToday() + $i >= max(1, (int)setting('ai_daily', '100'))) { $err = 'dnevna omejitev'; break; }
+            [$code, $res] = self::post(self::key(), ['model' => self::model(), 'max_tokens' => 6000, 'output_config' => ['effort' => 'medium'], 'system' => $sys, 'tools' => self::tools(), 'messages' => $msgs]);
+            $j = json_decode((string)$res, true);
+            $tin += (int)($j['usage']['input_tokens'] ?? 0); $tout += (int)($j['usage']['output_tokens'] ?? 0);
+            if ($code !== 200 || !is_array($j['content'] ?? null)) { $err = 'HTTP ' . $code . ' ' . (string)($j['error']['message'] ?? 'ni odgovora'); break; }
+            // vrnemo nespremenjeno (tudi bloke razmišljanja); prazen vhod orodja mora ostati JSON objekt {}, ne []
+            $msgs[] = ['role' => 'assistant', 'content' => array_map(fn($c) => ($c['type'] ?? '') === 'tool_use' && ($c['input'] ?? []) === [] ? ['input' => new \stdClass()] + $c : $c, $j['content'])];
+            $calls_n = ($calls_n ?? 0) + 1;
+            $calls = array_values(array_filter($j['content'], fn($c) => ($c['type'] ?? '') === 'tool_use'));
+            $text = trim(implode('', array_map(fn($c) => ($c['type'] ?? '') === 'text' ? $c['text'] : '', $j['content'])));
+            if (!$calls || ($j['stop_reason'] ?? '') !== 'tool_use') break;
+            $results = [];
+            foreach ($calls as $c) {
+                try { $r = self::runTool((string)$c['name'], (array)($c['input'] ?? []), $proposals); } catch (\Throwable $e) { $r = 'Napaka orodja: ' . $e->getMessage(); }
+                $results[] = ['type' => 'tool_result', 'tool_use_id' => $c['id'], 'content' => self::redact(mb_substr($r, 0, 12000))];
+            }
+            $msgs[] = ['role' => 'user', 'content' => $results];
+        }
+        $ok = $text !== '' && $err === '';
+        db()->prepare('INSERT INTO ai_log (kind, ref_id, model, in_tok, out_tok, ok, err, result, prompt) VALUES (?,?,?,?,?,?,?,?,?)')   // ref_id = število klicev API
+            ->execute(['chat', max(1, $calls_n ?? 1), self::model(), $tin, $tout, $ok ? 1 : 0, mb_substr($err, 0, 300), $ok ? mb_substr($text, 0, 4000) : null, mb_substr($question, 0, 2000)]);
+        if (!$ok) error_log('noc ai chat: ' . $err);
+        return [$ok ? $text : A('AI ni odgovoril ({e}).', ['e' => $err ?: A('prazen odgovor')]), $proposals];
+    }
+
     /** Položaj napake v neveljavnem JSON (za okolico v diagnozi) */
     private static function jsonErrorPos(string $raw): int
     {
@@ -257,10 +462,10 @@ final class Ai
     }
 
     /** Telegram (če je nastavljen in naprava ni utišana) – AI sporočila gredo mimo čakalne vrste, ker so že v cronu */
-    private static function tg(string $html, ?int $deviceId = null): void
+    private static function tg(string $html, ?int $deviceId = null, ?array $keyboard = null): void
     {
         if (setting('ai_tg', '1') !== '1') return;
         if ($deviceId) { $q = db()->prepare('SELECT mute_until FROM devices WHERE id=?'); $q->execute([$deviceId]); $mu = $q->fetchColumn(); if ($mu && strtotime($mu) > time()) return; }
-        Notify::telegram($html);   // besedila so skrajšana že pred ubežanjem (rez v entiteti bi Telegram zavrnil)
+        Notify::telegram($html, null, null, $keyboard);   // besedila so skrajšana že pred ubežanjem (rez v entiteti bi Telegram zavrnil)
     }
 }
