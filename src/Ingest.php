@@ -426,7 +426,11 @@ final class Ingest
         [$add, $rem] = $last ? Diff::count($lastNorm, $norm) : [substr_count($norm, "\n") + 1, 0];
         $pdo->prepare('INSERT INTO config_backups (device_id, created_at, sha1, bytes, added, removed, content) VALUES (?, NOW(), ?, ?, ?, ?, ?)')
             ->execute([$id, $sha, strlen($content), $add, $rem, $content]);
-        if ($last) Alerts::event($d, 'config', 'info', A('Konfiguracija spremenjena: +{a} / −{r} vrstic', ['a' => $add, 'r' => $rem]));
+        // dogodek samo, če se je spremenilo kaj poleg tega, kar upravlja NOC (samodejna posodobitev skripte ni sprememba stranke)
+        if ($last && ($own = Diff::ownChanges($lastNorm, $norm))) {
+            $oa = count(array_filter($own, fn($o) => $o[0] === '+')); $or = count($own) - $oa;
+            Alerts::event($d, 'config', 'info', A('Konfiguracija spremenjena: +{a} / −{r} vrstic', ['a' => $oa, 'r' => $or]));
+        }
         return ['ok' => true, 'changed' => true];
     }
 }

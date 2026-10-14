@@ -15,6 +15,23 @@ final class Diff
         return trim(implode("\n", $out));
     }
 
+    /**
+     * Vrstica izvoza, ki jo upravlja NOC sam (skripte in urniki noc-*, pravila z oznako noc, seznami noc-*, beleženje
+     * za varnostno analizo, cilj traffic-flow na NOC). Take spremembe nastanejo ob samodejni posodobitvi skripte
+     * in niso sprememba konfiguracije stranke.
+     */
+    public static function isNocLine(string $l): bool
+    {
+        $noc = preg_quote((string)cfg('noc_ip', '-'), '/');
+        return (bool)preg_match('/name="?noc[-a-z]*\b|comment="?noc[-:. ]|noc\.dezman\.net|list=noc-|nocsyslog|topics=info,!fetch|dst-address=' . $noc . '\b/i', $l);
+    }
+
+    /** Spremembe brez vrstic NOC: [[op, vrstica]] */
+    public static function ownChanges(string $a, string $b): array
+    {
+        return array_values(array_filter(self::ops(explode("\n", $a), explode("\n", $b)), fn($o) => $o[0] !== ' ' && !self::isNocLine($o[1])));
+    }
+
     /** [dodanih, odstranjenih] */
     public static function count(string $a, string $b): array
     {

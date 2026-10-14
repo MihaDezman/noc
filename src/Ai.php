@@ -185,7 +185,8 @@ final class Ai
             $st = db()->prepare('SELECT content FROM config_backups WHERE id=?'); $st->execute([$b['id']]); $cur = (string)$st->fetchColumn();
             $d = Devices::full((int)$b['device_id']); if (!$d) continue;
             $diff = '';
-            foreach (Diff::ops(explode("\n", Diff::normalize((string)$prev)), explode("\n", Diff::normalize($cur))) as [$op, $line]) if ($op !== ' ') $diff .= $op . ' ' . $line . "\n";
+            // samo spremembe stranke: skripte, urnike in pravila NOC (samodejna posodobitev) izpustimo
+            foreach (Diff::ownChanges(Diff::normalize((string)$prev), Diff::normalize($cur)) as [$op, $line]) $diff .= $op . ' ' . $line . "\n";
             if (trim($diff) === '') { db()->prepare("UPDATE config_backups SET ai_note='' WHERE id=?")->execute([$b['id']]); continue; }
             $sys = self::SYSTEM . ' Pregleduješ spremembo konfiguracije (vrstice /export terse; "-" odstranjeno, "+" dodano). '
                 . 'Pravila z oznako noc-, noc-log, noc-fw, noc-filter in skripte noc-push/noc-backup dodaja nadzorni sistem NOC sam – te so pričakovane in niso tveganje. '
