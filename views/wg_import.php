@@ -30,12 +30,13 @@ $idx = array_keys($rows); usort($idx, fn($a, $b) => [$order[$rows[$a]['state']] 
     </tr><?php endforeach; ?></tbody>
   </table></div>
   <div class="panel-body small muted" style="border-top:1px solid var(--line-2)">
+    <p style="margin:0 0 10px"><b><?= h(A('Uvoz na routerje ne pošlje ničesar')) ?></b> – <?= h(A('obstoječi peerji ostanejo, kot so; NOC si samo zapomni ključe za prikaz configa. Na router gredo samo uporabniki, ki jih označiš z "dodaj", in vsi, ki jih boš odslej dodal v NOC.')) ?></p>
     <p style="margin:0 0 6px"><b><?= h(A('na routerju – uvozi')) ?>:</b> <?= h(A('peer obstaja na routerju; NOC shrani njegov ključ, da lahko kadar koli ponovno izdela config ali QR kodo. Uporabnik ne opazi ničesar.')) ?></p>
-    <p style="margin:0 0 6px"><b><?= h(A('ni na routerju')) ?>:</b> <?= h(A('uporabnik je v zgodovini, na routerju pa ga ni (izbrisan ali nikoli dodan). Uvozi se samo, če označiš "dodaj" – takrat ga NOC doda na router.')) ?></p>
-    <p style="margin:0"><b><?= h(A('router ni v NOC')) ?>:</b> <?= h(A('router s tem javnim ključem ni v NOC ali še ni poslal podatkov z novo skripto. Dodaj ga v NOC (ali počakaj nekaj minut) in uvoz ponovi.')) ?></p>
+    <p style="margin:0 0 6px"><b><?= h(A('ni na routerju')) ?>:</b> <?= h(A('uporabnik je v zgodovini, na routerju pa ga NOC ne vidi. Brez kljukice se na router NE doda – ključ se shrani in poveže sam, ko ga router pokaže. S kljukico "dodaj" ga NOC doda na router.')) ?></p>
+    <p style="margin:0"><b><?= h(A('router ni v NOC')) ?>:</b> <?= h(A('router s tem javnim ključem ni v NOC ali še ni poslal podatkov z novo skripto. Ključi se shranijo šifrirano in se uporabnikom samodejno povežejo, ko router dodaš v NOC – na router se nič ne pošlje.')) ?></p>
   </div>
   <div class="panel-body actions" style="border-top:1px solid var(--line-2)">
-    <button class="btn primary" <?= ($st['match'] ?? 0) + ($st['notonrouter'] ?? 0) ? '' : 'disabled' ?>><?= icon('check', 15) ?><?= h(A('Uvozi')) ?></button>
+    <button class="btn primary" <?= ($st['match'] ?? 0) + ($st['notonrouter'] ?? 0) + ($st['nodevice'] ?? 0) ? '' : 'disabled' ?>><?= icon('check', 15) ?><?= h(A('Uvozi')) ?></button>
     <a class="btn" href="/wireguard"><?= h(A('Prekliči')) ?></a>
   </div>
 </section>

@@ -561,6 +561,7 @@ if ($path === '/wireguard' || str_starts_with($path, '/wireguard/')) {
         if (!is_array($parsed)) back('/wireguard', A('Uvoz je potekel – datoteko naloži znova.'), 'err');
         $n = Wg::importApply($parsed, array_map('intval', (array)($_POST['add'] ?? [])), (string)(Auth::$user['email'] ?? ''));
         back('/wireguard', A('Uvoz končan: {i} uporabnikov povezanih z routerji, {a} jih bo dodanih na router.', ['i' => $n['imported'], 'a' => $n['added']])
+            . ($n['waiting'] ? ' ' . A('{w} ključev čaka na router, ki še ni v NOC – povezali se bodo sami.', ['w' => $n['waiting']]) : '')
             . ($n['skipped'] ? ' ' . A('{s} izpuščenih, ker je njihov IP naslov že zaseden.', ['s' => $n['skipped']]) : ''));
     }
     $sq = q('q');
@@ -569,7 +570,8 @@ if ($path === '/wireguard' || str_starts_with($path, '/wireguard/')) {
     if ($sq !== '') { $sql .= ' AND (p.name LIKE ? OR p.ip LIKE ? OR d.name LIKE ?)'; $par = ["%$sq%", "%$sq%", "%$sq%"]; }
     $st = db()->prepare($sql . ' ORDER BY d.name, INET_ATON(p.ip), p.name LIMIT 1000'); $st->execute($par);
     $devs = db()->query('SELECT id, name, status_json FROM devices WHERE active=1 ORDER BY name')->fetchAll();
-    view('wireguard', ['peers' => $st->fetchAll(), 'devs' => $devs, 'sq' => $sq, 'title' => 'WireGuard', 'nav' => 'wireguard']);
+    if ($path === '/wireguard/orphans-del' && $method === 'POST') { db()->prepare('DELETE FROM wg_orphans WHERE router=?')->execute([post('router')]); audit('wg.orphans-del', post('router')); back('/wireguard#orphans', A('Shranjeni ključi odstranjeni.')); }
+    view('wireguard', ['peers' => $st->fetchAll(), 'devs' => $devs, 'sq' => $sq, 'orphans' => Wg::orphans(), 'title' => 'WireGuard', 'nav' => 'wireguard']);
 }
 
 // ---------------------------------------------------------------- logi

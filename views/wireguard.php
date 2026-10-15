@@ -26,6 +26,19 @@ $srvDevs = array_filter($devs, fn($x) => Wg::serverIfaces($x)); ?>
   </table></div><?php endif; ?>
 </section>
 
+<?php if ($orphans): ?>
+<section class="panel" id="orphans">
+  <div class="panel-head"><h2><?= icon('clock', 18) ?><?= h(A('Uvoženi ključi čakajo na router')) ?></h2><span class="small muted"><?= h(A('povežejo se sami, ko router dodaš v NOC')) ?></span></div>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th><?= h(A('Router v generatorju')) ?></th><th class="num"><?= h(A('Uporabnikov')) ?></th><th></th></tr></thead>
+    <tbody><?php foreach ($orphans as $rn => $cnt): ?><tr>
+      <td><?= h($rn ?: '–') ?></td><td class="num"><?= (int)$cnt ?></td>
+      <td class="num"><form method="post" action="/wireguard/orphans-del" data-confirm="<?= h(A('Odstranim shranjene ključe za {r}? Configa za te uporabnike potem ne bo mogoče prikazati.', ['r' => $rn])) ?>"><?= Auth::csrf() ?><input type="hidden" name="router" value="<?= h($rn) ?>"><button class="btn sm ghost" title="<?= h(A('Odstrani')) ?>"><?= icon('trash', 14) ?></button></form></td>
+    </tr><?php endforeach; ?></tbody>
+  </table></div>
+</section>
+<?php endif; ?>
+
 <section class="panel" id="import">
   <div class="panel-head"><h2><?= icon('upload', 18) ?><?= h(A('Uvoz iz WireGuard Generatorja')) ?></h2><span class="small muted"><?= h(A('enkratni prenos obstoječih uporabnikov')) ?></span></div>
   <form class="panel-body form" method="post" action="/wireguard/import" enctype="multipart/form-data"><?= Auth::csrf() ?>

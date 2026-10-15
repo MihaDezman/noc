@@ -527,6 +527,23 @@ CREATE TABLE IF NOT EXISTS wg_peers (
   FOREIGN KEY (device_id) REFERENCES devices(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE IF NOT EXISTS wg_orphans (   -- uvoženi ključi, katerih router še ni v NOC: povežejo se sami, ko router pokaže peer
+  id             INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  srv_pubkey     CHAR(44) NOT NULL,
+  pubkey         CHAR(44) NOT NULL,
+  router         VARCHAR(100) NOT NULL DEFAULT '',   -- ime routerja v generatorju (za prikaz)
+  name           VARCHAR(100) NOT NULL DEFAULT '',
+  kind           ENUM('phone','pc','other') NOT NULL DEFAULT 'other',
+  ip             VARCHAR(45) NOT NULL DEFAULT '',
+  dns            VARCHAR(100) NOT NULL DEFAULT '',
+  client_allowed VARCHAR(500) NOT NULL DEFAULT '',
+  endpoint       VARCHAR(255) NOT NULL DEFAULT '',
+  priv_enc       TEXT NOT NULL,
+  psk_enc        TEXT NULL,
+  created_at     DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY ux_pk (pubkey)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 INSERT INTO settings (k, v) VALUES
  ('th_cpu', '85'), ('th_cpu_min', '5'), ('th_temp', '70'), ('th_mem', '90'), ('th_hdd', '90'),
  ('th_gw_loss', '20'), ('th_gw_ms', '50'), ('th_ext_loss', '20'), ('th_ext_ms', '120'), ('th_ping_min', '3'),

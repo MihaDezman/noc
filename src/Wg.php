@@ -130,6 +130,7 @@ final class Wg
             $pdo->prepare("INSERT IGNORE INTO wg_peers (device_id, iface, name, pubkey, ip, allowed, enabled, status, source) VALUES (?,?,?,?,?,?,?, 'ok', 'router')")
                 ->execute([$id, mb_substr(ros_clean((string)($p['i'] ?? '')), 0, 64), $name, $pk, self::firstIp($a), $a, empty($p['dis']) ? 1 : 0]);
         }
+        self::adopt($id, (array)($b['wgi'] ?? []));
     }
 
     private static function sameAllowed(string $a, string $b): bool
@@ -409,10 +410,11 @@ final class Wg
     /** Uvoz izbranih vrstic; $addMissing = indeksi vrstic "ni na routerju", ki jih je treba dodati */
     public static function importApply(array $parsed, array $addMissing, string $by): array
     {
-        $n = ['imported' => 0, 'added' => 0, 'skipped' => 0];
+        $n = ['imported' => 0, 'added' => 0, 'skipped' => 0, 'waiting' => 0];
         foreach ($parsed['rows'] as $i => $r) {
+            // router še ni v NOC ali peerja (še) ni na routerju: ključ se shrani in poveže sam, ko ga router pokaže
+            if ($r['state'] === 'nodevice' || ($r['state'] === 'notonrouter' && !in_array($i, $addMissing, true))) { $n['waiting'] += (int)self::park($r); continue; }
             if (!in_array($r['state'], ['match', 'notonrouter'], true)) continue;
-            if ($r['state'] === 'notonrouter' && !in_array($i, $addMissing, true)) continue;
             $d = Devices::full((int)$r['device_id']); if (!$d) continue;
             $ip = filter_var($r['ip'], FILTER_VALIDATE_IP, FILTER_FLAG_IPV4) ? $r['ip'] : '';
             $st = db()->prepare('SELECT * FROM wg_peers WHERE device_id=? AND pubkey=?'); $st->execute([$d['id'], $r['pub']]);
@@ -433,8 +435,43 @@ final class Wg
             if ($ep !== '' && trim((string)$d['wg_endpoint']) === '' && $host !== (string)$d['public_ip'] && preg_match('/^[A-Za-z0-9.-]+(:\d{1,5})?$/', $ep))
                 db()->prepare('UPDATE devices SET wg_endpoint=? WHERE id=? AND (wg_endpoint IS NULL OR wg_endpoint=\'\')')->execute([$ep, $d['id']]);
         }
-        audit('wg.import', "uvoženih {$n['imported']}, dodanih {$n['added']}");
+        audit('wg.import', "uvoženih {$n['imported']}, dodanih {$n['added']}, čaka {$n['waiting']}");
         return $n;
+    }
+
+    /** Uvožen ključ, ki ga še ni mogoče povezati s peerjem (router ni v NOC) – šifrirano shranjen do povezave */
+    private static function park(array $r): bool
+    {
+        if (!self::validKey($r['pub'] ?? null) || !self::validKey($r['srv'] ?? null) || !self::validKey($r['priv'] ?? null)) return false;
+        db()->prepare('INSERT INTO wg_orphans (srv_pubkey, pubkey, router, name, kind, ip, dns, client_allowed, endpoint, priv_enc, psk_enc) VALUES (?,?,?,?,?,?,?,?,?,?,?)
+                       ON DUPLICATE KEY UPDATE srv_pubkey=VALUES(srv_pubkey), router=VALUES(router), name=VALUES(name), priv_enc=VALUES(priv_enc)')
+            ->execute([$r['srv'], $r['pub'], mb_substr((string)$r['device'], 0, 100), $r['name'], $r['kind'], $r['ip'], self::cleanDns($r['dns']), mb_substr($r['client_allowed'], 0, 500),
+                       mb_substr($r['endpoint'], 0, 255), enc($r['priv']), $r['psk'] !== '' ? enc($r['psk']) : null]);
+        return true;
+    }
+
+    /** Peerjem brez ključa poišče uvožen ključ (npr. router je bil dodan v NOC po uvozu); kliče se ob pushu */
+    private static function adopt(int $deviceId, array $wgi): void
+    {
+        $st = db()->prepare('SELECT p.id peer_id, p.iface, o.srv_pubkey, o.pubkey, o.name, o.kind, o.dns, o.client_allowed, o.priv_enc, o.psk_enc, o.endpoint FROM wg_peers p JOIN wg_orphans o ON o.pubkey=p.pubkey WHERE p.device_id=? AND p.priv_enc IS NULL');
+        $st->execute([$deviceId]);
+        $srv = []; foreach ($wgi as $w) if (is_array($w) && is_string($w['n'] ?? null)) $srv[$w['n']] = $w['pk'] ?? '';
+        foreach ($st->fetchAll() as $o) {
+            if (($srv[$o['iface']] ?? '') !== $o['srv_pubkey']) continue;   // ključ je za drug router
+            db()->prepare("UPDATE wg_peers SET priv_enc=?, psk_enc=COALESCE(?, psk_enc), kind=?, dns=?, client_allowed=?, name=IF(name='', ?, name), source='import' WHERE id=?")
+                ->execute([$o['priv_enc'], $o['psk_enc'], $o['kind'], $o['dns'], $o['client_allowed'], $o['name'], $o['peer_id']]);
+            db()->prepare('DELETE FROM wg_orphans WHERE pubkey=?')->execute([$o['pubkey']]);
+            // endpoint iz generatorja (domena ali drug naslov), če ga naprava še nima
+            if (preg_match('/^[A-Za-z0-9.-]+(:\d{1,5})?$/', $o['endpoint']))
+                db()->prepare("UPDATE devices SET wg_endpoint=? WHERE id=? AND (wg_endpoint IS NULL OR wg_endpoint='') AND COALESCE(NULLIF(public_ip,''), last_seen_ip) <> ?")
+                    ->execute([$o['endpoint'], $deviceId, (string)preg_replace('/:\d+$/', '', $o['endpoint'])]);
+        }
+    }
+
+    /** Uvoženi ključi, ki še čakajo na router: [ime routerja iz generatorja => število] */
+    public static function orphans(): array
+    {
+        return db()->query('SELECT router, COUNT(*) n FROM wg_orphans GROUP BY router ORDER BY router')->fetchAll(PDO::FETCH_KEY_PAIR);
     }
 
     public static function statusLabel(array $r): array
