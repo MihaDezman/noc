@@ -27,6 +27,11 @@ final class Actions
     public static function create(array $d, string $kind, string $ip, int $hours, string $status, string $reason, string $source, ?int $alertId = null, string $by = ''): int|string
     {
         $ip = trim($ip);
+        if ($kind === 'upgrade' && !preg_match('/^7\.\d+(\.\d+)?$/', $ip)) return A('neveljavna verzija');
+        if ($kind === 'upgrade') {   // ena načrtovana posodobitev naenkrat
+            $st = db()->prepare("SELECT id FROM noc_actions WHERE device_id=? AND kind='upgrade' AND (status IN ('approved','sent') OR (status='done' AND verified_at IS NULL AND done_at > NOW() - INTERVAL 26 HOUR)) LIMIT 1"); $st->execute([$d['id']]);
+            if ($x = $st->fetchColumn()) return (int)$x;
+        }
         if ($kind === 'block' && ($why = self::refuse($d, $ip)) !== '') return $why;
         if ($kind === 'unblock' && !filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) return A('ni veljaven IPv4 naslov');
         $hours = max(1, min(720, $hours)); $by = mb_substr($by, 0, 60);
@@ -78,6 +83,7 @@ final class Actions
             $s .= ":if ([:len [/ip firewall raw find where comment~\"^noc-block\"]] = 0) do={ :do { $add place-before=([/ip firewall raw find where dynamic=no]->0) } on-error={ $add } }\n";
         }
         foreach ($rows as $r) {
+            if ($r['kind'] === 'upgrade') { $s .= Ros::upgradeRsc((int)$r['id'], $base, $key, $chk); continue; }
             if (!filter_var($r['ip'], FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) continue;
             $ip = $r['ip']; $id = (int)$r['id'];
             $s .= ":do { /ip firewall address-list remove [find list=noc-block address=$ip] } on-error={}\n";
@@ -97,12 +103,35 @@ final class Actions
     }
 
     /** Router potrdi izvedbo */
-    public static function done(array $d, int $id): void
+    public static function done(array $d, int $id, bool $fail = false): void
     {
-        $st = db()->prepare("UPDATE noc_actions SET status='done', done_at=NOW() WHERE id=? AND device_id=? AND status='sent'"); $st->execute([$id, $d['id']]);
+        $st = db()->prepare("UPDATE noc_actions SET status=?, done_at=NOW() WHERE id=? AND device_id=? AND status='sent'"); $st->execute([$fail ? 'failed' : 'done', $id, $d['id']]);
         if (!$st->rowCount()) return;
         $q = db()->prepare('SELECT kind, ip, hours FROM noc_actions WHERE id=?'); $q->execute([$id]); $a = $q->fetch();
+        if ($a && $a['kind'] === 'upgrade') {
+            Notify::telegram($fail
+                ? '⚠️ <b>' . htmlspecialchars($d['name']) . '</b> – ' . A('router ni dovolil načrtovane posodobitve iz skripte NOC (pravica reboot). Posodobi ročno: v terminalu /system package update install ali Winbox → System → Packages → Check For Updates.')
+                : '📅 <b>' . htmlspecialchars($d['name']) . '</b> – ' . A('posodobitev na RouterOS {v} je načrtovana ob 03:30', ['v' => $a['ip']]));
+            return;
+        }
+        if ($fail) return;
         if ($a) Notify::telegram('✅ <b>' . htmlspecialchars($d['name']) . '</b> – ' . ($a['kind'] === 'block' ? A('{ip} blokiran za {h} h', ['ip' => $a['ip'], 'h' => $a['hours']]) : A('{ip} odblokiran', ['ip' => $a['ip']])));
+    }
+
+    /** Po pushu: ali je načrtovana posodobitev uspela (nova verzija) ali ne (po 26 h) */
+    public static function verifyUpgrade(array $d): void
+    {
+        $st = db()->prepare("SELECT * FROM noc_actions WHERE device_id=? AND kind='upgrade' AND status IN ('done','sent','failed') AND verified_at IS NULL AND created_at > NOW() - INTERVAL 3 DAY ORDER BY id DESC LIMIT 1"); $st->execute([$d['id']]);
+        if (!($a = $st->fetch())) return;
+        $q = db()->prepare('SELECT os_version FROM devices WHERE id=?'); $q->execute([$d['id']]);
+        $now = Ros::ver((string)$q->fetchColumn());
+        if ($now !== '' && version_compare($now, $a['ip'], '>=')) {
+            db()->prepare('UPDATE noc_actions SET verified_at=NOW() WHERE id=?')->execute([$a['id']]);
+            Notify::telegram('✅ <b>' . htmlspecialchars($d['name']) . '</b> – ' . A('posodobljen na RouterOS {v}', ['v' => $now]));
+        } elseif ($a['status'] === 'done' && strtotime((string)$a['done_at']) < time() - 26 * 3600) {
+            db()->prepare("UPDATE noc_actions SET status='failed', verified_at=NOW() WHERE id=?")->execute([$a['id']]);
+            Notify::telegram('⚠️ <b>' . htmlspecialchars($d['name']) . '</b> – ' . A('načrtovana posodobitev na {v} se ni izvedla (verzija je še {n})', ['v' => $a['ip'], 'n' => $now ?: '?']));
+        }
     }
 
     /** Gumbi za predlog v Telegramu */

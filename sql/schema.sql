@@ -97,6 +97,8 @@ CREATE TABLE devices (
   tiger_ping_at  DATETIME NULL,
   created_at     DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   wg_endpoint    VARCHAR(255) NULL,                    -- endpoint za WireGuard config (domena[:port]); prazno = javni IP
+  sec_score      TINYINT UNSIGNED NULL,
+  sec_at         DATETIME NULL,
   FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -186,6 +188,9 @@ CREATE TABLE lan_hosts (
   label      VARCHAR(120) NOT NULL DEFAULT '',     -- tvoje ime naprave (npr. "Tiskalnik recepcija")
   first_seen DATETIME NOT NULL,
   last_seen  DATETIME NOT NULL,
+  vendor      VARCHAR(120) NOT NULL DEFAULT '',
+  kind        VARCHAR(16) NOT NULL DEFAULT '',    -- camera, nvr, printer, phone, pc, iot, network, tv, ''
+  kind_manual TINYINT(1) NOT NULL DEFAULT 0,
   PRIMARY KEY (device_id, mac), KEY (device_id, ip),
   KEY ix_last_seen (last_seen),
   FOREIGN KEY (device_id) REFERENCES devices(id) ON DELETE CASCADE
@@ -421,7 +426,7 @@ CREATE TABLE IF NOT EXISTS ai_log (
 CREATE TABLE IF NOT EXISTS noc_actions (
   id          INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   device_id   INT UNSIGNED NOT NULL,
-  kind        ENUM('block','unblock') NOT NULL,
+  kind        ENUM('block','unblock','upgrade') NOT NULL,
   ip          VARCHAR(45) NOT NULL,
   hours       SMALLINT UNSIGNED NOT NULL DEFAULT 24,
   status      ENUM('proposed','approved','sent','done','rejected','failed','cancelled') NOT NULL DEFAULT 'proposed',
@@ -434,6 +439,7 @@ CREATE TABLE IF NOT EXISTS noc_actions (
   decided_by  VARCHAR(60) NOT NULL DEFAULT '',
   sent_at     DATETIME NULL,
   done_at     DATETIME NULL,
+  verified_at DATETIME NULL,
   KEY ix_dev_status (device_id, status),
   FOREIGN KEY (device_id) REFERENCES devices(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -522,6 +528,11 @@ CREATE TABLE IF NOT EXISTS wg_peers (
   created_at     DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at     DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   created_by     VARCHAR(60) NOT NULL DEFAULT '',
+  last_hs_at     DATETIME NULL,
+  last_ep        VARCHAR(45) NOT NULL DEFAULT '',
+  last_cc        CHAR(2) NOT NULL DEFAULT '',
+  last_rx        BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  last_tx        BIGINT UNSIGNED NOT NULL DEFAULT 0,
   UNIQUE KEY ux_dev_pk (device_id, pubkey),
   KEY ix_status (status),
   FOREIGN KEY (device_id) REFERENCES devices(id) ON DELETE CASCADE
@@ -543,6 +554,63 @@ CREATE TABLE IF NOT EXISTS wg_orphans (   -- uvoženi ključi, katerih router š
   created_at     DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   UNIQUE KEY ux_pk (pubkey)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS geo_cc (   -- DB-IP Lite država (IPv4), polni se enkrat mesečno
+  ip_from INT UNSIGNED NOT NULL PRIMARY KEY,
+  ip_to   INT UNSIGNED NOT NULL,
+  cc      CHAR(2) NOT NULL
+) ENGINE=InnoDB;
+CREATE TABLE IF NOT EXISTS geo_asn (  -- DB-IP Lite ASN (IPv4)
+  ip_from INT UNSIGNED NOT NULL PRIMARY KEY,
+  ip_to   INT UNSIGNED NOT NULL,
+  asn     INT UNSIGNED NOT NULL,
+  org     VARCHAR(120) NOT NULL DEFAULT '',
+  KEY ix_asn (asn)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+CREATE TABLE IF NOT EXISTS mac_vendor (   -- IEEE OUI: proizvajalec po prvih 3 bajtih MAC
+  prefix CHAR(6) NOT NULL PRIMARY KEY,
+  vendor VARCHAR(120) NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+CREATE TABLE IF NOT EXISTS geo_daily (   -- promet naprave po državah in omrežjih (traffic-flow)
+  device_id INT UNSIGNED NOT NULL,
+  day       DATE NOT NULL,
+  cc        CHAR(2) NOT NULL DEFAULT '',
+  asn       INT UNSIGNED NOT NULL DEFAULT 0,
+  up_bytes  BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  down_bytes BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  PRIMARY KEY (device_id, day, cc, asn),
+  FOREIGN KEY (device_id) REFERENCES devices(id) ON DELETE CASCADE
+) ENGINE=InnoDB;
+CREATE TABLE IF NOT EXISTS host_geo (    -- s katerimi državami komunicira posamezna naprava v LAN (za opozorilo "nova država")
+  device_id  INT UNSIGNED NOT NULL,
+  ip         VARCHAR(45) NOT NULL,
+  cc         CHAR(2) NOT NULL,
+  first_seen DATE NOT NULL,
+  last_seen  DATE NOT NULL,
+  bytes      BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  PRIMARY KEY (device_id, ip, cc),
+  KEY ix_first (first_seen),
+  FOREIGN KEY (device_id) REFERENCES devices(id) ON DELETE CASCADE
+) ENGINE=InnoDB;
+CREATE TABLE IF NOT EXISTS wg_peer_geo (   -- od kod se uporabnik prijavlja
+  peer_id    INT UNSIGNED NOT NULL,
+  cc         CHAR(2) NOT NULL,
+  asn        INT UNSIGNED NOT NULL DEFAULT 0,
+  org        VARCHAR(120) NOT NULL DEFAULT '',
+  first_seen DATETIME NOT NULL,
+  last_seen  DATETIME NOT NULL,
+  PRIMARY KEY (peer_id, cc, asn),
+  FOREIGN KEY (peer_id) REFERENCES wg_peers(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+CREATE TABLE IF NOT EXISTS wg_daily (      -- promet in čas povezave uporabnika po dnevih
+  peer_id    INT UNSIGNED NOT NULL,
+  day        DATE NOT NULL,
+  rx_bytes   BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  tx_bytes   BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  online_min SMALLINT UNSIGNED NOT NULL DEFAULT 0,
+  PRIMARY KEY (peer_id, day),
+  FOREIGN KEY (peer_id) REFERENCES wg_peers(id) ON DELETE CASCADE
+) ENGINE=InnoDB;
 
 INSERT INTO settings (k, v) VALUES
  ('th_cpu', '85'), ('th_cpu_min', '5'), ('th_temp', '70'), ('th_mem', '90'), ('th_hdd', '90'),

@@ -33,6 +33,8 @@ final class TgBot
                 ['command' => 'utisaj', 'description' => A('Utišaj obvestila: /utisaj ime 2h')],
                 ['command' => 'porocilo', 'description' => A('Mesečno poročilo: /porocilo ime')],
                 ['command' => 'povzetek', 'description' => A('AI povzetek stanja zdaj')],
+                ['command' => 'vpn', 'description' => A('WireGuard: kdo je povezan, /vpn izklopi ime')],
+                ['command' => 'qr', 'description' => A('WireGuard config uporabnika: /qr ime')],
                 ['command' => 'pomoc', 'description' => A('Seznam ukazov')],
             ]]);
         if (!empty($r['ok'])) setting_set('tg_cmds_ver', APP_VERSION);
@@ -82,6 +84,8 @@ final class TgBot
                 'utisaj', 'mute' => self::mute($arg),
                 'porocilo' => self::report($arg),
                 'povzetek' => Ai::on() ? self::digestNow() : self::reply(A('AI pomočnik ni nastavljen.')),
+                'vpn' => self::vpn($arg),
+                'qr' => self::qr($arg),
                 default => self::reply(A('Neznan ukaz. Seznam: /pomoc')),
             };
         } catch (\Throwable $e) {
@@ -100,6 +104,9 @@ final class TgBot
             . "/promet <i>" . A('ime') . "</i> – " . A('promet in največji porabniki') . "\n"
             . "/utisaj <i>" . A('ime') . "</i> 2h – " . A('utišaj obvestila (0 = vklopi)') . "\n"
             . "/porocilo <i>" . A('ime') . "</i> – " . A('povezava do mesečnega poročila') . "\n"
+            . "/vpn – " . A('kdo je povezan prek WireGuard') . "\n"
+            . "/vpn izklopi <i>" . A('ime') . "</i> · /vpn vklopi <i>" . A('ime') . "</i>\n"
+            . "/qr <i>" . A('ime') . "</i> – " . A('config uporabnika kot datoteka') . "\n"
             . (Ai::on() ? "/povzetek – " . A('AI povzetek stanja zdaj') . "\n\n🤖 " . A('Vprašaš lahko tudi z navadnim besedilom, npr. "zakaj je Office-GW danes počasen?"') . "\n" : '') . "\n"
             . A('Ime je lahko del imena naprave ali naročnika, npr. /naprava office'));
     }
@@ -250,6 +257,28 @@ final class TgBot
                 $rows = array_map(fn($row) => array_filter((array)$row, fn($b) => str_starts_with((string)($b['callback_data'] ?? ''), 'act:' . (int)$m[1] . ':')) ? $done : $row, $rows) ?: [$done];
                 Notify::tgApi($tok, 'editMessageReplyMarkup', ['chat_id' => $cq['message']['chat']['id'], 'message_id' => $cq['message']['message_id'], 'reply_markup' => ['inline_keyboard' => array_values($rows)]]);
             }
+        } elseif (preg_match('/^wg(off|on|conf):(\d+)$/', $data, $m)) {   // WireGuard: izklop/vklop uporabnika, config kot datoteka
+            $st = db()->prepare('SELECT p.*, d.name device_name FROM wg_peers p JOIN devices d ON d.id=p.device_id WHERE p.id=?'); $st->execute([(int)$m[2]]); $r = $st->fetch();
+            $d = $r ? Devices::full((int)$r['device_id']) : null;
+            if (!$r || !$d) $note = A('Uporabnik ne obstaja');
+            elseif ($m[1] === 'conf') {
+                $c = Wg::config($d, $r);
+                if ($c === null) $note = A('Za tega uporabnika config ni na voljo (ni zasebnega ključa).');
+                else {
+                    $ok = self::sendDocument(Wg::fileName($d, $r), $c, '🔐 ' . self::e($r['name']) . ' – ' . self::e($d['name']) . "\n" . A('Vsebuje zasebni ključ – sporočilo po uvozu izbriši.'));
+                    if ($ok) audit('wg.config', "{$d['name']} {$r['name']} (telegram)");
+                    $note = $ok ? A('Config poslan') : A('Pošiljanje datoteke ni uspelo');
+                }
+            } else {
+                $on = $m[1] === 'on';
+                if ((bool)(int)$r['enabled'] === $on) $note = $on ? A('Uporabnik je že vklopljen') : A('Uporabnik je že izklopljen');
+                elseif (!in_array($r['status'], ['ok', 'sync', 'failed'], true)) $note = A('Uporabnika ni mogoče spremeniti (stanje: {s})', ['s' => $r['status']]);
+                else {
+                    Wg::setEnabled($d, $r, $on);
+                    $note = $on ? A('Vklopljen – router ga vklopi ob naslednjem pushu') : A('Izklopljen – router ga izklopi ob naslednjem pushu');
+                    self::reply(($on ? '🔓 ' : '🔒 ') . '<b>' . self::e($r['name']) . '</b> (' . self::e($d['name']) . ') – ' . $note);
+                }
+            }
         } elseif (preg_match('/^mute:(\d+):(\d+)$/', $data, $m)) {
             $st = db()->prepare('SELECT * FROM devices WHERE id=?'); $st->execute([(int)$m[1]]); $d = $st->fetch();
             if ($d) { self::doMute(Devices::decorate($d), (int)$m[2]); $note = A('Utišano za {h} h', ['h' => (int)$m[2]]); }
@@ -266,6 +295,63 @@ final class TgBot
         $rows = db()->query("SELECT d.*, t.name tenant_name, (SELECT MAX(FIELD(a.severity,'info','warning','critical')) FROM alerts a WHERE a.device_id=d.id AND a.ended_at IS NULL) alert_level
                              FROM devices d LEFT JOIN tenants t ON t.id=d.tenant_id WHERE d.active=1 ORDER BY d.name")->fetchAll();
         return array_map([Devices::class, 'decorate'], $rows);
+    }
+
+    /** /vpn, /vpn izklopi ime, /vpn vklopi ime */
+    private static function vpn(string $arg): void
+    {
+        if (preg_match('/^(izklopi|vklopi|off|on)\s+(.+)$/iu', trim($arg), $m)) {
+            $on = in_array(mb_strtolower($m[1]), ['vklopi', 'on'], true);
+            $peers = self::peers($m[2], $on ? 0 : 1); if (!$peers) return;
+            $kb = array_map(fn($p) => [['text' => ($on ? '🔓 ' . A('Vklopi') : '🔒 ' . A('Izklopi')) . ' ' . $p['name'] . ' · ' . $p['device_name'], 'callback_data' => ($on ? 'wgon:' : 'wgoff:') . $p['id']]], $peers);
+            self::reply(A('Potrdi:'), $kb);
+            return;
+        }
+        $rows = db()->query("SELECT p.name, p.last_ep, p.last_cc, p.last_hs_at, d.name dn FROM wg_peers p JOIN devices d ON d.id=p.device_id
+                             WHERE d.active=1 AND p.enabled=1 AND p.last_hs_at > NOW() - INTERVAL 3 MINUTE ORDER BY d.name, p.name")->fetchAll();
+        $tot = (int)db()->query("SELECT COUNT(*) FROM wg_peers p JOIN devices d ON d.id=p.device_id WHERE d.active=1 AND p.enabled=1")->fetchColumn();
+        if (!$rows) { self::reply('🔐 ' . A('Trenutno ni povezan noben WireGuard uporabnik ({n} vklopljenih).', ['n' => $tot])); return; }
+        $t = '🔐 <b>' . A('Povezani prek WireGuard') . '</b> (' . count($rows) . '/' . $tot . ')'; $dev = '';
+        foreach ($rows as $r) {
+            if ($r['dn'] !== $dev) { $dev = $r['dn']; $t .= "\n\n<b>" . self::e($dev) . '</b>'; }
+            $t .= "\n• " . self::e($r['name'] ?: '?') . ($r['last_cc'] !== '' ? ' ' . Geo::flag($r['last_cc']) : '') . ($r['last_ep'] !== '' ? ' <code>' . self::e($r['last_ep']) . '</code>' : '');
+        }
+        self::reply($t);
+    }
+
+    /** /qr ime – config uporabnika kot datoteka (po potrditvi) */
+    private static function qr(string $arg): void
+    {
+        $peers = self::peers($arg, null, true); if (!$peers) return;
+        $kb = array_map(fn($p) => [['text' => '📄 ' . $p['name'] . ' · ' . $p['device_name'], 'callback_data' => 'wgconf:' . $p['id']]], $peers);
+        self::reply(A('Config vsebuje zasebni ključ uporabnika. Pošljem datoteko?'), $kb);
+    }
+
+    /** WireGuard uporabniki po delu imena (največ 6) */
+    private static function peers(string $q, ?int $enabled = null, bool $withKey = false): array
+    {
+        $q = trim($q);
+        if ($q === '') { self::reply(A('Dodaj ime uporabnika, npr. /qr janez')); return []; }
+        $st = db()->prepare('SELECT p.id, p.name, d.name device_name FROM wg_peers p JOIN devices d ON d.id=p.device_id WHERE d.active=1 AND p.name LIKE ?'
+            . ($enabled !== null ? ' AND p.enabled=' . (int)$enabled : '') . ($withKey ? ' AND p.priv_enc IS NOT NULL' : '') . ' ORDER BY p.name LIMIT 7');
+        $st->execute(['%' . addcslashes($q, '%_\\') . '%']); $r = $st->fetchAll();
+        if (!$r) { self::reply($withKey ? A('Ni uporabnika s shranjenim ključem, ki bi ustrezal "{q}".', ['q' => self::e($q)]) : A('Ni uporabnika, ki bi ustrezal "{q}".', ['q' => self::e($q)])); return []; }
+        if (count($r) > 6) { self::reply(A('Preveč zadetkov – natančneje.')); return []; }
+        return $r;
+    }
+
+    /** Datoteka v pogovor (multipart); vrne, ali jo je Telegram sprejel */
+    private static function sendDocument(string $name, string $content, string $caption): bool
+    {
+        $tok = dec(setting('tg_token_enc', ''));
+        if ($f = (string)cfg('tg_debug_file', '')) { file_put_contents($f, json_encode(['sendDocument', $name, $caption], JSON_UNESCAPED_UNICODE) . "\n", FILE_APPEND); return true; }
+        $b = '----noc' . bin2hex(random_bytes(8));
+        $body = "--$b\r\nContent-Disposition: form-data; name=\"chat_id\"\r\n\r\n" . setting('tg_chat_id', '') . "\r\n"
+              . "--$b\r\nContent-Disposition: form-data; name=\"caption\"\r\n\r\n$caption\r\n"
+              . "--$b\r\nContent-Disposition: form-data; name=\"parse_mode\"\r\n\r\nHTML\r\n"
+              . "--$b\r\nContent-Disposition: form-data; name=\"document\"; filename=\"" . str_replace('"', '', $name) . "\"\r\nContent-Type: text/plain\r\n\r\n$content\r\n--$b--\r\n";
+        $r = @file_get_contents('https://api.telegram.org/bot' . $tok . '/sendDocument', false, stream_context_create(['http' => ['method' => 'POST', 'header' => "Content-Type: multipart/form-data; boundary=$b\r\n", 'content' => $body, 'timeout' => 10, 'ignore_errors' => true]]));
+        return !empty(json_decode((string)$r, true)['ok']);
     }
 
     /** Naprava po delu imena ali naročnika; ob več zadetkih pošlje seznam in vrne null */

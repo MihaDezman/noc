@@ -72,7 +72,7 @@ if (str_starts_with($path, '/api/')) {
         echo MikrotikScript::ascii(Actions::rsc($full) . Wg::rsc($full)); exit;
     }
     if (preg_match('#^/api/action-done/(\d+)$#', $path, $m) && $method === 'GET') {   // router potrdi izvedbo ukrepa
-        Actions::done($dev, (int)$m[1]);
+        Actions::done($dev, (int)$m[1], ($_GET['fail'] ?? '') === '1');
         json_out(['ok' => true]);
     }
     if ($path === '/api/fw-confirm' && $method === 'GET') {   // router po spremembi požarnega zidu potrdi, da še doseže NOC
@@ -248,6 +248,12 @@ if (($seg[0] ?? '') === 'devices' && ctype_digit($seg[1] ?? '')) {
             $st = db()->prepare('SELECT * FROM lan_hosts WHERE device_id=? ORDER BY last_seen DESC, ip LIMIT 1000'); $st->execute([$id]); $vars['hosts'] = $st->fetchAll();
             $st = db()->prepare('SELECT COALESCE(SUM(up_bytes+down_bytes),0) FROM host_5m WHERE device_id=? AND ts > NOW() - INTERVAL 24 HOUR'); $st->execute([$id]); $vars['flowSum'] = (int)$st->fetchColumn();
             $st = db()->prepare('SELECT COALESCE(SUM(rx_bytes+tx_bytes),0) FROM iface_5m WHERE device_id=? AND iface=? AND ts > NOW() - INTERVAL 24 HOUR'); $st->execute([$id, $d['wan_iface']]); $vars['wanSum'] = (int)$st->fetchColumn();
+            $gd = ['1h' => 0, '24h' => 0, '7d' => 6, '30d' => 29][$vars['range']] ?? 0;   // države: dnevni seštevki (danes / 7 / 30 dni)
+            $vars['geoLbl'] = $gd === 0 ? A('danes') : A('zadnjih {n} dni', ['n' => $gd + 1]);
+            $st = db()->prepare('SELECT cc, SUM(up_bytes) up, SUM(down_bytes) down, SUM(up_bytes+down_bytes) b FROM geo_daily WHERE device_id=? AND day >= CURDATE() - INTERVAL ? DAY GROUP BY cc ORDER BY b DESC LIMIT 12');
+            $st->execute([$id, $gd]); $vars['geoTop'] = $st->fetchAll();
+            $st = db()->prepare('SELECT g.asn, MAX(g.cc) cc, SUM(g.up_bytes+g.down_bytes) b, (SELECT org FROM geo_asn a WHERE a.asn=g.asn LIMIT 1) org FROM geo_daily g WHERE g.device_id=? AND g.day >= CURDATE() - INTERVAL ? DAY GROUP BY g.asn ORDER BY b DESC LIMIT 12');
+            $st->execute([$id, $gd]); $vars['asnTop'] = $st->fetchAll();
         }
         if ($tab === 'logs') {
             $sql = 'SELECT * FROM logs WHERE device_id=?'; $p = [$id];
@@ -317,6 +323,16 @@ if (($seg[0] ?? '') === 'devices' && ctype_digit($seg[1] ?? '')) {
         audit('device.fwlog', $d['name'] . ($on ? ' on' : ' off'));
         back("/devices/$id?tab=protect#fwlog", $on ? A('Varnostna analiza vklopljena. Router dobi nastavitve s samodejno posodobitvijo v nekaj minutah (ali takoj z ukazom s strani Paket).') : A('Varnostna analiza izklopljena. Router nastavitve odstrani ob naslednji posodobitvi.'));
     }
+    if ($sub === 'upgrade' && $method === 'POST') {   // načrtovana posodobitev RouterOS (ponoči)
+        $v = Ros::latest();
+        $r = $v !== '' ? Actions::create($d, 'upgrade', $v, 1, 'approved', A('ročno v NOC'), 'splet', null, (string)(Auth::$user['email'] ?? 'splet')) : A('zadnja verzija ni znana');
+        back("/devices/$id#ros", is_int($r) ? A('Posodobitev na {v} poslana routerju – ob 03:30 jo namesti. O izidu dobiš obvestilo.', ['v' => $v]) : A('Ni mogoče: {r}', ['r' => $r]), is_int($r) ? 'ok' : 'err');
+    }
+    if ($sub === 'hostkind' && $method === 'POST') {   // ročno določena vrsta naprave v LAN
+        $k = post('kind');
+        if (array_key_exists($k, Profile::kinds())) db()->prepare('UPDATE lan_hosts SET kind=?, kind_manual=? WHERE device_id=? AND mac=?')->execute([$k, $k === '' ? 0 : 1, $id, post('mac')]);
+        back("/devices/$id?tab=clients#hosts");
+    }
     if ($sub === 'wg') {   // WireGuard uporabniki
         $by = (string)(Auth::$user['email'] ?? 'splet');
         $pid = ctype_digit($seg[3] ?? '') ? (int)$seg[3] : 0;
@@ -346,6 +362,10 @@ if (($seg[0] ?? '') === 'devices' && ctype_digit($seg[1] ?? '')) {
             if ($e !== '' && !preg_match('/^[A-Za-z0-9.-]{1,200}(:\d{1,5})?$/', $e)) back("/devices/$id?tab=wg", A('Endpoint mora biti domena ali IP, po želji s portom (npr. vpn.domena.si:51820).'), 'err');
             db()->prepare('UPDATE devices SET wg_endpoint=? WHERE id=?')->execute([$e !== '' ? $e : null, $id]); audit('wg.endpoint', "{$d['name']} $e");
             back("/devices/$id?tab=wg", A('Endpoint shranjen. Velja za nove prenose configa – obstoječi uporabniki imajo še starega.'));
+        }
+        if ($op === 'disable-inactive') {
+            $n = 0; foreach (Wg::inactive(90, $id) as $x) { Wg::setEnabled($d, $x, false); $n++; }
+            back("/devices/$id?tab=wg", A('Izklopljenih {n} neaktivnih uporabnikov – router jih izklopi ob naslednjem pushu.', ['n' => $n]));
         }
         if (!$r) back("/devices/$id?tab=wg");
         $to = "/devices/$id/wg/{$r['id']}";
@@ -742,6 +762,7 @@ if ($path === '/settings') {
         // AI pomočnik
         if (($aiKey = preg_replace('/\s+/', '', post('ai_key'))) !== '') setting_set('ai_key_enc', enc($aiKey));
         if (post('ai_key_clear')) setting_set('ai_key_enc', '');
+        if (($abKey = preg_replace('/\s+/', '', post('abuse_key'))) !== '' && preg_match('/^[A-Za-z0-9]{20,100}$/', $abKey)) setting_set('abuse_key_enc', enc($abKey));
         if (isset(Ai::MODELS[post('ai_model')])) setting_set('ai_model', post('ai_model'));
         setting_set('ai_daily', (string)max(1, min(5000, (int)post('ai_daily', '100'))));
         foreach (['ai_alerts', 'ai_config', 'ai_watch', 'ai_tg', 'ai_chat', 'ai_digest', 'ai_incidents', 'ai_report'] as $k) setting_set($k, post($k) ? '1' : '0');

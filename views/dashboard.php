@@ -93,6 +93,32 @@ $pct = fn($k) => $n ? round($cnt[$k] / $n * 100, 2) : 0;
 <?php endforeach; ?>
 </div>
 
+<?php $secDevs = array_values(array_filter($devs, fn($x) => $x['sec_score'] !== null)); usort($secDevs, fn($a, $b) => (int)$a['sec_score'] <=> (int)$b['sec_score']);
+  $ids = implode(',', array_map(fn($x) => (int)$x['id'], $devs)) ?: '0';
+  $sevCnt = db()->query("SELECT SUM(akey LIKE 'threat:%' OR akey LIKE 'outbl:%') thr, SUM(akey LIKE 'anom:%') anom, SUM(akey LIKE 'geo:%') geo, SUM(akey LIKE 'wggeo:%') wg FROM alerts WHERE device_id IN ($ids) AND started_at > NOW() - INTERVAL 7 DAY")->fetch();
+  $blk7 = (int)db()->query("SELECT COALESCE(SUM(hits),0) FROM fw_daily WHERE device_id IN ($ids) AND kind IN ('in','bl_in') AND day > CURDATE() - INTERVAL 7 DAY")->fetchColumn();
+  $vpnOn = (int)db()->query("SELECT COUNT(*) FROM wg_peers WHERE device_id IN ($ids) AND enabled=1 AND last_hs_at > NOW() - INTERVAL 3 MINUTE")->fetchColumn();
+  if ($secDevs): $avg = (int)round(array_sum(array_column($secDevs, 'sec_score')) / count($secDevs)); ?>
+<div class="section-break"><h2><?= icon('shield', 18) ?><?= h(A('Varnost')) ?></h2></div>
+<div class="grid g2">
+  <section class="panel">
+    <div class="panel-head"><h2><?= icon('shield', 18) ?><?= h(A('Varnostne ocene')) ?></h2><span class="score-badge <?= Score::cls($avg) ?>" title="<?= h(A('povprečje')) ?>"><?= $avg ?><small>/100</small></span></div>
+    <ul class="feed"><?php foreach (array_slice($secDevs, 0, 6) as $x): ?><li><span class="sev-bar <?= h(['up' => 'info', 'warn' => 'warning', 'down' => 'critical'][Score::cls((int)$x['sec_score'])] ?? 'info') ?>"></span><div class="what"><a href="/devices/<?= (int)$x['id'] ?>#sec"><?= h($x['name']) ?></a> <span class="small faint"><?= h($x['tenant_name'] ?: '') ?></span></div><span class="score-badge <?= Score::cls((int)$x['sec_score']) ?>" style="font-size:.9rem"><?= (int)$x['sec_score'] ?></span></li><?php endforeach; ?></ul>
+  </section>
+  <section class="panel">
+    <div class="panel-head"><h2><?= icon('activity', 18) ?><?= h(A('Zadnjih 7 dni')) ?></h2></div>
+    <ul class="feed">
+      <li><span class="sev-bar info"></span><div class="what"><?= h(A('Zavrnjeni poskusi z interneta')) ?></div><b><?= number_format($blk7, 0, ',', '.') ?></b></li>
+      <li><span class="sev-bar <?= (int)$sevCnt['thr'] ? 'critical' : 'info' ?>"></span><div class="what"><?= h(A('Stik z zlonamernimi strežniki')) ?></div><b><?= (int)$sevCnt['thr'] ?></b></li>
+      <li><span class="sev-bar <?= (int)$sevCnt['anom'] ? 'warning' : 'info' ?>"></span><div class="what"><?= h(A('Nenavaden promet pametnih naprav')) ?></div><b><?= (int)$sevCnt['anom'] ?></b></li>
+      <li><span class="sev-bar <?= (int)$sevCnt['geo'] ? 'warning' : 'info' ?>"></span><div class="what"><?= h(A('Pametne naprave v novih državah')) ?></div><b><?= (int)$sevCnt['geo'] ?></b></li>
+      <li><span class="sev-bar <?= (int)$sevCnt['wg'] ? 'warning' : 'info' ?>"></span><div class="what"><?= h(A('VPN prijave iz nove države')) ?></div><b><?= (int)$sevCnt['wg'] ?></b></li>
+      <li><span class="sev-bar info"></span><div class="what"><?= h(A('VPN uporabnikov povezanih zdaj')) ?></div><b><?= $vpnOn ?></b></li>
+    </ul>
+  </section>
+</div>
+<?php endif; ?>
+
 <div class="section-break"><h2><?= icon('bell', 18) ?><?= h(A('Alarmi in dogodki')) ?></h2></div>
 <div class="grid g2">
   <section class="panel">

@@ -20,11 +20,18 @@ $srvDevs = array_filter($devs, fn($x) => Wg::serverIfaces($x)); ?>
       <td><a href="/devices/<?= (int)$p['device_id'] ?>?tab=wg"><?= h($p['device_name']) ?></a> <span class="small faint mono"><?= h($p['iface']) ?></span></td>
       <td class="mono"><?= h($p['ip'] ?: $p['allowed']) ?></td>
       <td class="nowrap"><span class="tag <?= $sc ?>"><?= h($sl) ?></span><?= !(int)$p['enabled'] ? ' <span class="tag">' . h(A('izklopljen')) . '</span>' : '' ?></td>
-      <td class="nowrap"><?= $hs === null ? '<span class="faint">' . h(A('nikoli')) . '</span>' : '<span class="tag ' . ($hs < 180 ? 'up' : ($hs < 900 ? 'warn' : '')) . '">' . h(A('pred {t}', ['t' => fmt_uptime($hs)])) . '</span>' ?></td>
+      <td class="nowrap"><?= $hs === null ? '<span class="faint">' . h(A('nikoli')) . '</span>' : '<span class="tag ' . ($hs < 180 ? 'up' : ($hs < 900 ? 'warn' : '')) . '">' . h(A('pred {t}', ['t' => fmt_uptime($hs)])) . '</span>' ?><?= $p['last_cc'] !== '' ? ' <span title="' . h(Geo::name($p['last_cc'])) . '">' . h(Geo::flag($p['last_cc'])) . '</span>' : '' ?></td>
       <td><?= $p['priv_enc'] ? '<span class="tag up">' . icon('key', 12) . h(A('na voljo')) . '</span>' : '<span class="tag">' . h(A('ni ključa')) . '</span>' ?></td>
     </tr><?php endforeach; ?></tbody>
   </table></div><?php endif; ?>
 </section>
+
+<?php $inact = Wg::inactive(90); if ($inact): ?>
+<section class="panel" id="inactive">
+  <div class="panel-head"><h2><?= icon('clock', 18) ?><?= h(A('Neaktivni uporabniki')) ?> <span class="tag warn"><?= count($inact) ?></span></h2><span class="small muted"><?= h(A('vklopljeni, brez povezave več kot 90 dni')) ?></span></div>
+  <ul class="feed"><?php foreach (array_slice($inact, 0, 30) as $x): ?><li><span class="sev-bar warning"></span><div class="what"><a href="/devices/<?= (int)$x['device_id'] ?>/wg/<?= (int)$x['id'] ?>"><?= h($x['name'] ?: $x['ip']) ?></a> <span class="small faint"><?= h($x['device_name']) ?></span></div><span class="when"><?= h($x['last_hs_at'] ? A('zadnjič {t}', ['t' => fmt_ago($x['last_hs_at'])]) : A('nikoli')) ?></span></li><?php endforeach; ?></ul>
+</section>
+<?php endif; ?>
 
 <?php if ($orphans): ?>
 <section class="panel" id="orphans">

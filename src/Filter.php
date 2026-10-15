@@ -151,6 +151,8 @@ final class Filter
         $nets = is_file($f) ? array_filter(array_map('trim', file($f))) : [];
         $s = "# NOC varnostna IP lista (Spamhaus DROP) - " . count($nets) . " omrezij\n/ip firewall address-list remove [find list=noc-filter-drop]\n";
         foreach ($nets as $n) if (preg_match('#^\d{1,3}(\.\d{1,3}){3}/\d{1,2}$#', $n)) $s .= ":do { /ip firewall address-list add list=noc-filter-drop address=$n comment=\"noc-filter\" } on-error={}\n";
+        // posamezni strežniki botnetov (abuse.ch)
+        foreach (Threat::ips() as $ip) if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) $s .= ":do { /ip firewall address-list add list=noc-filter-drop address=$ip comment=\"noc-filter C2\" } on-error={}\n";
         return $s;
     }
 }

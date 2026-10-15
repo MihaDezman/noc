@@ -131,6 +131,87 @@ final class Wg
                 ->execute([$id, mb_substr(ros_clean((string)($p['i'] ?? '')), 0, 64), $name, $pk, self::firstIp($a), $a, empty($p['dis']) ? 1 : 0]);
         }
         self::adopt($id, (array)($b['wgi'] ?? []));
+        try { self::track($d, $router); } catch (\Throwable $e) { error_log('noc wg track: ' . $e->getMessage()); }
+    }
+
+    /**
+     * Nadzor prijav: zadnja povezava, promet po dnevih, od kod se uporabnik prijavlja.
+     * Prijava iz države, iz katere se uporabnik še ni prijavil, sproži opozorilo z gumbom za izklop.
+     */
+    private static function track(array $d, array $router): void
+    {
+        $pdo = db(); $now = time(); $today = date('Y-m-d');
+        $st = $pdo->prepare('SELECT id, pubkey, name, last_ep, last_rx, last_tx, last_hs_at FROM wg_peers WHERE device_id=?'); $st->execute([$d['id']]);
+        $upd = $pdo->prepare('UPDATE wg_peers SET last_hs_at=COALESCE(?, last_hs_at), last_ep=?, last_cc=IF(?<>"", ?, last_cc), last_rx=?, last_tx=? WHERE id=?');
+        $day = $pdo->prepare('INSERT INTO wg_daily (peer_id, day, rx_bytes, tx_bytes, online_min) VALUES (?,?,?,?,?) ON DUPLICATE KEY UPDATE rx_bytes=rx_bytes+VALUES(rx_bytes), tx_bytes=tx_bytes+VALUES(tx_bytes), online_min=LEAST(1440, online_min+VALUES(online_min))');
+        foreach ($st->fetchAll() as $r) {
+            $rp = $router[$r['pubkey']] ?? null; if (!$rp) continue;
+            $hs = ros_seconds((string)($rp['hs'] ?? ''));
+            $hsAt = $hs !== null ? date('Y-m-d H:i:s', $now - $hs) : null;
+            $rx = max(0, (int)($rp['rx'] ?? 0)); $tx = max(0, (int)($rp['tx'] ?? 0));
+            $tracked = (int)$r['last_rx'] > 0 || (int)$r['last_tx'] > 0 || $r['last_hs_at'] !== null;
+            if ($tracked) {   // prvič samo izhodišče (števec na routerju je kumulativen od zagona)
+                $drx = $rx >= (int)$r['last_rx'] ? $rx - (int)$r['last_rx'] : $rx; $dtx = $tx >= (int)$r['last_tx'] ? $tx - (int)$r['last_tx'] : $tx;
+                $on = $hs !== null && $hs < 180 ? 1 : 0;
+                if ($drx || $dtx || $on) $day->execute([$r['id'], $today, $drx, $dtx, $on]);
+            }
+            $ep = (string)($rp['ep'] ?? ''); $cc = '';
+            if ($ep !== '' && $ep !== $r['last_ep'] && filter_var($ep, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4 | FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE)) {
+                $cc = Geo::cc($ep); [$asn, $org] = Geo::asn($ep);
+                if ($cc !== '') {
+                    $q = $pdo->prepare('SELECT COUNT(*) total, SUM(cc=?) same FROM wg_peer_geo WHERE peer_id=?'); $q->execute([$cc, $r['id']]); $g = $q->fetch();
+                    $pdo->prepare('INSERT INTO wg_peer_geo (peer_id, cc, asn, org, first_seen, last_seen) VALUES (?,?,?,?,NOW(),NOW()) ON DUPLICATE KEY UPDATE last_seen=NOW()')->execute([$r['id'], $cc, $asn, $org]);
+                    if ((int)$g['total'] > 0 && !(int)$g['same']) {
+                        $prev = $pdo->prepare('SELECT DISTINCT cc FROM wg_peer_geo WHERE peer_id=? AND cc<>?'); $prev->execute([$r['id'], $cc]);
+                        Alerts::event(Devices::decorate($d), 'wggeo:' . $r['id'], 'warning', A('WireGuard: {n} se je povezal iz nove države {c} ({o}, {ip}) – prej samo {p}', [
+                            'n' => $r['name'] ?: $r['pubkey'], 'c' => Geo::flag($cc) . ' ' . Geo::name($cc), 'o' => $org ?: 'AS' . $asn, 'ip' => $ep,
+                            'p' => implode(', ', array_map(fn($x) => Geo::name($x), $prev->fetchAll(PDO::FETCH_COLUMN)))]));
+                    }
+                }
+            }
+            $upd->execute([$hsAt, $ep !== '' ? mb_substr($ep, 0, 45) : $r['last_ep'], $cc, $cc, $rx, $tx, $r['id']]);
+        }
+    }
+
+    /** Vklopljeni uporabniki brez povezave vsaj $days dni (ali nikoli, odkar router teče toliko časa) */
+    public static function inactive(int $days = 90, ?int $deviceId = null): array
+    {
+        $sql = "SELECT p.*, d.name device_name FROM wg_peers p JOIN devices d ON d.id=p.device_id
+                WHERE d.active=1 AND p.enabled=1 AND p.status IN ('ok','sync') AND p.created_at < NOW() - INTERVAL 1 DAY
+                AND (p.last_hs_at < NOW() - INTERVAL ? DAY OR (p.last_hs_at IS NULL AND d.last_uptime > ? AND p.allowed NOT LIKE '%/0%'))"
+             . ($deviceId ? ' AND p.device_id=?' : '') . ' ORDER BY d.name, p.last_hs_at';
+        $st = db()->prepare($sql); $st->execute(array_merge([$days, $days * 86400], $deviceId ? [$deviceId] : []));
+        return $st->fetchAll();
+    }
+
+    /** Ob ponedeljkih: Telegram s seznamom neaktivnih vklopljenih uporabnikov in gumbi za izklop */
+    public static function weeklyInactive(): string
+    {
+        if (date('N') !== '1' || setting('tg_webhook') !== '1') return '';
+        $rows = self::inactive(90); if (!$rows) return '';
+        $t = '🔐 <b>' . A('Neaktivni VPN uporabniki') . '</b>' . "\n" . A('Vklopljeni, a brez povezave več kot 90 dni – pozabljen dostop je varnostno tveganje:');
+        $kb = [];
+        foreach (array_slice($rows, 0, 15) as $r) {
+            $t .= "\n• " . htmlspecialchars($r['name'] ?: '?') . ' · ' . htmlspecialchars($r['device_name']) . ' · ' . ($r['last_hs_at'] ? fmt_ago($r['last_hs_at']) : A('nikoli'));
+            if (count($kb) < 8) $kb[] = [['text' => '🔒 ' . A('Izklopi') . ' ' . $r['name'] . ' · ' . $r['device_name'], 'callback_data' => 'wgoff:' . $r['id']]];
+        }
+        if (count($rows) > 15) $t .= "\n" . A('… in še {n}', ['n' => count($rows) - 15]);
+        Notify::telegram($t, null, null, $kb);
+        return 'neaktivni VPN: ' . count($rows);
+    }
+
+    /** Promet in čas povezave uporabnika: [rx, tx, minut] za zadnjih $days dni */
+    public static function usage(int $peerId, int $days = 30): array
+    {
+        $st = db()->prepare('SELECT COALESCE(SUM(rx_bytes),0) rx, COALESCE(SUM(tx_bytes),0) tx, COALESCE(SUM(online_min),0) m FROM wg_daily WHERE peer_id=? AND day > CURDATE() - INTERVAL ? DAY');
+        $st->execute([$peerId, $days]); $r = $st->fetch();
+        return [(int)$r['rx'], (int)$r['tx'], (int)$r['m']];
+    }
+
+    public static function countries(int $peerId): array
+    {
+        $st = db()->prepare('SELECT * FROM wg_peer_geo WHERE peer_id=? ORDER BY last_seen DESC'); $st->execute([$peerId]);
+        return $st->fetchAll();
     }
 
     private static function sameAllowed(string $a, string $b): bool

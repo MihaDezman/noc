@@ -274,6 +274,15 @@ final class MikrotikScript
     }
 } on-error={}
 
+# --- uporabniki routerja (samo ime, skupina, stanje – gesel RouterOS ne izda)
+:local usr [:toarray ""]
+:do {
+    :foreach u in=[/user find] do={
+        :local uv [/user get \$u]
+        :set (\$usr->[:len \$usr]) {"n"=[:tostr (\$uv->"name")];"g"=[:tostr (\$uv->"group")];"dis"=(\$uv->"disabled");"ll"=[:tostr (\$uv->"last-logged-in")]}
+    }
+} on-error={}
+
 # --- logi (nove vrstice od zadnjega uspešnega pusha)
 :local logs [:toarray ""]
 :local maxid \$nocLastLog
@@ -292,7 +301,7 @@ final class MikrotikScript
     }
 }
 
-:local data {"v"=1;"sv"=\$scriptVer;"tick"=\$nocTick;"ident"=\$ident;"res"=\$res;"rb"=\$rb;"health"=\$hl;"ifs"=\$ifs;"rates"=\$rates;"ping"=\$ping;"conns"=\$conns;"nLeases"=\$nLeases;"leases"=\$leases;"pools"=\$pools;"flt"=\$flt;"sfp"=\$sfp;"wg"=\$wg;"wgx"=\$wgErr;"wgi"=\$wgi;"logs"=\$logs;"upd"=\$nocUpd{$tlsData}}
+:local data {"v"=1;"sv"=\$scriptVer;"tick"=\$nocTick;"ident"=\$ident;"res"=\$res;"rb"=\$rb;"health"=\$hl;"ifs"=\$ifs;"rates"=\$rates;"ping"=\$ping;"conns"=\$conns;"nLeases"=\$nLeases;"leases"=\$leases;"pools"=\$pools;"flt"=\$flt;"sfp"=\$sfp;"wg"=\$wg;"wgx"=\$wgErr;"wgi"=\$wgi;"usr"=\$usr;"logs"=\$logs;"upd"=\$nocUpd{$tlsData}}
 :local body [:serialize to=json value=\$data]
 # varovalka: fetch ima omejitev velikosti - prevelik push (npr. ogromne vrstice loga) pošlji brez logov
 :if ([:len \$body] > 48000) do={

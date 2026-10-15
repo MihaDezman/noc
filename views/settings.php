@@ -41,6 +41,17 @@ $num = function (string $k, string $label, string $unit, string $hint = '') {
       <div class="row c3"><?= $num('th_out_bl', A('Varnostna lista: tokov'), A('v 15 min'), A('naprava v LAN-u – opozorilo')) ?></div>
       <p class="small muted" style="margin:0"><?= h(A('Skeniranje z interneta je vsakdanje, zato je samo dogodek (info) – na Telegram pride, če je tam nastavljeno "vse". Porast in sumljiva naprava v LAN-u sta opozorili. Isti napadalec ali naprava se javi največ enkrat na 6 ur.')) ?></p>
     </div></section>
+  <section class="panel" id="secdata"><div class="panel-head"><h2><?= icon('globe', 18) ?><?= h(A('Varnostni podatki')) ?></h2><span class="small muted"><?= h(A('osveži se samodejno vsako noč')) ?></span></div>
+    <div class="panel-body form">
+      <dl class="kv small">
+        <dt><?= h(A('Države in omrežja (DB-IP Lite)')) ?></dt><dd><?= Geo::ready() ? h(setting('geo_month') ?: '✓') : '<span style="color:var(--warn)">' . h(A('še ni prenesena')) . '</span>' ?></dd>
+        <dt><?= h(A('Proizvajalci po MAC (IEEE)')) ?></dt><dd><?= h(setting('oui_month') ?: A('še ni prenesena')) ?></dd>
+        <dt><?= h(A('Strežniki botnetov (abuse.ch)')) ?></dt><dd><?= number_format(Threat::count(), 0, ',', '.') ?></dd>
+        <dt><?= h(A('Zadnji RouterOS (stable)')) ?></dt><dd><?= h(Ros::latest() ?: '–') ?></dd>
+      </dl>
+      <label class="f"><span><?= h(A('abuse.ch Auth-Key (neobvezno)')) ?></span><input type="password" name="abuse_key" autocomplete="off" placeholder="<?= setting('abuse_key_enc') !== '' ? h(A('shranjen – vpiši samo za zamenjavo')) : '' ?>"><small><?= h(A('Brezplačen ključ na auth.abuse.ch omogoči še seznam ThreatFox. Brez njega delujeta Feodo in SSLBL.')) ?></small></label>
+      <p class="small muted" style="margin:0"><?= h(A('Prvi prenos takoj (sicer ponoči):')) ?> <code>sudo -u www-data php /var/www/noc/cron/secdata.php</code> · <?= Geo::attribution() ?></p>
+    </div></section>
 
   <?php $tlsAll = db()->query('SELECT COUNT(*) n, COALESCE(SUM(tls_check),0) on_, COALESCE(SUM(tls_check=1 AND tls_ok=0),0) bad FROM devices WHERE active=1')->fetch(); ?>
   <section class="panel" id="tls"><div class="panel-head"><h2><?= icon('lock', 18) ?><?= h(A('Preverjanje certifikata NOC')) ?></h2>

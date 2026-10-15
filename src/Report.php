@@ -49,7 +49,19 @@ final class Report
             $q->execute([$id, $from, $to]); $top = $q->fetchAll();
             $q = $pdo->prepare('SELECT COUNT(DISTINCT mac) FROM lan_hosts WHERE device_id=? AND last_seen >= FROM_UNIXTIME(?) AND first_seen < FROM_UNIXTIME(?)');
             $q->execute([$id, $from, $to]); $hosts = (int)$q->fetchColumn();
-            $devices[] = compact('d', 'sla', 'daily', 'rx', 'tx', 'peakRx', 'peakTx', 'lat', 'al', 'attacks', 'reboots', 'changes', 'top', 'hosts');
+            // varnost: zavrnjeni poskusi z interneta, stik z zlonamernimi strežniki, nenavaden promet, države, VPN uporabniki
+            $q = $pdo->prepare("SELECT COALESCE(SUM(hits),0) FROM fw_daily WHERE device_id=? AND kind IN ('in','bl_in') AND day >= FROM_UNIXTIME(?) AND day < FROM_UNIXTIME(?)");
+            $q->execute([$id, $from, $to]); $blocked = (int)$q->fetchColumn();
+            $q = $pdo->prepare("SELECT SUM(akey LIKE 'threat:%' OR akey LIKE 'outbl:%') thr, SUM(akey LIKE 'anom:%' OR akey LIKE 'geo:%') anom, SUM(akey LIKE 'wggeo:%') wg
+                                FROM alerts WHERE device_id=? AND started_at >= FROM_UNIXTIME(?) AND started_at < FROM_UNIXTIME(?)");
+            $q->execute([$id, $from, $to]); $sa = $q->fetch();
+            $q = $pdo->prepare('SELECT cc, SUM(up_bytes + down_bytes) b FROM geo_daily WHERE device_id=? AND day >= FROM_UNIXTIME(?) AND day < FROM_UNIXTIME(?) AND cc <> "" GROUP BY cc ORDER BY b DESC LIMIT 6');
+            $q->execute([$id, $from, $to]); $countries = $q->fetchAll();
+            $q = $pdo->prepare('SELECT p.name, SUM(w.rx_bytes) rx, SUM(w.tx_bytes) tx, SUM(w.online_min) m, COUNT(*) days FROM wg_daily w JOIN wg_peers p ON p.id=w.peer_id
+                                WHERE p.device_id=? AND w.day >= FROM_UNIXTIME(?) AND w.day < FROM_UNIXTIME(?) GROUP BY p.id ORDER BY m DESC LIMIT 25');
+            $q->execute([$id, $from, $to]); $vpn = $q->fetchAll();
+            $sec = ['score' => $d['sec_score'] !== null ? (int)$d['sec_score'] : null, 'blocked' => $blocked, 'threats' => (int)$sa['thr'], 'anom' => (int)$sa['anom'], 'wggeo' => (int)$sa['wg'], 'countries' => $countries, 'vpn' => $vpn];
+            $devices[] = compact('d', 'sla', 'daily', 'rx', 'tx', 'peakRx', 'peakTx', 'lat', 'al', 'attacks', 'reboots', 'changes', 'top', 'hosts', 'sec');
         }
         $ai = null;
         if ($withAi) { $q = $pdo->prepare('SELECT text FROM report_ai WHERE tenant_id=? AND ym=?'); $q->execute([$tenantId, $ym]); $ai = $q->fetchColumn() ?: null; }

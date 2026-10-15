@@ -150,6 +150,30 @@ $upd = $s['upd'] ?? [];
       </div>
     </section>
     <?php endif; ?>
+    <?php $sec = Score::compute($d); if ($sec['score'] !== (int)($d['sec_score'] ?? -1)) db()->prepare('UPDATE devices SET sec_score=?, sec_at=NOW() WHERE id=?')->execute([$sec['score'], $id]); ?>
+    <section class="panel" id="sec">
+      <div class="panel-head"><h2><?= icon('shield', 18) ?><?= h(A('Varnostna ocena')) ?></h2><span class="score-badge <?= Score::cls($sec['score']) ?>"><?= (int)$sec['score'] ?><small>/100</small></span></div>
+      <?php if (!$sec['items']): ?><div class="empty" style="padding:20px"><?= icon('check', 24) ?><div><?= h(A('Brez pomanjkljivosti.')) ?></div></div>
+      <?php else: ?><ul class="feed"><?php foreach ($sec['items'] as [$sv, $txt, $link, $pts]): ?><li><span class="sev-bar <?= h($sv) ?>"></span><div class="what"><?= $isSuper && $link !== '' ? '<a href="' . h($link) . '">' . h($txt) . '</a>' : h($txt) ?></div><span class="when">−<?= (int)round($pts) ?></span></li><?php endforeach; ?></ul><?php endif; ?>
+    </section>
+    <?php $rosV = Ros::ver((string)$d['os_version']); $rosL = Ros::latest(); if (str_starts_with($rosV, '7.') && $rosL !== '' && version_compare($rosV, $rosL, '<')): $rosSec = Ros::securityFixes($rosV);
+      $st = db()->prepare("SELECT * FROM noc_actions WHERE device_id=? AND kind='upgrade' ORDER BY id DESC LIMIT 1"); $st->execute([$id]); $upg = $st->fetch(); ?>
+    <section class="panel" id="ros">
+      <div class="panel-head"><h2><?= icon('refresh', 18) ?>RouterOS <?= h($rosL) ?></h2><span class="small muted"><?= h(A('nameščen {v}', ['v' => $rosV])) ?></span></div>
+      <?php if ($rosSec): ?><ul class="feed"><?php foreach (array_slice($rosSec, 0, 6) as [$rv, $line]): ?><li><span class="sev-bar critical"></span><div class="what small"><b><?= h($rv) ?></b> · <?= h($line) ?></div></li><?php endforeach; ?>
+        <?php if (count($rosSec) > 6): ?><li><div class="what small muted"><?= h(A('… in še {n} varnostnih popravkov', ['n' => count($rosSec) - 6])) ?></div></li><?php endif; ?></ul>
+      <?php else: ?><div class="panel-body small muted"><?= h(A('V novejših verzijah ni označenih varnostnih popravkov.')) ?></div><?php endif; ?>
+      <?php if ($isSuper): ?><div class="panel-body actions" style="border-top:1px solid var(--line-2)">
+        <?php if ($upg && (in_array($upg['status'], ['approved', 'sent'], true) || ($upg['status'] === 'done' && !$upg['verified_at']))): ?>
+          <span class="tag info"><?= icon('clock', 12) ?><?= h($upg['status'] === 'done' ? A('posodobitev na {v} načrtovana ob 03:30', ['v' => $upg['ip']]) : A('posodobitev čaka na router')) ?></span>
+        <?php else: ?>
+          <form method="post" action="/devices/<?= $id ?>/upgrade" data-confirm="<?= h(A('Router ob 03:30 namesti RouterOS {v} in se ponovno zažene (približno 2–5 minut brez interneta). Nadaljujem?', ['v' => $rosL])) ?>"><?= Auth::csrf() ?><button class="btn sm"><?= icon('clock', 14) ?><?= h(A('Posodobi ponoči ob 03:30')) ?></button></form>
+          <?php if ($upg && $upg['status'] === 'failed'): ?><span class="small" style="color:var(--down)"><?= h(A('Zadnja načrtovana posodobitev ni uspela.')) ?></span><?php endif; ?>
+        <?php endif; ?>
+        <a class="small" href="https://mikrotik.com/download/changelogs" target="_blank" rel="noopener"><?= h(A('Celoten changelog')) ?></a>
+      </div><?php endif; ?>
+    </section>
+    <?php endif; ?>
     <?php $fc = Forecast::forDevice($d); if ($fc): ?>
     <section class="panel">
       <div class="panel-head"><h2><?= icon('activity', 18) ?><?= h(A('Napovedi')) ?></h2><span class="small muted"><?= h(A('trend zadnjih 14 dni')) ?></span></div>
@@ -337,14 +361,42 @@ $upd = $s['upd'] ?? [];
   <div class="panel-body small muted" style="border-top:1px solid var(--line-2)"><?= icon('info', 14) ?> <?= h(A('Kontrola zadnjih 24 h: tokovi {f}, števec WAN {w} ({p} %). Če je razlika velika, del prometa gre mimo traffic-flow (npr. HW offload).', ['f' => fmt_bytes($flowSum), 'w' => fmt_bytes($wanSum), 'p' => round($flowSum / $wanSum * 100)])) ?></div>
   <?php endif; ?>
 </section>
-<section class="panel">
-  <div class="panel-head"><h2><?= icon('monitor', 18) ?><?= h(A('Znane naprave (DHCP)')) ?></h2><span class="small muted"><?= count($hosts) ?></span></div>
+<?php if ($geoTop): $gTot = array_sum(array_column($geoTop, 'b')) ?: 1; ?>
+<div class="grid g2">
+<section class="panel" id="geo">
+  <div class="panel-head"><h2><?= icon('globe', 18) ?><?= h(A('Promet po državah')) ?></h2><span class="small muted"><?= h($geoLbl) ?></span></div>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th><?= h(A('Država')) ?></th><th class="num"><?= h(A('Download')) ?></th><th class="num"><?= h(A('Upload')) ?></th><th style="width:30%"><?= h(A('Delež')) ?></th></tr></thead>
+    <tbody><?php foreach ($geoTop as $g): ?><tr>
+      <td><?= h(Geo::flag($g['cc']) . ' ' . ($g['cc'] !== '' ? Geo::name($g['cc']) : A('neznano'))) ?></td>
+      <td class="num"><?= h(fmt_bytes($g['down'])) ?></td><td class="num"><?= h(fmt_bytes($g['up'])) ?></td>
+      <td><div class="meter"><i style="width:<?= max(1, round($g['b'] / $gTot * 100)) ?>%;background:linear-gradient(90deg,var(--aqua),var(--violet))"></i></div></td>
+    </tr><?php endforeach; ?></tbody>
+  </table></div>
+</section>
+<section class="panel" id="asn">
+  <div class="panel-head"><h2><?= icon('net', 18) ?><?= h(A('Omrežja (ponudniki storitev)')) ?></h2><span class="small muted"><?= h($geoLbl) ?></span></div>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th><?= h(A('Omrežje')) ?></th><th><?= h(A('Država')) ?></th><th class="num"><?= h(A('Skupaj')) ?></th></tr></thead>
+    <tbody><?php foreach ($asnTop as $g): ?><tr>
+      <td><?= h($g['org'] ?: ($g['asn'] ? 'AS' . $g['asn'] : A('neznano'))) ?><?= $g['asn'] ? ' <span class="small faint">AS' . (int)$g['asn'] . '</span>' : '' ?></td>
+      <td><?= h(Geo::flag($g['cc'])) ?> <?= h($g['cc']) ?></td><td class="num"><?= h(fmt_bytes($g['b'])) ?></td>
+    </tr><?php endforeach; ?></tbody>
+  </table></div>
+  <div class="panel-body small faint" style="border-top:1px solid var(--line-2)"><?= Geo::attribution() ?></div>
+</section>
+</div>
+<?php endif; ?>
+<section class="panel" id="hosts">
+  <div class="panel-head"><h2><?= icon('monitor', 18) ?><?= h(A('Znane naprave (DHCP)')) ?></h2><span class="small muted"><?= count($hosts) ?> · <?= h(A('vrsta določa, katere naprave NOC posebej spremlja (kamere, tiskalniki …)')) ?></span></div>
   <?php if (!$hosts): ?><div class="empty"><?= h(A('Ni DHCP najemov.')) ?></div><?php else: ?>
   <div class="tbl-wrap"><table class="tbl">
-    <thead><tr><th><?= h(A('Ime')) ?></th><th>IP</th><th>MAC</th><th><?= h(A('DHCP strežnik')) ?></th><th><?= h(A('Prvič')) ?></th><th><?= h(A('Zadnjič')) ?></th></tr></thead>
-    <tbody><?php foreach ($hosts as $hst): ?><tr>
+    <thead><tr><th><?= h(A('Ime')) ?></th><th><?= h(A('Vrsta')) ?></th><th>IP</th><th>MAC</th><th><?= h(A('DHCP strežnik')) ?></th><th><?= h(A('Prvič')) ?></th><th><?= h(A('Zadnjič')) ?></th></tr></thead>
+    <tbody><?php $kinds = Profile::kinds(); foreach ($hosts as $hst): $hk = (string)($hst['kind'] ?? ''); ?><tr>
       <td><?= h($hst['label'] ?: ($hst['hostname'] ?: '–')) ?><?= $hst['label'] && $hst['hostname'] ? ' <span class="small faint">' . h($hst['hostname']) . '</span>' : '' ?><?= strtotime($hst['first_seen']) > time() - 86400 ? ' <span class="tag info">' . h(A('nova')) . '</span>' : '' ?></td>
-      <td class="mono"><?= h($hst['ip']) ?></td><td class="mono small muted"><?= h($hst['mac']) ?></td><td class="muted"><?= h($hst['server']) ?></td>
+      <td class="nowrap"><?php if ($isSuper): ?><form method="post" action="/devices/<?= $id ?>/hostkind" class="inline-sel"><?= Auth::csrf() ?><input type="hidden" name="mac" value="<?= h($hst['mac']) ?>"><?= icon(Profile::icon($hk), 14, in_array($hk, Profile::WATCH, true) ? '' : 'faint') ?><select name="kind" data-autosubmit aria-label="<?= h(A('Vrsta')) ?>"><?php foreach ($kinds as $kk => $kl): ?><option value="<?= h($kk) ?>" <?= $kk === $hk ? 'selected' : '' ?>><?= h($kk === '' ? A('samodejno') : $kl) ?></option><?php endforeach; ?></select></form>
+        <?php else: ?><?= icon(Profile::icon($hk), 14, 'faint') ?> <?= h($kinds[$hk] ?? $hk) ?><?php endif; ?></td>
+      <td class="mono"><?= h($hst['ip']) ?></td><td class="mono small muted"><?= h($hst['mac']) ?><?= ($hst['vendor'] ?? '') !== '' ? '<div class="small faint" style="font-family:inherit">' . h(mb_strimwidth($hst['vendor'], 0, 32, '…')) . '</div>' : '' ?></td><td class="muted"><?= h($hst['server']) ?></td>
       <td class="nowrap muted small"><?= h(fmt_dt($hst['first_seen'])) ?></td><td class="nowrap small"><?= h(fmt_ago($hst['last_seen'])) ?></td>
     </tr><?php endforeach; ?></tbody>
   </table></div><?php endif; ?>
@@ -494,7 +546,7 @@ $upd = $s['upd'] ?? [];
     <tbody><?php foreach ($acts as $x): [$sc, $sl] = Actions::statusLabel($x['status']);
       $isActive = ($x['kind'] === 'block' && in_array($x['status'], ['approved', 'sent'], true)) || (Actions::active($x) && ($unblocked[$x['ip']] ?? 0) < (int)$x['id']); ?><tr>
       <td class="mono"><?= h($x['ip']) ?></td>
-      <td class="nowrap"><?= $x['kind'] === 'block' ? h(A('blokada {h} h', ['h' => (int)$x['hours']])) : h(A('odblokiranje')) ?> <span class="small faint"><?= h(['ai' => 'AI', 'alarm' => A('alarm'), 'splet' => A('ročno')][$x['source']] ?? $x['source']) ?></span></td>
+      <td class="nowrap"><?= $x['kind'] === 'block' ? h(A('blokada {h} h', ['h' => (int)$x['hours']])) : ($x['kind'] === 'upgrade' ? h(A('posodobitev RouterOS')) : h(A('odblokiranje'))) ?> <span class="small faint"><?= h(['ai' => 'AI', 'alarm' => A('alarm'), 'splet' => A('ročno')][$x['source']] ?? $x['source']) ?></span></td>
       <td class="nowrap"><span class="tag <?= $sc ?>"><?= h($sl) ?></span><?= $isActive && $x['status'] === 'done' ? ' <span class="tag down">' . h(A('aktivna')) . '</span>' : '' ?></td>
       <td class="small"><?= h($x['reason']) ?></td>
       <td class="nowrap small muted"><?= h(fmt_dt($x['created_at'])) ?></td>
@@ -568,7 +620,7 @@ $upd = $s['upd'] ?? [];
       <td class="mono small"><?= h($p['iface']) ?></td>
       <td class="mono"><?= h($p['ip'] ?: $p['allowed']) ?></td>
       <td class="nowrap"><span class="tag <?= $sc ?>"><?= h($sl) ?></span><?= !(int)$p['enabled'] ? ' <span class="tag">' . h(A('izklopljen')) . '</span>' : '' ?></td>
-      <td class="nowrap"><?= $hs === null ? '<span class="faint">' . h(A('nikoli')) . '</span>' : '<span class="tag ' . ($hs < 180 ? 'up' : ($hs < 900 ? 'warn' : '')) . '">' . h(A('pred {t}', ['t' => fmt_uptime($hs)])) . '</span>' ?><?= $rp && ($rp['ep'] ?? '') !== '' ? '<div class="small faint mono">' . h($rp['ep']) . '</div>' : '' ?></td>
+      <td class="nowrap"><?= $hs === null ? '<span class="faint">' . h(A('nikoli')) . '</span>' : '<span class="tag ' . ($hs < 180 ? 'up' : ($hs < 900 ? 'warn' : '')) . '">' . h(A('pred {t}', ['t' => fmt_uptime($hs)])) . '</span>' ?><?= $rp && ($rp['ep'] ?? '') !== '' ? '<div class="small faint mono">' . ($p['last_cc'] !== '' ? h(Geo::flag($p['last_cc'])) . ' ' : '') . h($rp['ep']) . '</div>' : '' ?></td>
       <td class="num small nowrap"><?= $rp ? h(fmt_bytes($rp['rx'] ?? 0)) . ' / ' . h(fmt_bytes($rp['tx'] ?? 0)) : '–' ?></td>
       <td><?= $p['priv_enc'] ? '<span class="tag up">' . icon('key', 12) . h(A('na voljo')) . '</span>' : '<span class="tag" title="' . h(A('Zasebnega ključa ni v NOC – config ni mogoče izdelati. Uvozi ga iz generatorja ali zamenjaj ključ.')) . '">' . h(A('ni ključa')) . '</span>' ?></td>
       <td class="num nowrap">
@@ -578,6 +630,15 @@ $upd = $s['upd'] ?? [];
     </tr><?php endforeach; ?></tbody>
   </table></div><?php endif; ?>
 </section>
+
+<?php $wgIn = Wg::inactive(90, $id); if ($wgIn): ?>
+<section class="panel" id="wg-inactive">
+  <div class="panel-head"><h2><?= icon('clock', 18) ?><?= h(A('Neaktivni uporabniki')) ?> <span class="tag warn"><?= count($wgIn) ?></span></h2>
+    <form method="post" action="/devices/<?= $id ?>/wg" data-confirm="<?= h(A('Izklopim vse neaktivne uporabnike na tej napravi? Ključi ostanejo, kadar koli jih vklopiš nazaj.')) ?>"><?= Auth::csrf() ?><input type="hidden" name="op" value="disable-inactive"><button class="btn sm"><?= icon('power', 14) ?><?= h(A('Izklopi vse')) ?></button></form></div>
+  <div class="panel-body small muted" style="padding-bottom:0"><?= h(A('Vklopljeni, a brez povezave več kot 90 dni. Pozabljen dostop je pogosta varnostna luknja – izklopi jih, ključi ostanejo.')) ?></div>
+  <ul class="feed"><?php foreach ($wgIn as $x): ?><li><span class="sev-bar warning"></span><div class="what"><a href="/devices/<?= $id ?>/wg/<?= (int)$x['id'] ?>"><?= h($x['name'] ?: $x['ip']) ?></a> <span class="small faint mono"><?= h($x['ip']) ?></span></div><span class="when"><?= h($x['last_hs_at'] ? A('zadnjič {t}', ['t' => fmt_ago($x['last_hs_at'])]) : A('nikoli')) ?></span></li><?php endforeach; ?></ul>
+</section>
+<?php endif; ?>
 
 <section class="panel" id="wg-add">
   <div class="panel-head"><h2><?= icon('plus', 18) ?><?= h(A('Dodaj uporabnika')) ?></h2><span class="small muted"><?= h(A('NOC ustvari ključe, config in QR kodo ter peer doda na router')) ?></span></div>

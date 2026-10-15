@@ -554,14 +554,16 @@ final class Ai
             $ctx .= "\nNAPRAVA {$d['name']}" . ($d['site'] ? " ({$d['site']})" : '') . ': razpoložljivost ' . Sla::fmt($x['sla']['pct']) . ', izpadi ' . (int)($x['sla']['count'] ?? 0) . ', skupni čas izpadov ' . ((int)($x['sla']['down_s'] ?? 0) > 0 ? fmt_uptime((int)$x['sla']['down_s']) : '0')
                 . ', promet ' . fmt_bytes($x['rx'] + $x['tx']) . ', latenca do interneta povprečno ' . ($x['lat']['ext'] !== null ? round((float)$x['lat']['ext'], 1) . ' ms' : '–')
                 . ', izguba paketov ' . ($x['lat']['loss'] !== null ? round((float)$x['lat']['loss'], 2) . ' %' : '–') . ', kritični alarmi ' . (int)($x['al']['critical'] ?? 0) . ', opozorila ' . (int)($x['al']['warning'] ?? 0)
-                . ', napadi na router ' . $x['attacks'] . ', ponovni zagoni ' . $x['reboots'] . ', spremembe konfiguracije ' . $x['changes'] . ', naprav v omrežju ' . $x['hosts'] . "\n";
+                . ', napadi na router ' . $x['attacks'] . ', ponovni zagoni ' . $x['reboots'] . ', spremembe konfiguracije ' . $x['changes'] . ', naprav v omrežju ' . $x['hosts'] . "\n"
+                . '  varnost: ocena ' . ($x['sec']['score'] ?? '–') . '/100, zavrnjenih poskusov z interneta ' . $x['sec']['blocked'] . ', stik naprav z zlonamernimi strežniki ' . $x['sec']['threats']
+                . ', nenavaden promet pametnih naprav ' . $x['sec']['anom'] . ', VPN prijave iz nove države ' . $x['sec']['wggeo'] . ', VPN uporabnikov aktivnih ' . count($x['sec']['vpn']) . "\n";
             $q = db()->prepare('SELECT title, started_at, ended_at, ai_summary FROM incidents WHERE device_id=? AND started_at >= FROM_UNIXTIME(?) AND started_at < FROM_UNIXTIME(?) ORDER BY started_at');
             $q->execute([$d['id'], $from, $to]);
             foreach ($q->fetchAll() as $i) $ctx .= "  incident {$i['started_at']}: {$i['title']} (" . Incidents::duration($i) . ')' . ($i['ai_summary'] ? ' – ' . mb_substr(str_replace("\n", ' ', $i['ai_summary']), 0, 300) : '') . "\n";
         }
         $sys = 'Pišeš kratek povzetek mesečnega poročila o omrežju za stranko (podjetje, ne tehnik), v slovenščini, vljudno (vikanje). '
             . '4–7 stavkov, navadno besedilo brez naštevanja in brez tehničnega žargona (namesto "latenca" reci "odzivnost", namesto "paketna izguba" "prekinitve"). '
-            . 'Povej, kako je omrežje delovalo, pomembne dogodke in kaj je bilo narejeno ali priporočeno. Ne pretiravaj in ne izmišljuj: piši samo, kar izhaja iz podatkov. '
+            . 'Povej, kako je omrežje delovalo, pomembne dogodke in kaj je bilo narejeno ali priporočeno. Vključi en stavek o varnosti (zaščita pred napadi z interneta, morebitne sumljive naprave, oddaljeni dostop), razumljivo za laika. Ne pretiravaj in ne izmišljuj: piši samo, kar izhaja iz podatkov. '
             . 'Ne omenjaj AI, NOC ali notranjih oznak. Podpisa ne dodaj.';
         $txt = self::ask('report', $tenantId, $sys, $ctx, 900);
         if ($txt) db()->prepare('REPLACE INTO report_ai (tenant_id, ym, text) VALUES (?,?,?)')->execute([$tenantId, $ym, mb_substr($txt, 0, 4000)]);

@@ -26,7 +26,7 @@ $dur = fn(int $s) => $s < 60 ? $s . ' s' : ($s < 3600 ? intdiv($s, 60) . ' min' 
   .kpi .v { font-size: 20px; font-weight: 700; }
   .list th { text-align: left; font-size: 11px; color: <?= $C['muted'] ?>; font-weight: 600; padding: 6px 8px; border-bottom: 1px solid <?= $C['line'] ?>; }
   .list td { padding: 6px 8px; border-bottom: 1px solid #f1f2f6; font-size: 13px; }
-  .num { text-align: right; white-space: nowrap; }
+  .num, .list th.num { text-align: right; white-space: nowrap; }
   .bars td { vertical-align: bottom; padding: 0 1px; height: 90px; }
   .foot { padding: 18px 32px 28px; color: <?= $C['muted'] ?>; font-size: 11px; }
   .noprint { text-align: right; padding: 12px 32px; background: #f6f7fa; }
@@ -100,6 +100,30 @@ $dur = fn(int $s) => $s < 60 ? $s . ' s' : ($s < 3600 ? intdiv($s, 60) . ' min' 
     </table>
 <?php endif; ?>
 
+<?php $sc = $x['sec']; ?>
+    <table class="list" style="margin-top:18px">
+      <tr><th><?= h(A('Varnost')) ?></th><th class="num"></th></tr>
+      <?php if ($sc['score'] !== null): ?><tr><td><?= h(A('Varnostna ocena routerja')) ?></td><td class="num"><b style="color:<?= $sc['score'] >= 80 ? $C['up'] : ($sc['score'] >= 60 ? $C['warn'] : $C['down']) ?>"><?= (int)$sc['score'] ?>/100</b></td></tr><?php endif; ?>
+      <tr><td><?= h(A('Zavrnjeni poskusi dostopa z interneta')) ?></td><td class="num"><?= number_format($sc['blocked'], 0, ',', '.') ?></td></tr>
+      <tr><td><?= h(A('Naprave v omrežju v stiku z zlonamernimi strežniki')) ?></td><td class="num"><?= $sc['threats'] ?></td></tr>
+      <tr><td><?= h(A('Nenavaden promet pametnih naprav (kamere, tiskalniki …)')) ?></td><td class="num"><?= $sc['anom'] ?></td></tr>
+      <?php if ($sc['vpn'] || $sc['wggeo']): ?><tr><td><?= h(A('VPN prijave iz nove države')) ?></td><td class="num"><?= $sc['wggeo'] ?></td></tr><?php endif; ?>
+    </table>
+
+<?php if ($sc['vpn']): ?>
+    <table class="list" style="margin-top:18px">
+      <tr><th><?= h(A('Oddaljeni dostop (VPN)')) ?></th><th class="num"><?= h(A('Dni')) ?></th><th class="num"><?= h(A('Čas povezave')) ?></th><th class="num"><?= h(A('Prenos')) ?></th></tr>
+      <?php foreach ($sc['vpn'] as $v): ?><tr><td><?= h($v['name'] ?: '–') ?></td><td class="num"><?= (int)$v['days'] ?></td><td class="num"><?= h(fmt_uptime((int)$v['m'] * 60)) ?></td><td class="num"><?= h(fmt_bytes((int)$v['rx'] + (int)$v['tx'])) ?></td></tr><?php endforeach; ?>
+    </table>
+<?php endif; ?>
+
+<?php if ($sc['countries']): $tot = array_sum(array_column($sc['countries'], 'b')) ?: 1; ?>
+    <table class="list" style="margin-top:18px">
+      <tr><th><?= h(A('Promet po državah')) ?></th><th class="num"><?= h(A('Delež')) ?></th><th class="num"><?= h(A('Skupaj')) ?></th></tr>
+      <?php foreach ($sc['countries'] as $c): ?><tr><td><?= h(Geo::flag($c['cc']) . ' ' . Geo::name($c['cc'])) ?></td><td class="num"><?= round($c['b'] / $tot * 100) ?> %</td><td class="num"><?= h(fmt_bytes($c['b'])) ?></td></tr><?php endforeach; ?>
+    </table>
+<?php endif; ?>
+
 <?php if ($x['top']): ?>
     <table class="list" style="margin-top:18px">
       <tr><th><?= h(A('Največ prometa v LAN-u')) ?></th><th>IP</th><th class="num"><?= h(A('Skupaj')) ?></th></tr>
@@ -111,7 +135,7 @@ $dur = fn(int $s) => $s < 60 ? $s . ' s' : ($s < 3600 ? intdiv($s, 60) . ' min' 
 
   <div class="foot">
     <?= h(A('Razpoložljivost upošteva čas, ko naprava ni bila dosegljiva ali ni imela internetne povezave. Podatki so zbrani samodejno vsako minuto.')) ?><br>
-    <?= h(A('Ustvarjeno {t}', ['t' => date('d.m.Y H:i')])) ?> · noc.dezman.net
+    <?= h(A('Ustvarjeno {t}', ['t' => date('d.m.Y H:i')])) ?> · noc.dezman.net · IP Geolocation by DB-IP
   </div>
 </div>
 </body>

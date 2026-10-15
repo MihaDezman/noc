@@ -30,7 +30,15 @@ final class Flows
         }
         if ($done) setting_set('flow_last', $last);
         foreach ($files as $f) if (filemtime($f) < time() - 2 * 86400) @unlink($f);   // surove tokove hranimo 2 dni
-        if ($done) self::hostAlerts($devs);
+        if ($done) {
+            self::hostAlerts($devs);
+            try {   // profili naprav, nenavaden promet, nove države
+                Profile::refresh();
+                Profile::anomalies($devs);
+                $byId = []; foreach ($devs as $d) $byId[(int)$d['id']] = $d;
+                Profile::newCountries($byId);
+            } catch (\Throwable $e) { error_log('noc profile: ' . $e->getMessage()); }
+        }
         return "datotek: $done";
     }
 
@@ -40,7 +48,11 @@ final class Flows
         $h = popen($cmd, 'r'); if (!$h) return;
         $agg = [];   // [device_id][ip] = [up, down]
         $out = [];   // varnostna analiza: [device_id][ip LAN] = tokovi navzven (ciljni naslovi, porti, SMTP, varnostna lista)
-        $netCache = []; $blCache = [];
+        $netCache = []; $blCache = []; $thrCache = [];
+        $geo = [];   // [device_id][cc][asn] = [up, down]
+        $hg = [];    // [device_id][ip LAN][cc] = bajti
+        $thr = [];   // [device_id][ip LAN][zunanji ip:port] = vir (zlonamerni strežniki)
+        $geoOn = Geo::ready();
         while (($line = fgets($h)) !== false) {
             $p = array_map('trim', explode('|', $line));
             if (count($p) < 6) continue;
@@ -52,6 +64,9 @@ final class Flows
             if (!$inD && $xda !== '0.0.0.0' && $xda !== '') { $inD = $netCache[$id][$xda] ??= self::inNets($xda, $d['_nets']); if ($inD) $da = $xda; }
             if ($inS && !$inD) {
                 $agg[$id][$sa][0] = ($agg[$id][$sa][0] ?? 0) + (int)$byt;
+                if ($geoOn) { $cc = Geo::cc($da); $as = Geo::asn($da)[0]; $geo[$id][$cc][$as][0] = ($geo[$id][$cc][$as][0] ?? 0) + (int)$byt; if ($cc !== '') $hg[$id][$sa][$cc] = ($hg[$id][$sa][$cc] ?? 0) + (int)$byt; }
+                $t = $thrCache[$da] ??= (Threat::check($da) ?? '');
+                if ($t !== '' && ($t !== 'Spamhaus DROP' || empty($d['fwlog_enabled']))) { $dp0 = (int)($p[7] ?? 0); $thr[$id][$sa][$da . ($dp0 ? ":$dp0" : '')] = $t; }
                 if (!empty($d['fwlog_enabled'])) {
                     $pr = strtoupper($p[6] ?? ''); $dp = (int)($p[7] ?? 0);
                     $o = &$out[$id][$sa];
@@ -63,13 +78,33 @@ final class Flows
                     unset($o);
                 }
             }
-            elseif ($inD && !$inS) { $agg[$id][$da][1] = ($agg[$id][$da][1] ?? 0) + (int)$byt; }
+            elseif ($inD && !$inS) {
+                $agg[$id][$da][1] = ($agg[$id][$da][1] ?? 0) + (int)$byt;
+                if ($geoOn) { $cc = Geo::cc($sa); $as = Geo::asn($sa)[0]; $geo[$id][$cc][$as][1] = ($geo[$id][$cc][$as][1] ?? 0) + (int)$byt; if ($cc !== '') $hg[$id][$da][$cc] = ($hg[$id][$da][$cc] ?? 0) + (int)$byt; }
+            }
         }
         pclose($h);
         $ins = db()->prepare('INSERT INTO host_5m (device_id, ip, ts, up_bytes, down_bytes) VALUES (?,?,?,?,?) ON DUPLICATE KEY UPDATE up_bytes=up_bytes+VALUES(up_bytes), down_bytes=down_bytes+VALUES(down_bytes)');
         foreach ($agg as $id => $hosts) foreach ($hosts as $ip => $v) $ins->execute([$id, $ip, $slot, $v[0] ?? 0, $v[1] ?? 0]);
         $devById = []; foreach ($byIp as $d) $devById[(int)$d['id']] = $d;
         foreach ($out as $id => $hosts) FwLog::outbound($devById[$id], $hosts, $slot);
+        // promet po državah in omrežjih
+        $day = substr($slot, 0, 10);
+        $gi = db()->prepare('INSERT INTO geo_daily (device_id, day, cc, asn, up_bytes, down_bytes) VALUES (?,?,?,?,?,?) ON DUPLICATE KEY UPDATE up_bytes=up_bytes+VALUES(up_bytes), down_bytes=down_bytes+VALUES(down_bytes)');
+        foreach ($geo as $id => $ccs) foreach ($ccs as $cc => $asns) foreach ($asns as $as => $v) $gi->execute([$id, $day, $cc, $as, $v[0] ?? 0, $v[1] ?? 0]);
+        $hi = db()->prepare('INSERT INTO host_geo (device_id, ip, cc, first_seen, last_seen, bytes) VALUES (?,?,?,?,?,?) ON DUPLICATE KEY UPDATE last_seen=GREATEST(last_seen, VALUES(last_seen)), bytes=bytes+VALUES(bytes)');
+        foreach ($hg as $id => $hosts) foreach ($hosts as $ip => $ccs) foreach ($ccs as $cc => $b) $hi->execute([$id, $ip, $cc, $day, $day, $b]);
+        // stik z zlonamernim strežnikom (botnet C2 ipd.) – en dogodek na napravo in strežnik na dan
+        foreach ($thr as $id => $hosts) {
+            $d = Devices::decorate($devById[$id]);
+            foreach ($hosts as $lan => $dsts) foreach (array_slice($dsts, 0, 3, true) as $dst => $src) {
+                $key = 'threat:' . $lan . ':' . explode(':', $dst)[0];
+                $q = db()->prepare('SELECT 1 FROM alerts WHERE device_id=? AND akey=? AND started_at > NOW() - INTERVAL 1 DAY LIMIT 1'); $q->execute([$id, $key]);
+                if ($q->fetchColumn()) continue;
+                $h = Profile::host($id, $lan);
+                Alerts::event($d, $key, 'critical', A('Naprava {w} komunicira z zlonamernim strežnikom {s} ({v}) – možna okužba', ['w' => $lan . ($h['name'] !== '' ? ' (' . $h['name'] . ')' : ''), 's' => $dst, 'v' => $src]));
+            }
+        }
     }
 
     private static function inNets(string $ip, array $nets): bool

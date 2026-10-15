@@ -41,6 +41,8 @@ final class Notify
                 $kb = (!(int)$r['resolved'] && $r['alert_id'] && setting('tg_webhook') === '1') ? TgBot::alertButtons((int)$r['alert_id'], (int)$r['device_id']) : null;   // gumba samo z vklopljenimi ukazi
                 // napad ali skeniranje z zunanjega IP-ja: gumb za blokado na routerju (ukaz potrdi skrbnik s klikom)
                 if ($kb && ($ip = self::attackerIp((int)$r['alert_id'])) !== null) $kb[] = [['text' => '🚫 ' . A('Blokiraj {ip} za 24 h', ['ip' => $ip]), 'callback_data' => 'blk:' . (int)$r['device_id'] . ':' . $ip . ':24']];
+                // WireGuard prijava iz nove države: gumb za izklop uporabnika
+                if ($kb && ($pid = self::wgPeer((int)$r['alert_id'])) !== null) $kb[] = [['text' => '🔒 ' . A('Izklopi VPN uporabnika'), 'callback_data' => 'wgoff:' . $pid]];
                 self::telegram($icon($r) . ' <b>' . htmlspecialchars($r['dname']) . "</b>\n" . htmlspecialchars($r['msg']) . "\n<a href=\"" . $url($r) . '">' . A('Odpri v NOC') . '</a>', null, null, $kb);
             }
         } elseif ($tg) {
@@ -79,6 +81,12 @@ final class Notify
         $st = db()->prepare('SELECT akey FROM alerts WHERE id=?'); $st->execute([$alertId]); $k = (string)$st->fetchColumn();
         if (!preg_match('/^(?:attack|fwscan):(\d{1,3}(?:\.\d{1,3}){3})$/', $k, $m)) return null;
         return filter_var($m[1], FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE) ? $m[1] : null;
+    }
+
+    private static function wgPeer(int $alertId): ?int
+    {
+        $st = db()->prepare('SELECT akey FROM alerts WHERE id=?'); $st->execute([$alertId]);
+        return preg_match('/^wggeo:(\d+)$/', (string)$st->fetchColumn(), $m) ? (int)$m[1] : null;
     }
 
     /** "🔴 12 novih alarmov, 3 razrešeni" */

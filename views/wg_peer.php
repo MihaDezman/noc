@@ -53,8 +53,11 @@ $deleting = in_array($r['status'], ['delete', 'delfail'], true); ?>
     <div class="actions"><button class="btn primary"><?= icon('check', 15) ?><?= h(A('Shrani')) ?></button></div>
   </form>
   <?php endif; ?>
+  <?php [$u30rx, $u30tx, $u30m] = Wg::usage((int)$r['id'], 30); $geoRows = Wg::countries((int)$r['id']); ?>
   <div class="panel-body" style="border-top:1px solid var(--line-2)">
     <dl class="kv small">
+      <dt><?= h(A('Zadnjih 30 dni')) ?></dt><dd><?= h(A('povezan {t} · prenos {b}', ['t' => fmt_uptime($u30m * 60), 'b' => fmt_bytes($u30rx + $u30tx)])) ?></dd>
+      <?php if ($geoRows): ?><dt><?= h(A('Prijave od')) ?></dt><dd><?php foreach ($geoRows as $g): ?><div><?= h(Geo::flag($g['cc']) . ' ' . Geo::name($g['cc'])) ?> <span class="faint"><?= h($g['org'] ?: 'AS' . $g['asn']) ?> · <?= h(fmt_ago($g['last_seen'])) ?></span></div><?php endforeach; ?></dd><?php endif; ?>
       <dt><?= h(A('Javni ključ')) ?></dt><dd class="mono"><?= h($r['pubkey']) ?></dd>
       <dt><?= h(A('Na routerju')) ?></dt><dd class="mono"><?= h($r['allowed'] ?: '–') ?></dd>
       <dt>Endpoint</dt><dd class="mono"><?= h(Wg::endpoint($d, $r['iface']) ?: '–') ?></dd>
