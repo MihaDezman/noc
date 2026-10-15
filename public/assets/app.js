@@ -23,6 +23,7 @@
   });
   // ---- samodejna oddaja filtrov
   document.querySelectorAll('[data-autosubmit]').forEach(function (s) { s.addEventListener('change', function () { s.form.submit(); }); });
+  document.querySelectorAll('select[data-nav-select]').forEach(function (s) { s.addEventListener('change', function () { if (s.value.charAt(0) === '/') location.href = s.value; }); });
   // ---- potrditev
   document.querySelectorAll('form[data-confirm]').forEach(function (f) {
     f.addEventListener('submit', function (e) { if (!confirm(f.dataset.confirm)) e.preventDefault(); });

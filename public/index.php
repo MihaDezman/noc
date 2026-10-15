@@ -47,7 +47,7 @@ if (str_starts_with($path, '/api/')) {
         try { $resp = Ingest::pushLocked($dev, $body); }
         catch (\RuntimeException $e) { if ($e->getMessage() !== 'push busy') throw $e; json_out(['error' => 'busy'], 503); }   // router pošlje znova čez minuto
         if (MikrotikScript::needsUpdate($dev, (string)($body['sv'] ?? ''))) $resp['upd'] = 1;   // router se sam posodobi
-        if (Actions::pending((int)$dev['id'])) $resp['act'] = 1;   // potrjeni ukrepi (npr. blokada IP)
+        if (Actions::pending((int)$dev['id']) || Wg::pending((int)$dev['id'])) $resp['act'] = 1;   // potrjeni ukrepi (blokada IP, WireGuard uporabniki)
         json_out($resp);
     }
     if ($path === '/api/install/auto' && $method === 'GET') {   // samodejna posodobitev: brez razdelka požarnega zidu
@@ -68,7 +68,8 @@ if (str_starts_with($path, '/api/')) {
     if ($path === '/api/action' && $method === 'GET') {   // potrjeni ukrepi za ta router (.rsc)
         $st = db()->prepare('SELECT * FROM devices WHERE id=?'); $st->execute([$dev['id']]);
         header('Content-Type: text/plain; charset=utf-8'); header('Cache-Control: no-store');
-        echo MikrotikScript::ascii(Actions::rsc($st->fetch())); exit;
+        $full = $st->fetch();
+        echo MikrotikScript::ascii(Actions::rsc($full) . Wg::rsc($full)); exit;
     }
     if (preg_match('#^/api/action-done/(\d+)$#', $path, $m) && $method === 'GET') {   // router potrdi izvedbo ukrepa
         Actions::done($dev, (int)$m[1]);
@@ -235,9 +236,9 @@ if (($seg[0] ?? '') === 'devices' && ctype_digit($seg[1] ?? '')) {
 
     if ($sub === '') {
         $tab = q('tab', 'overview');
-        if ($tab === 'wg') $tab = 'ifaces';   // WireGuard je zdaj na zavihku Vmesniki
+        if ($tab === 'wg' && !$isSuper) $tab = 'ifaces';   // stanje peerjev je za vse na zavihku Vmesniki, upravljanje samo za skrbnika
         $allowed = ['overview', 'ifaces', 'clients', 'sla', 'security', 'logs', 'alerts'];
-        if ($isSuper) array_push($allowed, 'backups', 'settings', 'protect');
+        if ($isSuper) array_push($allowed, 'backups', 'settings', 'protect', 'wg');
         if (!in_array($tab, $allowed, true)) $tab = 'overview';
         $vars = ['d' => $d, 'tab' => $tab, 'ifaces' => Devices::ifaces($id), 'alerts' => Alerts::openList($id), 'title' => $d['name'], 'nav' => 'devices', 'tenants' => Devices::tenants()];
         if ($tab === 'overview') { $vars['autorefresh'] = 120; $vars['vol'] = $d['wan_iface'] ? Metrics::volume($id, $d['wan_iface']) : null; }
@@ -277,6 +278,7 @@ if (($seg[0] ?? '') === 'devices' && ctype_digit($seg[1] ?? '')) {
             $f = rtrim((string)cfg('data_dir', '/var/lib/noc'), '/') . "/push/$id.json";
             $vars['rawPush'] = is_file($f) ? ['at' => filemtime($f), 'size' => filesize($f), 'json' => json_encode(json_decode((string)file_get_contents($f)), JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)] : null;
         }
+        if ($tab === 'wg') { $vars['wgPeers'] = Wg::peers($id); $vars['wgIfaces'] = Wg::ifaces($d); $vars['wgSrv'] = Wg::serverIfaces($d); $vars['wgRouter'] = Wg::routerPeers($d); }
         if ($tab === 'backups') { $st = db()->prepare('SELECT id, created_at, sha1, bytes, added, removed, ai_risk, ai_note FROM config_backups WHERE device_id=? ORDER BY created_at DESC'); $st->execute([$id]); $vars['backups'] = $st->fetchAll(); }
         view('device', $vars);
     }
@@ -314,6 +316,57 @@ if (($seg[0] ?? '') === 'devices' && ctype_digit($seg[1] ?? '')) {
         MikrotikScript::invalidate($id); Ufw::write();
         audit('device.fwlog', $d['name'] . ($on ? ' on' : ' off'));
         back("/devices/$id?tab=protect#fwlog", $on ? A('Varnostna analiza vklopljena. Router dobi nastavitve s samodejno posodobitvijo v nekaj minutah (ali takoj z ukazom s strani Paket).') : A('Varnostna analiza izklopljena. Router nastavitve odstrani ob naslednji posodobitvi.'));
+    }
+    if ($sub === 'wg') {   // WireGuard uporabniki
+        $by = (string)(Auth::$user['email'] ?? 'splet');
+        $pid = ctype_digit($seg[3] ?? '') ? (int)$seg[3] : 0;
+        $r = $pid ? Wg::get($id, $pid) : null;
+        if ($pid && !$r) back("/devices/$id?tab=wg", A('Uporabnik ne obstaja.'), 'err');
+        if ($r && $method === 'GET') {
+            if (($seg[4] ?? '') === 'conf') {   // prenos .conf
+                $c = Wg::config($d, $r); if ($c === null) back("/devices/$id?tab=wg", A('Za tega uporabnika config ni na voljo (ni zasebnega ključa).'), 'err');
+                audit('wg.config', "{$d['name']} {$r['name']} (prenos)");
+                header('Content-Type: text/plain; charset=utf-8'); header('Cache-Control: no-store');
+                header('Content-Disposition: attachment; filename="' . Wg::fileName($d, $r) . '"');
+                echo $c; exit;
+            }
+            $c = Wg::config($d, $r);
+            if ($c !== null) audit('wg.config', "{$d['name']} {$r['name']} (prikaz)");
+            view('wg_peer', ['d' => $d, 'r' => $r, 'conf' => $c, 'title' => $r['name'] . ' – WireGuard', 'nav' => 'wireguard']);
+        }
+        if ($method !== 'POST') back("/devices/$id?tab=wg");
+        $op = post('op');
+        if ($op === 'add') {
+            $res = Wg::create($d, post('iface'), post('name'), post('kind'), post('ip'), post('route'), post('dns'), $by);
+            if (!is_int($res)) back("/devices/$id?tab=wg#wg-add", A('Ni mogoče: {r}', ['r' => $res]), 'err');
+            back("/devices/$id/wg/$res", A('Uporabnik dodan. Router ga doda ob naslednjem pushu (v minuti ali dveh).'));
+        }
+        if ($op === 'endpoint') {
+            $e = trim(post('endpoint'));
+            if ($e !== '' && !preg_match('/^[A-Za-z0-9.-]{1,200}(:\d{1,5})?$/', $e)) back("/devices/$id?tab=wg", A('Endpoint mora biti domena ali IP, po želji s portom (npr. vpn.domena.si:51820).'), 'err');
+            db()->prepare('UPDATE devices SET wg_endpoint=? WHERE id=?')->execute([$e !== '' ? $e : null, $id]); audit('wg.endpoint', "{$d['name']} $e");
+            back("/devices/$id?tab=wg", A('Endpoint shranjen. Velja za nove prenose configa – obstoječi uporabniki imajo še starega.'));
+        }
+        if (!$r) back("/devices/$id?tab=wg");
+        $to = "/devices/$id/wg/{$r['id']}";
+        switch ($op) {
+            case 'edit':
+                $e = Wg::update($d, $r, post('name'), post('ip'), post('dns'), post('route', 'keep'));
+                back($to, $e === '' ? A('Shranjeno.') : A('Ni mogoče: {r}', ['r' => $e]), $e === '' ? 'ok' : 'err');
+            case 'toggle':
+                Wg::setEnabled($d, $r, !(int)$r['enabled']);
+                back(post('back') === 'list' ? "/devices/$id?tab=wg" : $to, (int)$r['enabled'] ? A('Uporabnik izklopljen – router ga izklopi ob naslednjem pushu.') : A('Uporabnik vklopljen – router ga vklopi ob naslednjem pushu.'));
+            case 'rotate':
+                Wg::rotate($d, $r);
+                back($to, A('Nov ključ ustvarjen. Router ga prevzame ob naslednjem pushu – uporabnik mora uvoziti nov config ali QR kodo.'));
+            case 'restore':
+                Wg::restore($d, $r);
+                back($to, A('Router bo uporabnika ponovno dodal ob naslednjem pushu.'));
+            case 'delete':
+                Wg::remove($d, $r);
+                back("/devices/$id?tab=wg", A('Uporabnik se briše – router ga odstrani ob naslednjem pushu.'));
+        }
+        back($to);
     }
     if ($sub === 'note' && $method === 'POST') {   // zapiski za AI pri napravi
         if (post('op') === 'del') db()->prepare('DELETE FROM ai_notes WHERE id=? AND device_id=?')->execute([(int)post('nid'), $id]);
@@ -482,6 +535,41 @@ if (($seg[0] ?? '') === 'alerts' && ctype_digit($seg[1] ?? '') && ($seg[2] ?? ''
     $st = db()->prepare("UPDATE alerts a JOIN devices d ON d.id=a.device_id SET a.acked_by=?, a.acked_at=NOW() WHERE a.id=? AND $w");
     $st->execute(array_merge([Auth::$user['id'], (int)$seg[1]], $p));
     back($_SERVER['HTTP_REFERER'] ?? '/alerts', A('Alarm potrjen.'));
+}
+
+// ---------------------------------------------------------------- WireGuard (vse naprave, uvoz iz generatorja)
+if ($path === '/wireguard' || str_starts_with($path, '/wireguard/')) {
+    Auth::requireSuper();
+    $tmpDir = rtrim((string)cfg('data_dir', '/var/lib/noc'), '/') . '/tmp';
+    if ($path === '/wireguard/import' && $method === 'POST') {   // 1. korak: analiza datoteke (nič se še ne shrani)
+        $f = $_FILES['file'] ?? null;
+        if (!$f || $f['error'] !== UPLOAD_ERR_OK || $f['size'] > 5 * 1024 * 1024) back('/wireguard', A('Izberi datoteko data.json (največ 5 MB).'), 'err');
+        $json = (string)file_get_contents($f['tmp_name']); @unlink($f['tmp_name']);
+        try { $parsed = Wg::importParse($json); } catch (\RuntimeException $e) { back('/wireguard', $e->getMessage(), 'err'); }
+        if (!is_dir($tmpDir)) @mkdir($tmpDir, 0700, true);
+        foreach (glob($tmpDir . '/wgimp-*') ?: [] as $old) if (filemtime($old) < time() - 3600) @unlink($old);
+        $tok = bin2hex(random_bytes(16));
+        file_put_contents($tmpDir . "/wgimp-$tok", enc(json_encode($parsed)));   // šifrirano, ključi niso v seji ali obrazcu
+        $_SESSION['wgimp'] = $tok;
+        audit('wg.import-preview', count($parsed['rows']) . ' vnosov');
+        view('wg_import', ['parsed' => $parsed, 'tok' => $tok, 'title' => A('Uvoz WireGuard uporabnikov'), 'nav' => 'wireguard']);
+    }
+    if ($path === '/wireguard/import/apply' && $method === 'POST') {   // 2. korak: potrditev
+        $tok = post('tok'); $file = $tmpDir . "/wgimp-$tok";
+        if (!preg_match('/^[a-f0-9]{32}$/', $tok) || ($_SESSION['wgimp'] ?? '') !== $tok || !is_file($file)) back('/wireguard', A('Uvoz je potekel – datoteko naloži znova.'), 'err');
+        $parsed = json_decode(dec((string)file_get_contents($file)), true); @unlink($file); unset($_SESSION['wgimp']);
+        if (!is_array($parsed)) back('/wireguard', A('Uvoz je potekel – datoteko naloži znova.'), 'err');
+        $n = Wg::importApply($parsed, array_map('intval', (array)($_POST['add'] ?? [])), (string)(Auth::$user['email'] ?? ''));
+        back('/wireguard', A('Uvoz končan: {i} uporabnikov povezanih z routerji, {a} jih bo dodanih na router.', ['i' => $n['imported'], 'a' => $n['added']])
+            . ($n['skipped'] ? ' ' . A('{s} izpuščenih, ker je njihov IP naslov že zaseden.', ['s' => $n['skipped']]) : ''));
+    }
+    $sq = q('q');
+    $sql = 'SELECT p.*, d.name device_name, d.status_json FROM wg_peers p JOIN devices d ON d.id=p.device_id WHERE d.active=1';
+    $par = [];
+    if ($sq !== '') { $sql .= ' AND (p.name LIKE ? OR p.ip LIKE ? OR d.name LIKE ?)'; $par = ["%$sq%", "%$sq%", "%$sq%"]; }
+    $st = db()->prepare($sql . ' ORDER BY d.name, INET_ATON(p.ip), p.name LIMIT 1000'); $st->execute($par);
+    $devs = db()->query('SELECT id, name, status_json FROM devices WHERE active=1 ORDER BY name')->fetchAll();
+    view('wireguard', ['peers' => $st->fetchAll(), 'devs' => $devs, 'sq' => $sq, 'title' => 'WireGuard', 'nav' => 'wireguard']);
 }
 
 // ---------------------------------------------------------------- logi

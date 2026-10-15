@@ -2,14 +2,14 @@
 declare(strict_types=1);
 
 define('APP_ROOT', dirname(__DIR__));
-define('APP_VERSION', '1.17');
+define('APP_VERSION', '1.18.1');
 
 $config = require APP_ROOT . '/config.php';
 date_default_timezone_set($config['timezone'] ?? 'Europe/Ljubljana');
 if (!empty($config['debug'])) { ini_set('display_errors', '1'); error_reporting(E_ALL); }
 
 if (file_exists(APP_ROOT . '/vendor/autoload.php')) require APP_ROOT . '/vendor/autoload.php';
-foreach (['Auth', 'Devices', 'Ingest', 'Metrics', 'Alerts', 'Notify', 'Flows', 'MikrotikExport', 'MikrotikScript', 'Diff', 'Forms', 'Sla', 'Report', 'Enroll', 'Totp', 'TgBot', 'Filter', 'Firewall', 'FwLog', 'Ai', 'Actions', 'Incidents', 'Forecast'] as $c) require __DIR__ . "/$c.php";
+foreach (['Auth', 'Devices', 'Ingest', 'Metrics', 'Alerts', 'Notify', 'Flows', 'MikrotikExport', 'MikrotikScript', 'Diff', 'Forms', 'Sla', 'Report', 'Enroll', 'Totp', 'TgBot', 'Filter', 'Firewall', 'FwLog', 'Ai', 'Actions', 'Incidents', 'Forecast', 'Wg'] as $c) require __DIR__ . "/$c.php";
 
 function db(): PDO {
     static $pdo = null;
@@ -143,9 +143,11 @@ function fmt_dt(?string $dt, bool $sec = false): string {
 /** brez kontrolnih znakov (nova vrstica bi v .rsc začela nov ukaz) */
 function ros_clean(string $s): string { return (string)preg_replace('/[\x00-\x1f\x7f]+/', ' ', $s); }
 /** za vrednost v narekovajih: "..." */
-function ros_esc(string $s): string { return str_replace(['\\', '"', '$'], ['\\\\', '\\"', '\\$'], ros_clean($s)); }
+/** Skripte gredo na router skozi MikrotikScript::ascii() (transliteracija). Ta iz „ “ ＂ ＄ ＼ naredi " $ \\ – zato najprej
+ *  transliteracija, šele nato ubežanje; sicer bi lahko besedilo ubežalo iz niza (npr. ime z „narekovaji“). */
+function ros_esc(string $s): string { return str_replace(['\\', '"', '$'], ['\\\\', '\\"', '\\$'], ros_clean(MikrotikScript::ascii($s))); }
 /** za besedilo v komentarju (# ...) */
-function ros_cmt(string $s): string { return str_replace('\\', '/', ros_clean($s)); }
+function ros_cmt(string $s): string { return str_replace('\\', '/', ros_clean(MikrotikScript::ascii($s))); }
 /** za vrednost brez narekovajev (port, protokol, ime liste): samo varni znaki, sicer prazno */
 function ros_word(string $s): string { return preg_match('/^[A-Za-z0-9_.,:!\/+-]{1,128}$/', $s) ? $s : ''; }
 /** rekurzivno očisti niz/polje (analiza izvoza, nastavitve naprave) */

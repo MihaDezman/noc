@@ -36,6 +36,7 @@ $upd = $s['upd'] ?? [];
     </form>
     <a class="btn sm <?= $tab === 'backups' ? 'on' : '' ?>" href="/devices/<?= $id ?>?tab=backups"><?= icon('archive', 15) ?><?= h(A('Konfiguracija')) ?></a>
     <a class="btn sm <?= $tab === 'protect' ? 'on' : '' ?>" href="/devices/<?= $id ?>?tab=protect"><?= icon('shield', 15) ?><?= h(A('Zaščita')) ?><?php if (($d['filter_profile'] ?? 'off') !== 'off'): ?> <span class="dot up" style="margin-left:2px"></span><?php endif; ?></a>
+    <a class="btn sm <?= $tab === 'wg' ? 'on' : '' ?>" href="/devices/<?= $id ?>?tab=wg"><?= icon('lock', 15) ?>WireGuard</a>
     <a class="btn sm <?= $tab === 'settings' ? 'on' : '' ?>" href="/devices/<?= $id ?>?tab=settings"><?= icon('settings', 15) ?><?= h(A('Nastavitve')) ?></a>
     <a class="btn sm" href="/devices/<?= $id ?>/install"><?= icon('download', 15) ?><?= h(A('Paket')) ?></a>
   </div>
@@ -550,6 +551,73 @@ $upd = $s['upd'] ?? [];
       <td class="num"><?php if (!$a['ended_at']): ?><?php if ($a['acked_at']): ?><span class="tag"><?= icon('check', 12) ?><?= h(A('potrjen')) ?></span><?php else: ?><form method="post" action="/alerts/<?= (int)$a['id'] ?>/ack"><?= Auth::csrf() ?><button class="btn sm"><?= icon('check', 14) ?><?= h(A('Potrdi')) ?></button></form><?php endif; ?><?php endif; ?></td>
     </tr><?php endforeach; ?></tbody>
   </table></div><?php endif; ?>
+</section>
+
+<?php elseif ($tab === 'wg'):
+  $wgDef = array_key_first($wgSrv) ?? ''; $wgSug = $wgDef !== '' ? Wg::suggestIp($d, $wgDef) : ''; ?>
+<?php if (!Wg::ready($d)): ?>
+<section class="panel"><div class="panel-body small muted"><?= icon('clock', 14) ?> <?= h(A('Router še pošilja podatke stare skripte. Posodobi se sam v nekaj minutah, nato se tu pokažejo WireGuard vmesniki in uporabniki.')) ?></div></section>
+<?php endif; ?>
+<section class="panel" id="wg-users">
+  <div class="panel-head"><h2><?= icon('users', 18) ?><?= h(A('WireGuard uporabniki')) ?> <span class="tag"><?= count($wgPeers) ?></span></h2><span class="small muted"><?= h(A('Spremembe router izvede ob naslednjem pushu')) ?></span></div>
+  <?php if (!$wgPeers): ?><div class="empty small"><?= h(A('Na tem routerju še ni WireGuard peerjev.')) ?></div><?php else: ?>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th><?= h(A('Ime')) ?></th><th><?= h(A('Vmesnik')) ?></th><th>IP</th><th><?= h(A('Stanje')) ?></th><th><?= h(A('Zadnja povezava')) ?></th><th class="num">RX / TX</th><th>Config</th><th></th></tr></thead>
+    <tbody><?php foreach ($wgPeers as $p): [$sc, $sl] = Wg::statusLabel($p); $rp = $wgRouter[$p['pubkey']] ?? null; $hs = $rp ? ros_seconds((string)($rp['hs'] ?? '')) : null; ?><tr>
+      <td><a class="rowlink" href="/devices/<?= $id ?>/wg/<?= (int)$p['id'] ?>"><?= icon($p['kind'] === 'phone' ? 'smartphone' : ($p['kind'] === 'pc' ? 'laptop' : 'link'), 14, 'faint') ?> <?= h($p['name'] ?: '–') ?></a></td>
+      <td class="mono small"><?= h($p['iface']) ?></td>
+      <td class="mono"><?= h($p['ip'] ?: $p['allowed']) ?></td>
+      <td class="nowrap"><span class="tag <?= $sc ?>"><?= h($sl) ?></span><?= !(int)$p['enabled'] ? ' <span class="tag">' . h(A('izklopljen')) . '</span>' : '' ?></td>
+      <td class="nowrap"><?= $hs === null ? '<span class="faint">' . h(A('nikoli')) . '</span>' : '<span class="tag ' . ($hs < 180 ? 'up' : ($hs < 900 ? 'warn' : '')) . '">' . h(A('pred {t}', ['t' => fmt_uptime($hs)])) . '</span>' ?><?= $rp && ($rp['ep'] ?? '') !== '' ? '<div class="small faint mono">' . h($rp['ep']) . '</div>' : '' ?></td>
+      <td class="num small nowrap"><?= $rp ? h(fmt_bytes($rp['rx'] ?? 0)) . ' / ' . h(fmt_bytes($rp['tx'] ?? 0)) : '–' ?></td>
+      <td><?= $p['priv_enc'] ? '<span class="tag up">' . icon('key', 12) . h(A('na voljo')) . '</span>' : '<span class="tag" title="' . h(A('Zasebnega ključa ni v NOC – config ni mogoče izdelati. Uvozi ga iz generatorja ali zamenjaj ključ.')) . '">' . h(A('ni ključa')) . '</span>' ?></td>
+      <td class="num nowrap">
+        <?php if (in_array($p['status'], ['ok', 'sync', 'failed'], true)): ?><form method="post" action="/devices/<?= $id ?>/wg/<?= (int)$p['id'] ?>" style="display:inline"><?= Auth::csrf() ?><input type="hidden" name="op" value="toggle"><input type="hidden" name="back" value="list"><button class="btn sm" title="<?= h((int)$p['enabled'] ? A('Izklopi') : A('Vklopi')) ?>"><?= icon('power', 14) ?></button></form><?php endif; ?>
+        <a class="btn sm" href="/devices/<?= $id ?>/wg/<?= (int)$p['id'] ?>"><?= icon($p['priv_enc'] ? 'eye' : 'edit', 14) ?><?= h($p['priv_enc'] ? A('QR / config') : A('Uredi')) ?></a>
+      </td>
+    </tr><?php endforeach; ?></tbody>
+  </table></div><?php endif; ?>
+</section>
+
+<section class="panel" id="wg-add">
+  <div class="panel-head"><h2><?= icon('plus', 18) ?><?= h(A('Dodaj uporabnika')) ?></h2><span class="small muted"><?= h(A('NOC ustvari ključe, config in QR kodo ter peer doda na router')) ?></span></div>
+  <?php if (!$wgSrv): ?><div class="panel-body small muted"><?= h(A('Router nima WireGuard vmesnika s portom in naslovom (strežnik). Ko ga nastaviš, se tu pokaže obrazec.')) ?></div><?php else: ?>
+  <form class="panel-body form" method="post" action="/devices/<?= $id ?>/wg"><?= Auth::csrf() ?><input type="hidden" name="op" value="add">
+    <div class="row c3">
+      <label class="f"><span><?= h(A('Ime')) ?></span><input type="text" name="name" maxlength="100" required placeholder="<?= h(A('npr. Janez – telefon')) ?>"></label>
+      <label class="f"><span><?= h(A('Vrsta')) ?></span><select name="kind"><option value="phone"><?= h(A('Telefon (QR koda)')) ?></option><option value="pc"><?= h(A('Računalnik (config datoteka)')) ?></option></select></label>
+      <label class="f"><span><?= h(A('Vmesnik')) ?></span><select name="iface"><?php foreach ($wgSrv as $wn => $w): ?><option value="<?= h($wn) ?>"><?= h($wn . ' · ' . $w['a'] . ' · :' . $w['p']) ?></option><?php endforeach; ?></select></label>
+    </div>
+    <div class="row c3">
+      <label class="f"><span><?= h(A('IP naslov uporabnika')) ?></span><input type="text" name="ip" class="mono" value="<?= h($wgSug) ?>" required><small><?= h(A('predlagan prvi prosti naslov')) ?></small></label>
+      <label class="f"><span><?= h(A('Promet skozi tunel')) ?></span><select name="route"><option value="all"><?= h(A('Ves promet (tudi internet)')) ?></option><option value="lan"><?= h(A('Samo omrežje stranke (LAN)')) ?></option></select></label>
+      <label class="f"><span><?= h(A('DNS strežniki')) ?></span><input type="text" name="dns" value="<?= h(Wg::DEFAULT_DNS) ?>"></label>
+    </div>
+    <div class="actions"><button class="btn primary"><?= icon('plus', 15) ?><?= h(A('Dodaj in prikaži QR kodo')) ?></button></div>
+  </form>
+  <?php endif; ?>
+</section>
+
+<section class="panel" id="wg-server">
+  <div class="panel-head"><h2><?= icon('server', 18) ?><?= h(A('WireGuard na routerju')) ?></h2></div>
+  <?php if (!$wgIfaces): ?><div class="empty small"><?= h(A('Na routerju ni WireGuard vmesnikov.')) ?></div><?php else: ?>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th><?= h(A('Vmesnik')) ?></th><th><?= h(A('Naslov')) ?></th><th>Port</th><th><?= h(A('Javni ključ')) ?></th><th>Endpoint</th></tr></thead>
+    <tbody><?php foreach ($wgIfaces as $wn => $w): ?><tr>
+      <td class="mono"><b><?= h($wn) ?></b><?= $w['dis'] ? ' <span class="tag">' . h(A('izklopljen')) . '</span>' : '' ?><?= !isset($wgSrv[$wn]) ? ' <span class="tag" title="' . h(A('brez porta ali naslova – verjetno odjemalec (povezava na drug router)')) . '">' . h(A('odjemalec')) . '</span>' : '' ?></td>
+      <td class="mono"><?= h($w['a'] ?: '–') ?></td><td class="mono"><?= $w['p'] ?: '–' ?></td>
+      <td class="mono small nowrap"><?= h($w['pk']) ?> <button type="button" class="btn sm ghost" data-copy="<?= h($w['pk']) ?>" title="<?= h(A('Kopiraj')) ?>"><?= icon('copy', 13) ?></button></td>
+      <td class="mono small"><?= isset($wgSrv[$wn]) ? h(Wg::endpoint($d, $wn) ?: '–') : '–' ?></td>
+    </tr><?php endforeach; ?></tbody>
+  </table></div>
+  <form class="panel-body form" method="post" action="/devices/<?= $id ?>/wg" style="border-top:1px solid var(--line-2)"><?= Auth::csrf() ?><input type="hidden" name="op" value="endpoint">
+    <div class="row c3">
+      <label class="f"><span><?= h(A('Endpoint v configu')) ?></span><input type="text" name="endpoint" class="mono" value="<?= h((string)($d['wg_endpoint'] ?? '')) ?>" placeholder="<?= h($d['public_ip'] ?: 'vpn.domena.si') ?>"></label>
+      <div style="align-self:end"><button class="btn"><?= icon('check', 15) ?><?= h(A('Shrani')) ?></button></div>
+    </div>
+    <small class="muted"><?= h(A('Prazno = javni IP naprave. Domena ali IP, po želji s portom.')) ?></small>
+  </form>
+  <?php endif; ?>
 </section>
 
 <?php elseif ($tab === 'backups'): ?>

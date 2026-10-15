@@ -253,10 +253,24 @@ final class MikrotikScript
 
 # --- WireGuard
 :local wg [:toarray ""]
+:local wgErr false
 :do {
     :foreach p in=[/interface wireguard peers find] do={
+        :do {
         :local pv [/interface wireguard peers get \$p]
-        :set (\$wg->[:len \$wg]) {"i"=[:tostr (\$pv->"interface")];"n"=[:tostr (\$pv->"name")];"c"=[:tostr (\$pv->"comment")];"ep"=[:tostr (\$pv->"current-endpoint-address")];"hs"=[:tostr (\$pv->"last-handshake")];"rx"=(\$pv->"rx");"tx"=(\$pv->"tx");"dis"=(\$pv->"disabled")}
+        :set (\$wg->[:len \$wg]) {"i"=[:tostr (\$pv->"interface")];"n"=[:tostr (\$pv->"name")];"c"=[:tostr (\$pv->"comment")];"ep"=[:tostr (\$pv->"current-endpoint-address")];"hs"=[:tostr (\$pv->"last-handshake")];"rx"=(\$pv->"rx");"tx"=(\$pv->"tx");"dis"=(\$pv->"disabled");"pk"=[:tostr (\$pv->"public-key")];"a"=[:tostr (\$pv->"allowed-address")]}
+        } on-error={ :set wgErr true }
+    }
+} on-error={ :set wgErr true }
+# WireGuard vmesniki: javni ključ, port, naslov (zasebni ključ se nikoli ne pošilja)
+:local wgi [:toarray ""]
+:do {
+    :foreach w in=[/interface wireguard find] do={
+        :local wv [/interface wireguard get \$w]
+        :local wn [:tostr (\$wv->"name")]
+        :local wa ""
+        :foreach ad in=[/ip address find where interface=\$wn] do={ :if (\$wa = "") do={ :set wa [:tostr [/ip address get \$ad address]] } }
+        :set (\$wgi->[:len \$wgi]) {"n"=\$wn;"pk"=[:tostr (\$wv->"public-key")];"p"=(\$wv->"listen-port");"a"=\$wa;"dis"=(\$wv->"disabled")}
     }
 } on-error={}
 
@@ -278,7 +292,7 @@ final class MikrotikScript
     }
 }
 
-:local data {"v"=1;"sv"=\$scriptVer;"tick"=\$nocTick;"ident"=\$ident;"res"=\$res;"rb"=\$rb;"health"=\$hl;"ifs"=\$ifs;"rates"=\$rates;"ping"=\$ping;"conns"=\$conns;"nLeases"=\$nLeases;"leases"=\$leases;"pools"=\$pools;"flt"=\$flt;"sfp"=\$sfp;"wg"=\$wg;"logs"=\$logs;"upd"=\$nocUpd{$tlsData}}
+:local data {"v"=1;"sv"=\$scriptVer;"tick"=\$nocTick;"ident"=\$ident;"res"=\$res;"rb"=\$rb;"health"=\$hl;"ifs"=\$ifs;"rates"=\$rates;"ping"=\$ping;"conns"=\$conns;"nLeases"=\$nLeases;"leases"=\$leases;"pools"=\$pools;"flt"=\$flt;"sfp"=\$sfp;"wg"=\$wg;"wgx"=\$wgErr;"wgi"=\$wgi;"logs"=\$logs;"upd"=\$nocUpd{$tlsData}}
 :local body [:serialize to=json value=\$data]
 # varovalka: fetch ima omejitev velikosti - prevelik push (npr. ogromne vrstice loga) pošlji brez logov
 :if ([:len \$body] > 48000) do={

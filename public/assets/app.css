@@ -99,6 +99,7 @@ h3 { font-size: .95rem; }
 .grid { display: grid; gap: 20px; }
 .g2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .g3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.g4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 .g-main { grid-template-columns: minmax(0, 1.7fr) minmax(0, 1fr); }
 
 .btn { display: inline-flex; align-items: center; gap: 8px; padding: 9px 16px; border-radius: 9px; border: 1px solid var(--line); background: var(--panel); color: var(--text); font: inherit; font-weight: 500; font-size: .92rem; cursor: pointer; white-space: nowrap; }
@@ -495,3 +496,12 @@ pre.raw { margin: 0; padding: 16px 20px; font-family: var(--mono); font-size: .8
 .feed.review .what pre { white-space: pre-wrap; word-break: break-word; }
 .feed.timeline .what .tag { margin-right: 4px; }
 .sev-bar.ok { background: var(--up); }
+
+/* WireGuard */
+.flash.warn { background: var(--warn-soft); color: var(--warn); }
+.wg-conf { display: grid; gap: 14px; justify-items: start; }
+.wg-qr { background: #fff; padding: 10px; border-radius: var(--r); line-height: 0; border: 1px solid var(--line); }
+.wg-qr svg { width: 260px; height: 260px; display: block; }
+.wg-text { width: 100%; }
+.wg-text pre { margin: 8px 0 0; padding: 12px; background: var(--bg); border-radius: var(--r); white-space: pre-wrap; overflow-wrap: anywhere; }
+@media (max-width: 900px) { .g4 { grid-template-columns: repeat(2, minmax(0, 1fr)); } }

@@ -34,8 +34,9 @@ final class Ingest
         $pdo->beginTransaction();   // push se zapiše v celoti ali sploh ne
         try {
         // omejitev velikosti polj (zaščita pred prevelikim ali zlonamernim pushom)
-        foreach (['ifs' => 512, 'rates' => 512, 'sfp' => 64, 'leases' => 4096, 'pools' => 64, 'logs' => 300, 'wg' => 64, 'health' => 64] as $k => $max)
-            if (is_array($b[$k] ?? null) && count($b[$k]) > $max) $b[$k] = $k === 'logs' ? array_slice($b[$k], -$max) : array_slice($b[$k], 0, $max, true);   // logi: najnovejši
+        foreach (['ifs' => 512, 'rates' => 512, 'sfp' => 64, 'leases' => 4096, 'pools' => 64, 'logs' => 300, 'wg' => 256, 'wgi' => 16, 'health' => 64] as $k => $max)
+            if (is_array($b[$k] ?? null) && count($b[$k]) > $max) { $b[$k] = $k === 'logs' ? array_slice($b[$k], -$max) : array_slice($b[$k], 0, $max, true); if ($k === 'wg') $b['_wg_cut'] = 1; }   // logi: najnovejši
+        if (!empty($b['wgx'])) $b['_wg_cut'] = 1;   // router pri branju peerjev ni prebral vseh: seznam ni popoln
         $res = is_array($b['res'] ?? null) ? $b['res'] : [];
         $rb = is_array($b['rb'] ?? null) ? $b['rb'] : [];
         $ping = is_array($b['ping'] ?? null) ? $b['ping'] : [];
@@ -196,7 +197,7 @@ final class Ingest
         // --- status naprave (za prikaz)
         $status = [
             'ident' => (string)($b['ident'] ?? ''), 'res' => $res, 'rb' => $rb, 'health' => $healthRaw, 'ping' => $ping,
-            'wg' => (array)($b['wg'] ?? []), 'upd' => (array)($b['upd'] ?? []), 'h' => $h, 'at' => date('c', $now),
+            'wg' => (array)($b['wg'] ?? []), 'wgi' => (array)($b['wgi'] ?? []), 'upd' => (array)($b['upd'] ?? []), 'h' => $h, 'at' => date('c', $now),
             'pools' => $pools ?? ($oldStatus['pools'] ?? []),
             'flt' => is_array($b['flt'] ?? null) && $b['flt'] ? $b['flt'] : ($oldStatus['flt'] ?? null),
         ];
@@ -212,6 +213,9 @@ final class Ingest
 
         $pdo->commit();
         } catch (\Throwable $e) { if ($pdo->inTransaction()) $pdo->rollBack(); throw $e; }
+
+        // --- WireGuard uporabniki: uskladitev želenega stanja z routerjem
+        try { Wg::sync($d, $b); } catch (\Throwable $e) { error_log('noc wg sync: ' . $e->getMessage()); }
 
         // --- alarmi iz svežih podatkov
         $d = Devices::decorate(array_merge($d, ['last_seen_at' => date('Y-m-d H:i:s'), 'status_json' => json_encode($status)]));
