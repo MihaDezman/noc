@@ -514,3 +514,19 @@ pre.raw { margin: 0; padding: 16px 20px; font-family: var(--mono); font-size: .8
 .score-badge.down { background: var(--down-soft); color: var(--down); }
 .inline-sel { display: inline-flex; align-items: center; gap: 6px; margin: 0; }
 .inline-sel select { width: auto; padding: 4px 26px 4px 8px; font-size: .85rem; min-height: 0; }
+
+/* ---- Grafi: vsi routerji, dva stolpca */
+.graph-list { display: grid; gap: 26px; }
+.graph-dev-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 10px; }
+.graph-dev-head .dev-link { display: inline-flex; align-items: center; gap: 8px; color: var(--text); }
+.graph-dev-head .graph-now { margin-left: auto; display: inline-flex; gap: 12px; align-items: center; }
+.graph-dev-head .graph-now span { display: inline-flex; align-items: center; gap: 3px; }
+.graph-pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.graph-pair .panel { margin: 0; min-width: 0; }
+.graph-pair .panel-head { padding: 11px 16px; }
+.graph-pair .legend { margin-top: 6px; }
+.graph-pair .chart-box { min-height: 190px; }
+.graph-pair .panel-head h3 { display: flex; align-items: center; gap: 7px; }
+.graph-pair .panel-head h3 .ico { color: var(--violet); }
+.graph-pair .panel-body { padding: 12px 14px; }
+@media (max-width: 900px) { .graph-pair { grid-template-columns: 1fr; } .graph-dev-head .graph-now { margin-left: 0; } }

@@ -1,0 +1,22 @@
+# Bandwidth test strežnik za meritve hitrosti z routerjev (btest-rs, TCP port 2000)
+# Namestitev: glej deploy/btest/README.md
+[Unit]
+Description=NOC btest strežnik (meritve hitrosti MikroTik)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+EnvironmentFile=/etc/noc-btest.env
+ExecStart=/usr/local/bin/btest -s -P 2000 -a ${BTEST_USER} -p ${BTEST_PASS} --ecsrp5
+DynamicUser=yes
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+RestrictAddressFamilies=AF_INET AF_INET6
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

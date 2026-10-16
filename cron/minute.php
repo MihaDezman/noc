@@ -18,6 +18,7 @@ if (db()->query('SELECT COUNT(*) FROM devices WHERE active=1 AND fwlog_enabled=1
     } catch (\Throwable $e) { error_log('noc fwlog: ' . $e->getMessage()); cron_mark('fwlog', 'napaka: ' . $e->getMessage()); }
 }
 if ((int)date('i') === 7) { Alerts::backups(); Alerts::serverBackup(); }   // enkrat na uro
+try { Speed::nightly(); } catch (\Throwable $e) { error_log('noc speed: ' . $e->getMessage()); }   // nočne meritve hitrosti (04:00–05:59)
 // AI pomočnik v ozadju (svoj zaklep) – počasni klici AI ne zamaknejo naslednjega kroga
 if (Ai::on()) exec(escapeshellarg(PHP_BINARY) . ' ' . escapeshellarg(__DIR__ . '/ai.php') . ' > /dev/null 2>&1 &');
 $sent = trim($sent . ' ' . $flush());   // obvestila iz tega kroga (izpadi, ping)

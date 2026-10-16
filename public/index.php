@@ -75,6 +75,11 @@ if (str_starts_with($path, '/api/')) {
         Actions::done($dev, (int)$m[1], ($_GET['fail'] ?? '') === '1');
         json_out(['ok' => true]);
     }
+    if (preg_match('#^/api/speed-done/(\d+)$#', $path, $m) && $method === 'GET') {   // rezultat meritve hitrosti
+        Speed::done($dev, (int)$m[1], $_GET);
+        json_out(['ok' => true]);
+    }
+    if ($path === '/api/speed-file' && $method === 'GET') Speed::serveFile((int)($_GET['bytes'] ?? 0));   // testna datoteka (meritev s prenosom z NOC)
     if ($path === '/api/fw-confirm' && $method === 'GET') {   // router po spremembi požarnega zidu potrdi, da še doseže NOC
         db()->prepare('UPDATE devices SET fw_confirmed_at=NOW() WHERE id=?')->execute([$dev['id']]);
         db()->prepare('INSERT INTO audit (user_id, action, detail, ip) VALUES (NULL, ?, ?, ?)')->execute(['device.fw-confirm', $dev['name'], client_ip()]);
@@ -168,6 +173,13 @@ if ($path === '/') {
     $st->execute($p); $recent = $st->fetchAll();
     $ifaces = Devices::ifacesMany(array_column($devs, 'id'));
     view('dashboard', ['devs' => $devs, 'alerts' => $alerts, 'logs' => $logs, 'recent' => $recent, 'ifaces' => $ifaces, 'title' => A('Pregled'), 'nav' => 'dash', 'autorefresh' => 60]);
+}
+
+// ---------------------------------------------------------------- grafi vseh routerjev
+if ($path === '/graphs') {
+    $devs = Devices::all((int)q('t') ?: null);
+    if (q('q') !== '') { $needle = mb_strtolower(q('q')); $devs = array_values(array_filter($devs, fn($d) => str_contains(mb_strtolower($d['name'] . ' ' . $d['site'] . ' ' . $d['public_ip'] . ' ' . $d['model'] . ' ' . $d['tenant_name']), $needle))); }
+    view('graphs', ['devs' => $devs, 'tenants' => Devices::tenants(), 'title' => A('Grafi'), 'nav' => 'graphs']);
 }
 
 // ---------------------------------------------------------------- naprave
@@ -322,6 +334,16 @@ if (($seg[0] ?? '') === 'devices' && ctype_digit($seg[1] ?? '')) {
         MikrotikScript::invalidate($id); Ufw::write();
         audit('device.fwlog', $d['name'] . ($on ? ' on' : ' off'));
         back("/devices/$id?tab=protect#fwlog", $on ? A('Varnostna analiza vklopljena. Router dobi nastavitve s samodejno posodobitvijo v nekaj minutah (ali takoj z ukazom s strani Paket).') : A('Varnostna analiza izklopljena. Router nastavitve odstrani ob naslednji posodobitvi.'));
+    }
+    if ($sub === 'speed' && $method === 'POST') {   // meritev hitrosti interneta
+        if (post('op') === 'auto') {
+            $on = post('on') === '1' ? 1 : 0;
+            db()->prepare('UPDATE devices SET speed_auto=? WHERE id=?')->execute([$on, $id]);
+            audit('device.speed-auto', $d['name'] . ($on ? ' on' : ' off'));
+            back("/devices/$id#speed", $on ? A('Nočna meritev vklopljena (med 04:00 in 05:59).') : A('Nočna meritev izklopljena.'));
+        }
+        $r = Speed::request($d, post('m', 'btest'), 'splet', (string)(Auth::$user['email'] ?? 'splet'));
+        back("/devices/$id#speed", is_int($r) ? A('Meritev poslana routerju – rezultat bo tukaj in na Telegramu v približno minuti.') : A('Ni mogoče: {r}', ['r' => $r]), is_int($r) ? 'ok' : 'err');
     }
     if ($sub === 'upgrade' && $method === 'POST') {   // načrtovana posodobitev RouterOS (ponoči)
         $v = Ros::latest();
@@ -763,6 +785,12 @@ if ($path === '/settings') {
         if (($aiKey = preg_replace('/\s+/', '', post('ai_key'))) !== '') setting_set('ai_key_enc', enc($aiKey));
         if (post('ai_key_clear')) setting_set('ai_key_enc', '');
         if (($abKey = preg_replace('/\s+/', '', post('abuse_key'))) !== '' && preg_match('/^[A-Za-z0-9]{20,100}$/', $abKey)) setting_set('abuse_key_enc', enc($abKey));
+        // meritve hitrosti
+        $bh = post('speed_btest_host'); if ($bh === '' || Speed::validHost($bh)) setting_set('speed_btest_host', $bh);
+        $bu = post('speed_btest_user'); if ($bu === '' || Speed::validCred($bu)) setting_set('speed_btest_user', $bu);
+        if (($bp = post('speed_btest_pass')) !== '' && Speed::validCred($bp)) setting_set('speed_btest_pass_enc', enc($bp));
+        if (in_array(post('speed_http_src'), ['cf', 'noc'], true)) setting_set('speed_http_src', post('speed_http_src'));
+        if (is_numeric(post('speed_low_pct'))) setting_set('speed_low_pct', (string)max(10, min(100, (int)post('speed_low_pct'))));
         if (isset(Ai::MODELS[post('ai_model')])) setting_set('ai_model', post('ai_model'));
         setting_set('ai_daily', (string)max(1, min(5000, (int)post('ai_daily', '100'))));
         foreach (['ai_alerts', 'ai_config', 'ai_watch', 'ai_tg', 'ai_chat', 'ai_digest', 'ai_incidents', 'ai_report'] as $k) setting_set($k, post($k) ? '1' : '0');

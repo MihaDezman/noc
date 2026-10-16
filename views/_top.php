@@ -30,6 +30,7 @@ $flash = Auth::flash();
     <div class="nav-group">
       <?= $navItem('dash', '/', 'dashboard', A('Pregled')) ?>
       <?= $navItem('devices', '/devices', 'router', A('Naprave')) ?>
+      <?= $navItem('graphs', '/graphs', 'activity', A('Grafi')) ?>
       <?= $navItem('alerts', '/alerts', 'bell', A('Alarmi'), ($ac['c'] ?? 0) > 0 ? '<span class="count">' . (int)$ac['c'] . '</span>' : (($ac['w'] ?? 0) > 0 ? '<span class="count warn">' . (int)$ac['w'] . '</span>' : '')) ?>
       <?= $navItem('logs', '/logs', 'scroll', A('Logi')) ?>
       <?= $navItem('reports', '/reports', 'file', A('Poročila')) ?>

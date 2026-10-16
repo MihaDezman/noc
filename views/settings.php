@@ -53,6 +53,22 @@ $num = function (string $k, string $label, string $unit, string $hint = '') {
       <p class="small muted" style="margin:0"><?= h(A('Prvi prenos takoj (sicer ponoči):')) ?> <code>sudo -u www-data php /var/www/noc/cron/secdata.php</code> · <?= Geo::attribution() ?></p>
     </div></section>
 
+  <?php $bt = Speed::btest(); ?>
+  <section class="panel" id="speed"><div class="panel-head"><h2><?= icon('gauge', 18) ?><?= h(A('Meritve hitrosti')) ?></h2><span class="small muted"><?= h(A('ročno na napravi ali vsako noč (04:00–05:59)')) ?></span></div>
+    <div class="panel-body form">
+      <p class="small muted" style="margin-top:0"><?= h(A('btest meri download in upload brez šifriranja, zato je natančen tudi na šibkejših routerjih. Teče proti strežniku NOC (btest-rs, TCP port 2000). Če ga ni ali ne odgovori, router izmeri s prenosom datoteke (samo download).')) ?></p>
+      <div class="row c3">
+        <label class="f"><span><?= h(A('btest strežnik')) ?></span><input type="text" name="speed_btest_host" class="mono" value="<?= h(setting('speed_btest_host', (string)cfg('noc_ip', ''))) ?>" placeholder="203.0.113.10"></label>
+        <label class="f"><span><?= h(A('btest uporabnik')) ?></span><input type="text" name="speed_btest_user" class="mono" value="<?= h(setting('speed_btest_user', '')) ?>" autocomplete="off"></label>
+        <label class="f"><span><?= h(A('btest geslo')) ?></span><input type="password" name="speed_btest_pass" autocomplete="new-password" placeholder="<?= setting('speed_btest_pass_enc') !== '' ? h(A('shranjeno – vpiši samo za zamenjavo')) : '' ?>"><small><?= h(A('črke, številke in . _ @ + -')) ?></small></label>
+      </div>
+      <div class="row c3">
+        <label class="f"><span><?= h(A('Prenos datoteke z')) ?></span><select name="speed_http_src"><option value="cf" <?= setting('speed_http_src', 'cf') === 'cf' ? 'selected' : '' ?>>Cloudflare (speed.cloudflare.com)</option><option value="noc" <?= setting('speed_http_src', 'cf') === 'noc' ? 'selected' : '' ?>><?= h(A('strežnika NOC')) ?></option></select></label>
+        <label class="f"><span><?= h(A('Opozorilo pod')) ?> <small>(%)</small></span><input type="number" name="speed_low_pct" min="10" max="100" value="<?= (int)setting('speed_low_pct', '70') ?>"><small><?= h(A('zakupljene hitrosti, 3 nočne meritve zapored')) ?></small></label>
+        <div class="f"><span><?= h(A('Stanje')) ?></span><div class="small" style="padding-top:8px"><?= $bt ? '<span class="tag up">' . h(A('btest nastavljen')) . '</span>' : '<span class="tag">' . h(A('samo prenos datoteke')) . '</span>' ?></div></div>
+      </div>
+    </div></section>
+
   <?php $tlsAll = db()->query('SELECT COUNT(*) n, COALESCE(SUM(tls_check),0) on_, COALESCE(SUM(tls_check=1 AND tls_ok=0),0) bad FROM devices WHERE active=1')->fetch(); ?>
   <section class="panel" id="tls"><div class="panel-head"><h2><?= icon('lock', 18) ?><?= h(A('Preverjanje certifikata NOC')) ?></h2>
     <div class="actions"><span class="small muted"><?= h(A('vklopljeno pri {a} od {n} naprav', ['a' => (int)$tlsAll['on_'], 'n' => (int)$tlsAll['n']])) ?></span>

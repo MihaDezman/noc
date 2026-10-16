@@ -173,13 +173,20 @@
   }
   function redrawAll() { charts.forEach(function (b) { if (b._data) draw(b); }); }
 
-  document.querySelectorAll('[data-chart]').forEach(function (box) { charts.push(box); load(box); });
+  // leno nalaganje (podstran Grafi): graf se naloži, ko pride blizu vidnega dela strani
+  var lazyObs = 'IntersectionObserver' in window ? new IntersectionObserver(function (ents) {
+    ents.forEach(function (e) { if (e.isIntersecting) { lazyObs.unobserve(e.target); e.target._seen = true; load(e.target); } });
+  }, { rootMargin: '300px 0px' }) : null;
+  document.querySelectorAll('[data-chart]').forEach(function (box) {
+    charts.push(box);
+    if (box.hasAttribute('data-lazy') && lazyObs) lazyObs.observe(box); else { box._seen = true; load(box); }
+  });
   document.querySelectorAll('[data-range-for]').forEach(function (seg) {
     seg.addEventListener('click', function (e) {
       var b = e.target.closest('button'); if (!b) return;
       seg.querySelectorAll('button').forEach(function (x) { x.classList.toggle('on', x === b); });
       var grp = document.getElementById(seg.dataset.rangeFor); if (!grp) return;
-      grp.querySelectorAll('[data-chart]').forEach(function (box) { box.dataset.r = b.dataset.r; load(box); });
+      grp.querySelectorAll('[data-chart]').forEach(function (box) { box.dataset.r = b.dataset.r; if (box._seen) load(box); });
     });
   });
   var rt; window.addEventListener('resize', function () { clearTimeout(rt); rt = setTimeout(redrawAll, 150); });

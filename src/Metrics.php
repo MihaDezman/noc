@@ -113,6 +113,7 @@ final class Metrics
         self::purge('geo_daily', 'day < CURDATE() - INTERVAL 400 DAY');
         self::purge('host_geo', 'last_seen < CURDATE() - INTERVAL 180 DAY');
         self::purge('wg_daily', 'day < CURDATE() - INTERVAL 400 DAY');
+        self::purge('speed_tests', 'at < NOW() - INTERVAL 730 DAY');
         self::purge('alerts', 'ended_at < NOW() - INTERVAL 365 DAY');
         // varnostni dogodki (skeniranja, sumljiv odhodni promet) so pogosti – zavihek Varnost kaže 30 dni
         self::purge('alerts', "ended_at < NOW() - INTERVAL 90 DAY AND (akey LIKE 'fwscan:%' OR akey = 'fwspike' OR akey LIKE 'outbl:%' OR akey LIKE 'outscan:%' OR akey LIKE 'outsmtp:%')");

@@ -63,6 +63,8 @@ final class Actions
     /** Ali ima router potrjene ukrepe, ki jih še ni prevzel (za odgovor na push) */
     public static function pending(int $deviceId): bool
     {
+        // meritev hitrosti brez rezultata v 10 min ne ponavljamo (obremeni linijo) – neuspešna
+        db()->prepare("UPDATE noc_actions SET status='failed' WHERE device_id=? AND kind='speed' AND status='sent' AND sent_at < NOW() - INTERVAL 10 MINUTE")->execute([$deviceId]);
         // "sent" brez potrditve 10 min = ponovi (uvoz je idempotenten), po 3 poskusih neuspešno
         db()->prepare("UPDATE noc_actions SET status='failed' WHERE device_id=? AND status='sent' AND tries >= 3 AND sent_at < NOW() - INTERVAL 10 MINUTE")->execute([$deviceId]);
         $st = db()->prepare("SELECT 1 FROM noc_actions WHERE device_id=? AND (status='approved' OR (status='sent' AND sent_at < NOW() - INTERVAL 10 MINUTE)) LIMIT 1"); $st->execute([$deviceId]);
@@ -84,6 +86,7 @@ final class Actions
         }
         foreach ($rows as $r) {
             if ($r['kind'] === 'upgrade') { $s .= Ros::upgradeRsc((int)$r['id'], $base, $key, $chk); continue; }
+            if ($r['kind'] === 'speed') { $s .= Speed::rsc($d, (int)$r['id'], (string)$r['ip'], $base, $key, $chk); continue; }
             if (!filter_var($r['ip'], FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) continue;
             $ip = $r['ip']; $id = (int)$r['id'];
             $s .= ":do { /ip firewall address-list remove [find list=noc-block address=$ip] } on-error={}\n";
@@ -143,7 +146,7 @@ final class Actions
     /** Ukrepi naprave za prikaz (zavihek Varnost) */
     public static function forDevice(int $deviceId, int $limit = 30): array
     {
-        $st = db()->prepare('SELECT * FROM noc_actions WHERE device_id=? ORDER BY id DESC LIMIT ' . (int)$limit); $st->execute([$deviceId]);
+        $st = db()->prepare("SELECT * FROM noc_actions WHERE device_id=? AND kind<>'speed' ORDER BY id DESC LIMIT " . (int)$limit); $st->execute([$deviceId]);
         return $st->fetchAll();
     }
 

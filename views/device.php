@@ -150,6 +150,34 @@ $upd = $s['upd'] ?? [];
       </div>
     </section>
     <?php endif; ?>
+    <?php $spd = Speed::history($id, 6); $spdLast = $spd[0] ?? null;
+      $st = db()->prepare("SELECT status FROM noc_actions WHERE device_id=? AND kind='speed' AND status IN ('approved','sent') ORDER BY id DESC LIMIT 1"); $st->execute([$id]); $spdPending = $st->fetchColumn();
+      $hasBtest = (bool)Speed::btest(); ?>
+    <section class="panel" id="speed">
+      <div class="panel-head"><h2><?= icon('gauge', 18) ?><?= h(A('Hitrost interneta')) ?></h2><?php if ($spdLast): ?><span class="small muted"><?= h(fmt_dt($spdLast['at'])) ?></span><?php endif; ?></div>
+      <div class="panel-body">
+        <?php if ($spdLast && $spdLast['ok']): $zd = (float)$d['wan_down_mbps']; ?>
+        <div class="big-rate">
+          <div><span><?= icon('arrow-down', 14) ?><?= h(A('Download')) ?></span><b class="down-c"><?= h(Speed::fmt((float)$spdLast['down_mbps'])) ?></b><?php if ($zd > 0): ?><span class="small"><?= (int)round($spdLast['down_mbps'] / $zd * 100) ?> % <?= h(A('zakupa')) ?></span><?php endif; ?></div>
+          <div><span><?= icon('arrow-up', 14) ?><?= h(A('Upload')) ?></span><b class="up-c"><?= h(Speed::fmt($spdLast['up_mbps'] !== null ? (float)$spdLast['up_mbps'] : null)) ?></b><?php if ($spdLast['up_mbps'] !== null && (float)$d['wan_up_mbps'] > 0): ?><span class="small"><?= (int)round($spdLast['up_mbps'] / $d['wan_up_mbps'] * 100) ?> % <?= h(A('zakupa')) ?></span><?php endif; ?></div>
+        </div>
+        <p class="small muted" style="margin:8px 0 0"><?= h(Speed::methodLabel($spdLast['method'])) ?><?= $spdLast['note'] ? ' · ' . h($spdLast['note']) : '' ?></p>
+        <?php elseif ($spdLast): ?><p class="small" style="margin:0;color:var(--down)"><?= h($spdLast['note'] ?: A('Meritev ni uspela.')) ?></p>
+        <?php else: ?><p class="small muted" style="margin:0"><?= h(A('Še ni meritev.')) ?></p><?php endif; ?>
+      </div>
+      <?php if (count($spd) > 1): ?><ul class="feed"><?php foreach (array_slice($spd, 1) as $x): ?><li><span class="sev-bar <?= $x['ok'] ? 'info' : 'warning' ?>"></span><div class="what small"><?= $x['ok'] ? '↓ ' . h(Speed::fmt((float)$x['down_mbps'])) . ($x['up_mbps'] !== null ? ' · ↑ ' . h(Speed::fmt((float)$x['up_mbps'])) : '') : h(A('ni uspela')) ?> <span class="faint"><?= h($x['source'] === 'noc' ? A('nočna') : A('ročna')) ?></span></div><span class="when"><?= h(fmt_dt($x['at'])) ?></span></li><?php endforeach; ?></ul><?php endif; ?>
+      <?php if ($isSuper): ?><div class="panel-body actions" style="border-top:1px solid var(--line-2)">
+        <?php if ($spdPending): ?><span class="tag info"><?= icon('clock', 12) ?><?= h($spdPending === 'sent' ? A('meritev poteka') : A('meritev čaka na router')) ?></span>
+        <?php else: ?>
+        <form method="post" action="/devices/<?= $id ?>/speed" class="actions" data-confirm="<?= h(A('Meritev za nekaj sekund polno zasede linijo. Nadaljujem?')) ?>"><?= Auth::csrf() ?>
+          <select name="m" style="width:auto;flex:1;min-width:0"><?php if ($hasBtest): ?><option value="btest"><?= 'btest ↓↑' ?></option><?php endif; ?><option value="http"><?= h(A('prenos datoteke')) . ' ↓' ?></option></select>
+          <button class="btn sm"><?= icon('gauge', 14) ?><?= h(A('Izmeri zdaj')) ?></button>
+        </form>
+        <?php endif; ?>
+        <form method="post" action="/devices/<?= $id ?>/speed"><?= Auth::csrf() ?><input type="hidden" name="op" value="auto"><input type="hidden" name="on" value="<?= (int)$d['speed_auto'] ? '0' : '1' ?>">
+          <label class="check small"><input type="checkbox" <?= (int)$d['speed_auto'] ? 'checked' : '' ?> data-autosubmit> <?= h(A('Meri vsako noč')) ?></label></form>
+      </div><?php endif; ?>
+    </section>
     <?php $sec = Score::compute($d); if ($sec['score'] !== (int)($d['sec_score'] ?? -1)) db()->prepare('UPDATE devices SET sec_score=?, sec_at=NOW() WHERE id=?')->execute([$sec['score'], $id]); ?>
     <section class="panel" id="sec">
       <div class="panel-head"><h2><?= icon('shield', 18) ?><?= h(A('Varnostna ocena')) ?></h2><span class="score-badge <?= Score::cls($sec['score']) ?>"><?= (int)$sec['score'] ?><small>/100</small></span></div>
