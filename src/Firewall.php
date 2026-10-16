@@ -150,6 +150,13 @@ final class Firewall
     }
 
     // ------------------------------------------------------------------ popravki
+    /** Ime parametra za naslove storitve: RouterOS 7.24+ "available-from" (stari "address" javi opozorilo ob uvozu) */
+    public static function svcAddrKey(array $d): string
+    {
+        $v = Ros::ver((string)($d['os_version'] ?? ''));
+        return $v !== '' && version_compare($v, '7.24', '>=') ? 'available-from' : 'address';
+    }
+
     public static function top(string $menu, string $args): string
     {
         return ":do { $menu add $args place-before=([$menu find where dynamic=no]->0) } on-error={ $menu add $args }\n";
@@ -195,7 +202,7 @@ final class Firewall
         $svcAddr = implode(',', array_unique(array_merge(self::mgmtIps(), ['10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16'])));
         foreach (['telnet', 'ftp', 'www', 'api', 'api-ssl'] as $n) if ($sel('svc_' . $n)) { $ap .= "/ip service set $n disabled=yes\n"; $rb .= "/ip service set $n disabled=" . (($orig['svc'][$n]['on'] ?? true) ? 'no' : 'yes') . "\n"; }
         // RouterOS 7.24+ ima "available-from", starejše verzije "address"
-        $svcSet = fn(string $n, string $v) => ":do { /ip service set $n available-from=$v } on-error={ /ip service set $n address=$v }\n";
+        $svcSet = fn(string $n, string $v) => "/ip service set $n " . self::svcAddrKey($d) . "=$v\n";
         foreach (['winbox', 'ssh'] as $n) if ($sel('svc_' . $n . '_addr') && $svcAddr !== '') { $ap .= $svcSet($n, $svcAddr); $rb .= $svcSet($n, '"' . ros_esc((string)($orig['svc'][$n]['address'] ?? '')) . '"'); }
         if ($sel('mac_server')) { $ap .= "/tool mac-server set allowed-interface-list=LAN\n"; $rb .= "/tool mac-server set allowed-interface-list=" . (ros_word((string)($orig['mac'] ?? '')) ?: 'all') . "\n"; }
         if ($sel('mac_winbox')) { $ap .= "/tool mac-server mac-winbox set allowed-interface-list=LAN\n"; $rb .= "/tool mac-server mac-winbox set allowed-interface-list=" . (ros_word((string)($orig['macwinbox'] ?? '')) ?: 'all') . "\n"; }

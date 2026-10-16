@@ -109,7 +109,7 @@ final class Term
             . Firewall::top('/ip firewall filter', "chain=input src-address=$noc protocol=tcp dst-port=$port action=accept comment=\"noc-term: SSH s streznika NOC\"");
         // storitev ssh: vklopljena; če je omejena na naslove, dodamo naslov NOC (iz zadnjega backupa)
         $a = Firewall::audit($d); $svc = $a['conf']['services']['ssh'] ?? null;
-        $set = fn(string $v) => ":do { /ip service set ssh available-from=$v } on-error={ /ip service set ssh address=$v }\n";
+        $set = fn(string $v) => "/ip service set ssh " . Firewall::svcAddrKey($d) . "=$v\n";
         if ($svc === null) $s .= "# storitev ssh: ni backupa – preveri, da je SSH vklopljen in dosegljiv z $noc\n";
         elseif (!($svc['on'] ?? true)) $s .= "/ip service set ssh disabled=no\n" . $set("$noc/32");
         elseif (($svc['address'] ?? '') !== '') {

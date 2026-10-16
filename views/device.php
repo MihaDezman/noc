@@ -671,7 +671,7 @@ $upd = $s['upd'] ?? [];
 
 <section class="panel" id="wg-add">
   <div class="panel-head"><h2><?= icon('plus', 18) ?><?= h(A('Dodaj uporabnika')) ?></h2><span class="small muted"><?= h(A('NOC ustvari ključe, config in QR kodo ter peer doda na router')) ?></span></div>
-  <?php if (!$wgSrv): ?><div class="panel-body small muted"><?= h(A('Router nima WireGuard vmesnika s portom in naslovom (strežnik). Ko ga nastaviš, se tu pokaže obrazec.')) ?></div><?php else: ?>
+  <?php if (!$wgSrv): ?><div class="panel-body small muted"><?= h(A('Router še nima WireGuard strežnika. Ustvari ga spodaj (Ustvari WireGuard strežnik) – ko ga router nastavi, se tu pokaže obrazec.')) ?></div><?php else: ?>
   <form class="panel-body form" method="post" action="/devices/<?= $id ?>/wg"><?= Auth::csrf() ?><input type="hidden" name="op" value="add">
     <div class="row c3">
       <label class="f"><span><?= h(A('Ime')) ?></span><input type="text" name="name" maxlength="100" required placeholder="<?= h(A('npr. Janez – telefon')) ?>"></label>
@@ -688,16 +688,19 @@ $upd = $s['upd'] ?? [];
   <?php endif; ?>
 </section>
 
+<?php $wgPend = WgServer::pending($id); $wgMan = WgServer::managed($id); ?>
 <section class="panel" id="wg-server">
-  <div class="panel-head"><h2><?= icon('server', 18) ?><?= h(A('WireGuard na routerju')) ?></h2></div>
+  <div class="panel-head"><h2><?= icon('server', 18) ?><?= h(A('WireGuard na routerju')) ?></h2>
+    <?php foreach ($wgPend as $wp): ?><span class="tag info"><?= icon('clock', 12) ?><?= h($wp['kind'] === 'wgsrv' ? A('{n}: nastavitev čaka na router', ['n' => $wp['ip']]) : A('{n}: odstranitev čaka na router', ['n' => $wp['ip']])) ?></span><?php endforeach; ?></div>
   <?php if (!$wgIfaces): ?><div class="empty small"><?= h(A('Na routerju ni WireGuard vmesnikov.')) ?></div><?php else: ?>
   <div class="tbl-wrap"><table class="tbl">
-    <thead><tr><th><?= h(A('Vmesnik')) ?></th><th><?= h(A('Naslov')) ?></th><th>Port</th><th><?= h(A('Javni ključ')) ?></th><th>Endpoint</th></tr></thead>
+    <thead><tr><th><?= h(A('Vmesnik')) ?></th><th><?= h(A('Naslov')) ?></th><th>Port</th><th><?= h(A('Javni ključ')) ?></th><th>Endpoint</th><th></th></tr></thead>
     <tbody><?php foreach ($wgIfaces as $wn => $w): ?><tr>
       <td class="mono"><b><?= h($wn) ?></b><?= $w['dis'] ? ' <span class="tag">' . h(A('izklopljen')) . '</span>' : '' ?><?= !isset($wgSrv[$wn]) ? ' <span class="tag" title="' . h(A('brez porta ali naslova – verjetno odjemalec (povezava na drug router)')) . '">' . h(A('odjemalec')) . '</span>' : '' ?></td>
       <td class="mono"><?= h($w['a'] ?: '–') ?></td><td class="mono"><?= $w['p'] ?: '–' ?></td>
       <td class="mono small nowrap"><?= h($w['pk']) ?> <button type="button" class="btn sm ghost" data-copy="<?= h($w['pk']) ?>" title="<?= h(A('Kopiraj')) ?>"><?= icon('copy', 13) ?></button></td>
       <td class="mono small"><?= isset($wgSrv[$wn]) ? h(Wg::endpoint($d, $wn) ?: '–') : '–' ?></td>
+      <td class="num nowrap"><?php if (isset($wgMan[$wn]) && !array_filter($wgPend, fn($x) => $x['ip'] === $wn)): ?><form method="post" action="/devices/<?= $id ?>/wg" style="display:inline" data-confirm="<?= h(A('Odstranim WireGuard strežnik {n}? Router odstrani vmesnik, naslov, pravila in VSE uporabnike na njem ({c}). Tega ni mogoče razveljaviti.', ['n' => $wn, 'c' => count(array_filter($wgPeers, fn($x) => $x['iface'] === $wn))])) ?>"><?= Auth::csrf() ?><input type="hidden" name="op" value="srv-delete"><input type="hidden" name="srv_name" value="<?= h($wn) ?>"><button class="btn sm ghost" title="<?= h(A('Odstrani strežnik')) ?>"><?= icon('trash', 14) ?></button></form><?php endif; ?></td>
     </tr><?php endforeach; ?></tbody>
   </table></div>
   <form class="panel-body form" method="post" action="/devices/<?= $id ?>/wg" style="border-top:1px solid var(--line-2)"><?= Auth::csrf() ?><input type="hidden" name="op" value="endpoint">
@@ -708,6 +711,23 @@ $upd = $s['upd'] ?? [];
     <small class="muted"><?= h(A('Prazno = javni IP naprave. Domena ali IP, po želji s portom.')) ?></small>
   </form>
   <?php endif; ?>
+  <?php $wgNewOpen = !$wgSrv && !array_filter($wgPend, fn($x) => $x['kind'] === 'wgsrv'); ?>
+  <details class="wg-new"<?= $wgNewOpen ? ' open' : '' ?> style="border-top:1px solid var(--line-2)">
+    <summary class="panel-body" style="cursor:pointer;padding:12px 20px"><b><?= icon('plus', 14) ?> <?= h(A('Ustvari WireGuard strežnik')) ?></b> <span class="small muted"><?= h(A('NOC ga nastavi na routerju ob naslednjem pushu')) ?></span></summary>
+    <form class="panel-body form" method="post" action="/devices/<?= $id ?>/wg" style="padding-top:0"><?= Auth::csrf() ?><input type="hidden" name="op" value="srv-create">
+      <div class="row c3">
+        <label class="f"><span><?= h(A('Ime vmesnika')) ?></span><input type="text" name="srv_name" class="mono" value="<?= h(WgServer::nextName($d)) ?>" maxlength="30" required></label>
+        <label class="f"><span><?= h(A('Omrežje za VPN uporabnike')) ?></span><input type="text" name="srv_net" class="mono" value="<?= h(WgServer::nextNet()) ?>" required><small><?= h(A('predlagano prvo prosto (ne prekriva se z drugimi napravami v NOC)')) ?></small></label>
+        <label class="f"><span><?= h(A('UDP port')) ?></span><input type="number" name="srv_port" min="1024" max="65535" value="<?= WgServer::nextPort($d) ?>" required></label>
+      </div>
+      <div class="row c3">
+        <label class="f"><span><?= h(A('Dostop VPN uporabnikov')) ?></span><select name="srv_mode"><option value="lan"><?= h(A('Kot LAN – vse kot naprava v pisarni')) ?></option><option value="net"><?= h(A('Samo LAN omrežje – brez upravljanja routerja')) ?></option></select></label>
+        <label class="f"><span><?= h(A('Endpoint v configu')) ?> <small>(<?= h(A('prazno = javni IP naprave')) ?>)</small></span><input type="text" name="endpoint" class="mono" value="<?= h((string)($d['wg_endpoint'] ?? '')) ?>" placeholder="<?= h($d['public_ip'] ?: 'vpn.domena.si') ?>"></label>
+        <div style="align-self:end"><button class="btn primary"><?= icon('server', 15) ?><?= h(A('Ustvari strežnik')) ?></button></div>
+      </div>
+      <small class="muted"><?= h(A('Router doda vmesnik in naslov ter odpre UDP port na vrhu požarnega zidu (pravilo noc-wg). Pri "kot LAN" vmesnik doda v seznam LAN; pri "samo LAN omrežje" doda pravila za LAN omrežja, DNS in ping routerja.')) ?></small>
+    </form>
+  </details>
 </section>
 
 <?php elseif ($tab === 'backups'): ?>
@@ -871,6 +891,7 @@ $upd = $s['upd'] ?? [];
   <?php else: ?>
   <ul class="feed review"><?php foreach ($rvF as $k => $f): $stt = $f['state'] ?? 'open'; ?>
     <li class="<?= $stt !== 'open' ? 'faded' : '' ?>"><span class="sev-bar <?= h($f['severity']) ?>"></span>
+      <?php if ($isSuper && $stt === 'open' && trim($f['fix']) !== ''): ?><input type="checkbox" class="apply-pick" name="k[]" value="<?= (int)$k ?>" form="ai-apply-form" checked aria-label="<?= h(A('Uveljavi ta popravek')) ?>"><?php endif; ?>
       <div class="what"><?= sev_tag($f['severity']) ?> <b><?= h($f['title']) ?></b><?= $stt === 'done' ? ' <span class="tag up">' . h(A('urejeno')) . '</span>' : ($stt === 'dismissed' ? ' <span class="tag">' . h(A('ni pomembno')) . '</span>' : '') ?>
         <div class="small" style="margin-top:4px"><?= h($f['why']) ?></div>
         <?php if (trim($f['fix']) !== ''): ?><pre class="raw small" style="margin:6px 0 0"><?= h($f['fix']) ?></pre><?php endif; ?></div>
@@ -879,7 +900,16 @@ $upd = $s['upd'] ?? [];
         <form method="post" action="/devices/<?= $id ?>/ai-review" style="display:inline"><?= Auth::csrf() ?><input type="hidden" name="op" value="state"><input type="hidden" name="rid" value="<?= (int)$rv['id'] ?>"><input type="hidden" name="k" value="<?= (int)$k ?>"><input type="hidden" name="state" value="<?= $ns ?>"><button class="btn sm ghost" title="<?= h($lbl) ?>"><?= icon($ic, 14) ?></button></form>
         <?php endforeach; ?></div><?php endif; ?>
     </li><?php endforeach; ?></ul>
-  <p class="panel-body small muted" style="margin:0"><?= h(A('Ukazov AI ne izvede sam – preveri jih in jih po potrebi prilepi v terminal routerja.')) ?></p>
+  <?php $canPick = $isSuper && array_filter($rvF, fn($f) => ($f['state'] ?? 'open') === 'open' && trim($f['fix']) !== ''); $apBlock = AiApply::blocker($d); ?>
+  <?php if ($canPick): ?>
+  <form id="ai-apply-form" method="get" action="/devices/<?= $id ?>/ai-apply" class="panel-body actions" style="border-top:1px solid var(--line-2)"><input type="hidden" name="rid" value="<?= (int)$rv['id'] ?>">
+    <button class="btn sm primary" <?= $apBlock !== '' ? 'disabled' : '' ?>><?= icon('zap', 14) ?><?= h(A('Uveljavi izbrane popravke')) ?></button>
+    <span class="small muted"><?= h($apBlock !== '' ? $apBlock : A('Najprej predogled, nato izvedba v Safe Mode – ob napaki router vse razveljavi sam.')) ?></span>
+  </form>
+  <?php else: ?><p class="panel-body small muted" style="margin:0"><?= h(A('Ukazov AI ne izvede sam – preveri jih in jih po potrebi prilepi v terminal routerja.')) ?></p><?php endif; ?>
+  <?php $aps = AiApply::recent($id); if ($aps): ?><ul class="feed"><?php foreach ($aps as $x): $c = ['done' => 'up', 'reverted' => 'warn', 'failed' => 'down'][$x['status']] ?? 'info'; ?>
+    <li><span class="sev-bar <?= $c === 'up' ? 'info' : ($c === 'down' ? 'critical' : 'warning') ?>"></span><div class="what small"><a href="/devices/<?= $id ?>/ai-apply/<?= (int)$x['id'] ?>"><?= h(A('Uveljavitev #{n}', ['n' => (int)$x['id']])) ?></a> <span class="tag <?= $c ?>"><?= h(['queued' => A('čaka'), 'running' => A('poteka'), 'done' => A('uveljavljeno'), 'reverted' => A('razveljavljeno'), 'failed' => A('ni uspelo')][$x['status']]) ?></span> <span class="muted"><?= h($x['note']) ?></span></div><span class="when"><?= h(fmt_dt($x['created_at'])) ?></span></li>
+  <?php endforeach; ?></ul><?php endif; ?>
   <?php endif; ?>
 </section>
 
@@ -958,10 +988,10 @@ $upd = $s['upd'] ?? [];
       <?php if ($tOn): ?><a class="btn sm primary" href="/devices/<?= $id ?>/terminal" target="_blank" rel="noopener"><?= icon('terminal', 14) ?><?= h(A('Odpri terminal')) ?></a><?php endif; ?>
     </div></div>
   <div class="panel-body">
-    <p class="small muted" style="margin-top:0"><?= h(A('Terminal routerja v brskalniku: strežnik NOC se z routerjem poveže prek SSH kot uporabnik noc-term s ključem NOC (geslo se nikjer ne shrani). SSH na routerju je dovoljen samo z naslova strežnika NOC ({ip}). Na routerju ga nastavi ali odstrani ročni namestitveni ukaz (Paket). Vsaka seja se zabeleži z izpisom.', ['ip' => (string)cfg('noc_ip', '–')])) ?></p>
+    <p class="small muted" style="margin-top:0"><?= h(A('Terminal routerja v brskalniku: strežnik NOC se z routerjem poveže prek SSH kot uporabnik noc-term s ključem NOC (geslo se nikjer ne shrani). SSH na routerju je dovoljen samo z naslova strežnika NOC ({ip}). Router ga nastavi ali odstrani sam ob naslednjem pushu. Vsaka seja se zabeleži z izpisom.', ['ip' => (string)cfg('noc_ip', '–')])) ?></p>
     <form method="post" action="/devices/<?= $id ?>/terminal"<?= $tOn ? '' : ' data-confirm="' . h(A('Vklopim terminal? Po namestitvenem ukazu bo imel strežnik NOC polni dostop do tega routerja prek SSH.')) . '"' ?>><?= Auth::csrf() ?><input type="hidden" name="on" value="<?= $tOn ? '0' : '1' ?>">
       <button class="btn sm"><?= icon('power', 14) ?><?= h($tOn ? A('Izklopi terminal') : A('Vklopi terminal')) ?></button>
-      <?php if ($tOn && !$tUser): ?><span class="small muted" style="margin-left:8px"><?= h(A('Zdaj na routerju poženi namestitveni ukaz s strani Paket.')) ?></span><?php endif; ?>
+      <?php $st = db()->prepare("SELECT status FROM noc_actions WHERE device_id=? AND kind='term' AND status IN ('approved','sent') LIMIT 1"); $st->execute([$id]); if ($st->fetchColumn()): ?><span class="tag info" style="margin-left:8px"><?= icon('clock', 12) ?><?= h(A('nastavitev čaka na router')) ?></span><?php endif; ?>
     </form>
   </div>
   <?php if ($tSess): ?>

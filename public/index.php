@@ -100,6 +100,9 @@ if (str_starts_with($path, '/api/')) {
     json_out(['error' => 'not found'], 404);
 }
 
+// ---------------------------------------------------------------- router med uveljavitvijo AI popravkov (Safe Mode) potrdi, da še doseže NOC
+if (preg_match('#^/apply-check/([0-9a-f]{32})$#', $path, $m)) { header('Content-Type: text/plain'); header('Cache-Control: no-store'); echo AiApply::checkSeen($m[1]) ? "ok\n" : "-\n"; exit; }
+
 // ================================================================ spletni vmesnik
 if (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') header('Strict-Transport-Security: max-age=31536000');
 header('X-Frame-Options: DENY');
@@ -345,8 +348,9 @@ if (($seg[0] ?? '') === 'devices' && ctype_digit($seg[1] ?? '')) {
             $on = post('on') === '1' ? 1 : 0;
             if ($on && ($e = Term::ensureKeys()) !== '') back("/devices/$id?tab=settings#term", $e, 'err');
             db()->prepare('UPDATE devices SET term_enabled=? WHERE id=?')->execute([$on, $id]);
+            Actions::create($d, 'term', $on ? 'on' : 'off', 1, 'approved', $on ? A('vklop terminala') : A('izklop terminala'), 'splet', null, (string)(Auth::$user['email'] ?? 'splet'));
             audit('device.terminal-set', $d['name'] . ($on ? ' on' : ' off'));
-            back("/devices/$id?tab=settings#term", $on ? A('Terminal vklopljen. Na routerju ga nastavi namestitveni ukaz (Paket) – doda uporabnika noc-term s ključem NOC in dovoli SSH s strežnika NOC.') : A('Terminal izklopljen. Uporabnika noc-term odstrani naslednji namestitveni ukaz.'));
+            back("/devices/$id?tab=settings#term", $on ? A('Terminal vklopljen. Router ga nastavi sam ob naslednjem pushu (v minuti ali dveh) – doda uporabnika noc-term s ključem NOC in dovoli SSH s strežnika NOC.') : A('Terminal izklopljen. Router odstrani uporabnika noc-term ob naslednjem pushu.'));
         }
         if (($seg[3] ?? '') === 'log' && ctype_digit($seg[4] ?? '')) {   // izpis seje
             $st = db()->prepare('SELECT id FROM term_sessions WHERE id=? AND device_id=?'); $st->execute([(int)$seg[4], $id]);
@@ -408,6 +412,20 @@ if (($seg[0] ?? '') === 'devices' && ctype_digit($seg[1] ?? '')) {
             db()->prepare('UPDATE devices SET wg_endpoint=? WHERE id=?')->execute([$e !== '' ? $e : null, $id]); audit('wg.endpoint', "{$d['name']} $e");
             back("/devices/$id?tab=wg", A('Endpoint shranjen. Velja za nove prenose configa – obstoječi uporabniki imajo še starega.'));
         }
+        if ($op === 'srv-create') {   // WireGuard strežnik na routerju (ukaz ob naslednjem pushu)
+            $res = WgServer::create($d, trim(post('srv_name')), trim(post('srv_net')), (int)post('srv_port'), post('srv_mode'), $by);
+            if (!is_int($res)) back("/devices/$id?tab=wg#wg-server", A('Ni mogoče: {r}', ['r' => $res]), 'err');
+            $e = trim(post('endpoint'));
+            if ($e !== '' && preg_match('/^[A-Za-z0-9.-]{1,200}(:\d{1,5})?$/', $e)) db()->prepare('UPDATE devices SET wg_endpoint=? WHERE id=?')->execute([$e, $id]);
+            audit('wg.server-create', "{$d['name']} " . post('srv_name') . ' ' . post('srv_net'));
+            back("/devices/$id?tab=wg#wg-server", A('WireGuard strežnik poslan routerju – nastavi ga ob naslednjem pushu (v minuti ali dveh), nato lahko dodajaš uporabnike.'));
+        }
+        if ($op === 'srv-delete') {
+            $res = WgServer::remove($d, post('srv_name'), $by);
+            if (!is_int($res)) back("/devices/$id?tab=wg#wg-server", A('Ni mogoče: {r}', ['r' => $res]), 'err');
+            audit('wg.server-delete', "{$d['name']} " . post('srv_name'));
+            back("/devices/$id?tab=wg#wg-server", A('Odstranitev poslana routerju – izvede jo ob naslednjem pushu.'));
+        }
         if ($op === 'disable-inactive') {
             $n = 0; foreach (Wg::inactive(90, $id) as $x) { Wg::setEnabled($d, $x, false); $n++; }
             back("/devices/$id?tab=wg", A('Izklopljenih {n} neaktivnih uporabnikov – router jih izklopi ob naslednjem pushu.', ['n' => $n]));
@@ -437,6 +455,23 @@ if (($seg[0] ?? '') === 'devices' && ctype_digit($seg[1] ?? '')) {
         if (post('op') === 'del') db()->prepare('DELETE FROM ai_notes WHERE id=? AND device_id=?')->execute([(int)post('nid'), $id]);
         elseif (trim(post('note')) !== '') { Ai::addNote($id, post('note'), 'splet', (string)Auth::$user['email']); audit('ai.note', $d['name']); }
         back("/devices/$id?tab=settings#ai-notes", A('Zapiski za AI posodobljeni.'));
+    }
+    if ($sub === 'ai-apply') {   // AI popravki z enim klikom: predogled, zagon, stanje
+        if (ctype_digit($seg[3] ?? '')) {
+            $ap = AiApply::get($id, (int)$seg[3]); if (!$ap) back("/devices/$id?tab=protect#ai-review", A('Uveljavitev ne obstaja.'), 'err');
+            view('ai_apply', ['d' => $d, 'ap' => $ap, 'title' => A('AI popravki') . ' · ' . $d['name'], 'nav' => 'devices', 'autorefresh' => in_array($ap['status'], ['queued', 'running'], true) ? 3 : 0]);
+        }
+        $rid = (int)($method === 'POST' ? post('rid') : q('rid'));
+        $st = db()->prepare("SELECT * FROM ai_reviews WHERE id=? AND device_id=? AND status='done'"); $st->execute([$rid, $id]); $rv = $st->fetch();
+        if (!$rv) back("/devices/$id?tab=protect#ai-review", A('AI pregled ne obstaja.'), 'err');
+        $keys = array_values(array_unique(array_map('intval', (array)($_POST['k'] ?? $_GET['k'] ?? []))));
+        if (!$keys) back("/devices/$id?tab=protect#ai-review", A('Izberi vsaj eno ugotovitev.'), 'err');
+        if ($method === 'POST') {
+            $r = AiApply::start($d, $rv, $keys, post('warn_ok') === '1', (int)Auth::$user['id']);
+            if (!is_int($r)) back("/devices/$id/ai-apply?rid=$rid&" . http_build_query(['k' => $keys]), A('Ni mogoče: {r}', ['r' => $r]), 'err');
+            redirect("/devices/$id/ai-apply/$r");
+        }
+        view('ai_apply', ['d' => $d, 'rv' => $rv, 'keys' => $keys, 'plan' => AiApply::plan($rv, $keys), 'blocker' => AiApply::blocker($d), 'title' => A('AI popravki') . ' · ' . $d['name'], 'nav' => 'devices']);
     }
     if ($sub === 'ai-review' && $method === 'POST') {   // AI pregled konfiguracije: zahteva ali stanje ugotovitve
         if (post('op') === 'state') {
@@ -761,6 +796,19 @@ if ($path === '/users/delete' && $method === 'POST') {
 }
 
 // ---------------------------------------------------------------- nastavitve
+if ($path === '/settings/term-all' && $method === 'POST') {   // terminal pri vseh napravah (nastavitev prek pusha)
+    Auth::requireSuper();
+    $on = post('on') === '1' ? 1 : 0;
+    if ($on && ($e = Term::ensureKeys()) !== '') back('/settings#term', $e, 'err');
+    $n = 0; $by = (string)(Auth::$user['email'] ?? 'splet');
+    foreach (db()->query('SELECT * FROM devices WHERE active=1')->fetchAll() as $x) {
+        if ((int)$x['term_enabled'] === $on) continue;
+        db()->prepare('UPDATE devices SET term_enabled=? WHERE id=?')->execute([$on, $x['id']]);
+        Actions::create($x, 'term', $on ? 'on' : 'off', 1, 'approved', $on ? A('vklop terminala') : A('izklop terminala'), 'splet', null, $by); $n++;
+    }
+    audit('settings.term-all', ($on ? 'on ' : 'off ') . $n);
+    back('/settings#term', $on ? A('Terminal vklopljen pri {n} napravah – routerji ga nastavijo sami ob naslednjem pushu.', ['n' => $n]) : A('Terminal izklopljen pri {n} napravah.', ['n' => $n]));
+}
 if ($path === '/settings/term-keys' && $method === 'POST') {   // ključa NOC za terminal routerjev
     Auth::requireSuper();
     $e = Term::ensureKeys();

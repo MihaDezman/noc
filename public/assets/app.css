@@ -538,3 +538,11 @@ pre.raw { margin: 0; padding: 16px 20px; font-family: var(--mono); font-size: .8
 .term-bar .ico.flip { transform: rotate(180deg); }
 .term-box { flex: 1; min-height: 0; padding: 6px 4px 4px 10px; }
 .term-box .xterm { height: 100%; }
+
+/* ---- AI popravki: predogled ukazov */
+.ico.flip { transform: rotate(180deg); }
+.apply-lines { display: grid; gap: 6px; margin-top: 8px; }
+.apply-line { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px 10px; align-items: start; }
+.apply-line code { font-family: var(--mono, ui-monospace, monospace); font-size: .82rem; white-space: pre-wrap; word-break: break-word; }
+.apply-line .small { grid-column: 2; }
+.feed.review .apply-pick { margin: 4px 2px 0 0; flex: none; align-self: flex-start; }

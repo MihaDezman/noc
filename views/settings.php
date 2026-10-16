@@ -77,8 +77,12 @@ $num = function (string $k, string $label, string $unit, string $hint = '') {
         <dt><?= h(A('Ključ Ed25519')) ?></dt><dd class="mono"><?= h(Term::fingerprint('ed') ?: A('še ni ustvarjen')) ?></dd>
         <dt><?= h(A('Ključ RSA (rezerva)')) ?></dt><dd class="mono"><?= h(Term::fingerprint('rsa') ?: A('še ni ustvarjen')) ?></dd>
       </dl>
-      <p class="small muted" style="margin:0"><?= h(A('Terminal vklopiš pri posamezni napravi (Nastavitve → Terminal). Ključa se ustvarita samodejno ob prvem vklopu.')) ?>
-        <?php if (!$tK): ?> <button class="btn sm" form="term-keys" type="submit"><?= icon('key', 14) ?><?= h(A('Ustvari ključa zdaj')) ?></button><?php endif; ?></p>
+      <p class="small muted" style="margin:0"><?= h(A('Terminal vklopiš pri posamezni napravi (Nastavitve → Terminal) ali pri vseh naenkrat. Router ga nastavi sam ob naslednjem pushu, ključa se ustvarita samodejno ob prvem vklopu.')) ?></p>
+      <div class="actions">
+        <button class="btn sm" form="term-all-on" type="submit"><?= icon('terminal', 14) ?><?= h(A('Vklopi terminal pri vseh napravah')) ?></button>
+        <?php if ($tN): ?><button class="btn sm ghost" form="term-all-off" type="submit"><?= icon('power', 14) ?><?= h(A('Izklopi pri vseh')) ?></button><?php endif; ?>
+        <?php if (!$tK): ?><button class="btn sm ghost" form="term-keys" type="submit"><?= icon('key', 14) ?><?= h(A('Ustvari ključa zdaj')) ?></button><?php endif; ?>
+      </div>
     </div></section>
 
   <?php $tlsAll = db()->query('SELECT COUNT(*) n, COALESCE(SUM(tls_check),0) on_, COALESCE(SUM(tls_check=1 AND tls_ok=0),0) bad FROM devices WHERE active=1')->fetch(); ?>
@@ -151,6 +155,8 @@ $num = function (string $k, string $label, string $unit, string $hint = '') {
 <form id="fwlog-off" method="post" action="/settings/fwlog-all" data-confirm="<?= h(A('Izklopim varnostno analizo pri vseh napravah?')) ?>"><?= Auth::csrf() ?><input type="hidden" name="on" value="0"></form>
 <form id="ai-test" method="post" action="/settings/ai-test"><?= Auth::csrf() ?></form>
 <form id="term-keys" method="post" action="/settings/term-keys"><?= Auth::csrf() ?></form>
+<form id="term-all-on" method="post" action="/settings/term-all" data-confirm="<?= h(A('Vklopim terminal pri vseh napravah? Vsak router ob naslednjem pushu doda uporabnika noc-term s ključem NOC in dovoli SSH s strežnika NOC.')) ?>"><?= Auth::csrf() ?><input type="hidden" name="on" value="1"></form>
+<form id="term-all-off" method="post" action="/settings/term-all" data-confirm="<?= h(A('Izklopim terminal pri vseh napravah? Routerji odstranijo uporabnika noc-term.')) ?>"><?= Auth::csrf() ?><input type="hidden" name="on" value="0"></form>
 <form id="ai-review-all" method="post" action="/settings/ai-review-all" data-confirm="<?= h(A('AI pregleda konfiguracijo vseh naprav (en klic na napravo). Za vsako dobiš sporočilo na Telegram. Nadaljujem?')) ?>"><?= Auth::csrf() ?></form>
 <?php if (Ai::on()): $aiNotes = db()->query('SELECT * FROM ai_notes WHERE device_id IS NULL ORDER BY id')->fetchAll(); ?>
 <section class="panel" id="ai-notes" style="margin-top:20px">

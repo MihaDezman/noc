@@ -24,7 +24,7 @@ final class Actions
     }
 
     /** Nov ukrep; vrne id ali sporočilo napake (string) */
-    public static function create(array $d, string $kind, string $ip, int $hours, string $status, string $reason, string $source, ?int $alertId = null, string $by = ''): int|string
+    public static function create(array $d, string $kind, string $ip, int $hours, string $status, string $reason, string $source, ?int $alertId = null, string $by = '', array $data = []): int|string
     {
         $ip = trim($ip);
         if ($kind === 'upgrade' && !preg_match('/^7\.\d+(\.\d+)?$/', $ip)) return A('neveljavna verzija');
@@ -40,8 +40,8 @@ final class Actions
         if ($old = $st->fetch()) { if ($old['status'] === 'proposed' && $status === 'approved') self::decide((int)$old['id'], true, $by); return (int)$old['id']; }
         // odblokiranje prekliče blokade istega naslova, ki jih router še ni izvedel
         if ($kind === 'unblock') db()->prepare("UPDATE noc_actions SET status='cancelled' WHERE device_id=? AND kind='block' AND ip=? AND status IN ('proposed','approved')")->execute([$d['id'], $ip]);
-        db()->prepare('INSERT INTO noc_actions (device_id, kind, ip, hours, status, reason, source, alert_id, decided_at, decided_by) VALUES (?,?,?,?,?,?,?,?,?,?)')
-            ->execute([$d['id'], $kind, $ip, $hours, $status, mb_substr($reason, 0, 300), $source, $alertId, $status === 'approved' ? date('Y-m-d H:i:s') : null, $status === 'approved' ? $by : '']);
+        db()->prepare('INSERT INTO noc_actions (device_id, kind, ip, hours, status, reason, source, alert_id, decided_at, decided_by, data) VALUES (?,?,?,?,?,?,?,?,?,?,?)')
+            ->execute([$d['id'], $kind, $ip, $hours, $status, mb_substr($reason, 0, 300), $source, $alertId, $status === 'approved' ? date('Y-m-d H:i:s') : null, $status === 'approved' ? $by : '', $data ? json_encode($data, JSON_UNESCAPED_UNICODE) : null]);
         $id = (int)db()->lastInsertId();
         if ($status === 'approved') db()->prepare('INSERT INTO audit (user_id, action, detail, ip) VALUES (?, ?, ?, ?)')->execute([Auth::$user['id'] ?? null, 'action.approve', mb_substr("#$id {$d['name']} $kind $ip {$hours}h ($by)", 0, 500), client_ip() ?: 'telegram']);
         return $id;
@@ -87,6 +87,11 @@ final class Actions
         foreach ($rows as $r) {
             if ($r['kind'] === 'upgrade') { $s .= Ros::upgradeRsc((int)$r['id'], $base, $key, $chk); continue; }
             if ($r['kind'] === 'speed') { $s .= Speed::rsc($d, (int)$r['id'], (string)$r['ip'], $base, $key, $chk); continue; }
+            if (in_array($r['kind'], ['term', 'wgsrv', 'wgdel'], true)) {   // nastavitve: terminal NOC, WireGuard strežnik
+                $s .= ($r['kind'] === 'term' ? Term::rsc($d) : WgServer::rsc($d, $r))
+                    . ":do { /tool fetch url=\"$base/api/action-done/{$r['id']}\"$chk http-header-field=\"X-Api-Key: $key\" output=none } on-error={}\n";
+                continue;
+            }
             if (!filter_var($r['ip'], FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) continue;
             $ip = $r['ip']; $id = (int)$r['id'];
             $s .= ":do { /ip firewall address-list remove [find list=noc-block address=$ip] } on-error={}\n";
@@ -110,7 +115,17 @@ final class Actions
     {
         $st = db()->prepare("UPDATE noc_actions SET status=?, done_at=NOW() WHERE id=? AND device_id=? AND status='sent'"); $st->execute([$fail ? 'failed' : 'done', $id, $d['id']]);
         if (!$st->rowCount()) return;
-        $q = db()->prepare('SELECT kind, ip, hours FROM noc_actions WHERE id=?'); $q->execute([$id]); $a = $q->fetch();
+        $q = db()->prepare('SELECT kind, ip, hours, data FROM noc_actions WHERE id=?'); $q->execute([$id]); $a = $q->fetch();
+        if ($a && $a['kind'] === 'term') return;   // stanje se pokaže pri napravi (uporabnik noc-term iz pusha)
+        if ($a && in_array($a['kind'], ['wgsrv', 'wgdel'], true)) {
+            if ($fail) return;
+            $p = json_decode((string)$a['data'], true) ?: [];
+            if ($a['kind'] === 'wgdel') db()->prepare('DELETE FROM wg_peers WHERE device_id=? AND iface=?')->execute([$d['id'], $a['ip']]);   // peerji so na routerju odstranjeni skupaj z vmesnikom
+            Notify::telegram(($a['kind'] === 'wgsrv' ? '🔐' : '🗑') . ' <b>' . htmlspecialchars($d['name']) . '</b> – ' . ($a['kind'] === 'wgsrv'
+                ? A('WireGuard strežnik {n} nastavljen ({a}, port {p}) – zdaj lahko dodajaš uporabnike', ['n' => $a['ip'], 'a' => $p['addr'] ?? '', 'p' => $p['port'] ?? ''])
+                : A('WireGuard strežnik {n} odstranjen', ['n' => $a['ip']])));
+            return;
+        }
         if ($a && $a['kind'] === 'upgrade') {
             Notify::telegram($fail
                 ? '⚠️ <b>' . htmlspecialchars($d['name']) . '</b> – ' . A('router ni dovolil načrtovane posodobitve iz skripte NOC (pravica reboot). Posodobi ročno: v terminalu /system package update install ali Winbox → System → Packages → Check For Updates.')
@@ -146,7 +161,7 @@ final class Actions
     /** Ukrepi naprave za prikaz (zavihek Varnost) */
     public static function forDevice(int $deviceId, int $limit = 30): array
     {
-        $st = db()->prepare("SELECT * FROM noc_actions WHERE device_id=? AND kind<>'speed' ORDER BY id DESC LIMIT " . (int)$limit); $st->execute([$deviceId]);
+        $st = db()->prepare("SELECT * FROM noc_actions WHERE device_id=? AND kind IN ('block','unblock','upgrade') ORDER BY id DESC LIMIT " . (int)$limit); $st->execute([$deviceId]);
         return $st->fetchAll();
     }
 

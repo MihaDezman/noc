@@ -27,10 +27,15 @@ ročni namestitveni ukaz (Paket), ko je pri napravi vklopljen terminal (Nastavit
    (ali samodejno ob prvem vklopu terminala pri napravi). Shranjena sta v /var/lib/noc/ssh (samo www-data).
 
 ## Na routerju
-Pri napravi: Nastavitve → Terminal → Vklopi, nato na routerju poženi namestitveni ukaz s strani Paket.
-Ukaz doda uporabnika `noc-term` (skupina full, naključno geslo, ki se nikjer ne shrani) s ključem NOC,
-pravilo `noc-term` (SSH z IP-ja strežnika NOC) na vrh verige input in, če je SSH omejen na naslove,
-v `available-from` doda IP strežnika NOC. Izklop + namestitveni ukaz uporabnika in pravilo odstrani.
+Pri napravi: Nastavitve → Terminal → Vklopi (ali Alarmi in obvestila → Terminal routerjev → Vklopi pri vseh).
+Router ob naslednjem pushu sam doda uporabnika `noc-term` (skupina full, naključno geslo, ki se nikjer ne shrani)
+s ključem NOC, pravilo `noc-term` (SSH z IP-ja strežnika NOC) na vrh verige input in, če je SSH omejen na naslove,
+v `available-from` doda IP strežnika NOC. Izklop uporabnika in pravilo odstrani.
+
+## AI popravki z enim klikom
+Uporabljajo isti dostop (noc-term): `bin/noc-apply.py` se prijavi, vklopi Safe Mode (Ctrl+X), izvede ukaze,
+preveri, da router še doseže NOC (`/apply-check/<žeton>`), in šele nato Safe Mode potrdi. Ob napaki se seja
+prekine in router vse razveljavi sam. Storitev noc-term za to ni potrebna (teče kot posamezen proces).
 
 ## Varnost
 - Sejo odpre samo superadmin; žeton velja 60 s, enkrat, samo z istega IP-ja kot brskalnik.
