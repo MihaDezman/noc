@@ -61,6 +61,7 @@ final class Firewall
                     if ($name === '') break;
                     $c['services'][$name] ??= ['on' => true, 'address' => ''];
                     if (isset($kv['disabled'])) $c['services'][$name]['on'] = $kv['disabled'] !== 'yes';
+                    if (isset($kv['port']) && ctype_digit((string)$kv['port'])) $c['services'][$name]['port'] = (int)$kv['port'];
                     // RouterOS 7.24+: "available-from" (prej "address")
                     if (isset($kv['available-from'])) $c['services'][$name]['address'] = $kv['available-from'];
                     elseif (isset($kv['address'])) $c['services'][$name]['address'] = $kv['address'];
@@ -149,7 +150,7 @@ final class Firewall
     }
 
     // ------------------------------------------------------------------ popravki
-    private static function top(string $menu, string $args): string
+    public static function top(string $menu, string $args): string
     {
         return ":do { $menu add $args place-before=([$menu find where dynamic=no]->0) } on-error={ $menu add $args }\n";
     }

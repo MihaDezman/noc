@@ -1,0 +1,21 @@
+# NOC – most za terminal routerjev (WebSocket <-> SSH), posluša samo na 127.0.0.1:8765
+# Namestitev: glej deploy/term/README.md
+[Unit]
+Description=NOC terminal most (WebSocket <-> SSH)
+After=network-online.target mariadb.service
+Wants=network-online.target
+
+[Service]
+User=www-data
+Group=www-data
+Environment=HOME=/var/lib/noc
+ExecStart=/usr/bin/python3 /var/www/noc/bin/noc-term.py
+Restart=always
+RestartSec=3
+NoNewPrivileges=yes
+ProtectSystem=full
+ProtectHome=yes
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target

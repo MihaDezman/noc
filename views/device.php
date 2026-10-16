@@ -38,6 +38,7 @@ $upd = $s['upd'] ?? [];
     <a class="btn sm <?= $tab === 'protect' ? 'on' : '' ?>" href="/devices/<?= $id ?>?tab=protect"><?= icon('shield', 15) ?><?= h(A('Zaščita')) ?><?php if (($d['filter_profile'] ?? 'off') !== 'off'): ?> <span class="dot up" style="margin-left:2px"></span><?php endif; ?></a>
     <a class="btn sm <?= $tab === 'wg' ? 'on' : '' ?>" href="/devices/<?= $id ?>?tab=wg"><?= icon('lock', 15) ?>WireGuard</a>
     <a class="btn sm <?= $tab === 'settings' ? 'on' : '' ?>" href="/devices/<?= $id ?>?tab=settings"><?= icon('settings', 15) ?><?= h(A('Nastavitve')) ?></a>
+    <?php if ((int)$d['term_enabled']): ?><a class="btn sm" href="/devices/<?= $id ?>/terminal" target="_blank" rel="noopener"><?= icon('terminal', 15) ?><?= h(A('Terminal')) ?></a><?php endif; ?>
     <a class="btn sm" href="/devices/<?= $id ?>/install"><?= icon('download', 15) ?><?= h(A('Paket')) ?></a>
   </div>
   <?php endif; ?>
@@ -947,6 +948,34 @@ $upd = $s['upd'] ?? [];
     <div class="row" style="grid-template-columns:1fr auto"><label class="f"><span><?= h(A('Nov zapisek')) ?></span><input type="text" name="note" maxlength="500" placeholder="<?= h(A('npr. disk je pri tej napravi vedno okoli 96 % – to je normalno')) ?>"></label>
       <div style="align-self:end"><button class="btn"><?= icon('plus', 15) ?><?= h(A('Dodaj')) ?></button></div></div>
   </form>
+</section>
+<?php $tOn = (int)$d['term_enabled']; $tUser = Term::userOnRouter($d); $tBridge = Term::bridgeUp(); $tSess = Term::sessions($id, 8); ?>
+<section class="panel" id="term" style="margin-top:20px">
+  <div class="panel-head"><h2><?= icon('terminal', 18) ?><?= h(A('Terminal')) ?></h2>
+    <div class="actions">
+      <?php if ($tOn): ?><span class="tag <?= $tUser ? 'up' : 'warn' ?>"><?= h($tUser ? A('uporabnik noc-term na routerju') : A('na routerju še ni nastavljen')) ?></span><?php endif; ?>
+      <?php if (!$tBridge): ?><span class="tag down" title="<?= h(A('Storitev noc-term na strežniku ne teče – glej deploy/term/README.md')) ?>"><?= h(A('most ne teče')) ?></span><?php endif; ?>
+      <?php if ($tOn): ?><a class="btn sm primary" href="/devices/<?= $id ?>/terminal" target="_blank" rel="noopener"><?= icon('terminal', 14) ?><?= h(A('Odpri terminal')) ?></a><?php endif; ?>
+    </div></div>
+  <div class="panel-body">
+    <p class="small muted" style="margin-top:0"><?= h(A('Terminal routerja v brskalniku: strežnik NOC se z routerjem poveže prek SSH kot uporabnik noc-term s ključem NOC (geslo se nikjer ne shrani). SSH na routerju je dovoljen samo z naslova strežnika NOC ({ip}). Na routerju ga nastavi ali odstrani ročni namestitveni ukaz (Paket). Vsaka seja se zabeleži z izpisom.', ['ip' => (string)cfg('noc_ip', '–')])) ?></p>
+    <form method="post" action="/devices/<?= $id ?>/terminal"<?= $tOn ? '' : ' data-confirm="' . h(A('Vklopim terminal? Po namestitvenem ukazu bo imel strežnik NOC polni dostop do tega routerja prek SSH.')) . '"' ?>><?= Auth::csrf() ?><input type="hidden" name="on" value="<?= $tOn ? '0' : '1' ?>">
+      <button class="btn sm"><?= icon('power', 14) ?><?= h($tOn ? A('Izklopi terminal') : A('Vklopi terminal')) ?></button>
+      <?php if ($tOn && !$tUser): ?><span class="small muted" style="margin-left:8px"><?= h(A('Zdaj na routerju poženi namestitveni ukaz s strani Paket.')) ?></span><?php endif; ?>
+    </form>
+  </div>
+  <?php if ($tSess): ?>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th><?= h(A('Začetek')) ?></th><th><?= h(A('Uporabnik')) ?></th><th><?= h(A('Trajanje')) ?></th><th><?= h(A('Konec')) ?></th><th></th></tr></thead>
+    <tbody><?php foreach ($tSess as $x): $dur = $x['started_at'] ? max(0, strtotime((string)($x['ended_at'] ?: date('Y-m-d H:i:s'))) - strtotime((string)$x['started_at'])) : 0; ?><tr>
+      <td class="nowrap"><?= h(fmt_dt($x['started_at'] ?: $x['created_at'])) ?></td>
+      <td class="small"><?= h($x['email'] ?? '–') ?> <span class="faint mono"><?= h($x['client_ip']) ?></span></td>
+      <td class="nowrap"><?= $x['status'] === 'open' ? '<span class="tag up">' . h(A('poteka')) . '</span>' : h($dur >= 60 ? intdiv($dur, 60) . ' min' : $dur . ' s') ?></td>
+      <td class="small muted"><?= h($x['note']) ?></td>
+      <td class="num"><?php if (is_file(Term::logFile((int)$x['id']))): ?><a class="btn sm ghost" href="/devices/<?= $id ?>/terminal/log/<?= (int)$x['id'] ?>" target="_blank" rel="noopener"><?= icon('file', 14) ?><?= h(A('Izpis')) ?></a><?php endif; ?></td>
+    </tr><?php endforeach; ?></tbody>
+  </table></div>
+  <?php endif; ?>
 </section>
 <section class="panel" style="margin-top:20px">
   <div class="panel-head"><h2><?= icon('file', 18) ?><?= h(A('Zadnji surovi push')) ?></h2>

@@ -73,6 +73,11 @@ if [ -f bin/fwlog-setup.sh ]; then
     else echo -e "  \e[33m! logi požarnega zidu niso nastavljeni: $(echo "$R" | tail -n 1)\e[0m"; fi
 fi
 
+# 4c. most terminala (če je nameščen) naloži novo kodo
+if systemctl is-enabled --quiet noc-term 2>/dev/null; then
+    systemctl restart noc-term && ok "terminal: most ponovno zagnan" || echo -e "  \e[33m! most terminala se ni zagnal: systemctl status noc-term\e[0m"
+fi
+
 # 5. git commit + push
 G add -A
 if ! G diff --cached --quiet; then G commit -qm "NOC v$VER"; ok "commit: NOC v$VER"; fi

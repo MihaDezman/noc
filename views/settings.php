@@ -69,6 +69,18 @@ $num = function (string $k, string $label, string $unit, string $hint = '') {
       </div>
     </div></section>
 
+  <?php $tB = Term::bridgeUp(); $tK = Term::hasKeys(); $tN = (int)db()->query('SELECT COUNT(*) FROM devices WHERE active=1 AND term_enabled=1')->fetchColumn(); ?>
+  <section class="panel" id="term"><div class="panel-head"><h2><?= icon('terminal', 18) ?><?= h(A('Terminal routerjev')) ?></h2><span class="small muted"><?= h(A('vklopljen pri {n} napravah', ['n' => $tN])) ?></span></div>
+    <div class="panel-body form">
+      <dl class="kv small">
+        <dt><?= h(A('Most (storitev noc-term)')) ?></dt><dd><?= $tB ? '<span class="tag up">' . h(A('teče')) . '</span>' : '<span class="tag down">' . h(A('ne teče')) . '</span> <span class="muted">' . h(A('namestitev: deploy/term/README.md')) . '</span>' ?></dd>
+        <dt><?= h(A('Ključ Ed25519')) ?></dt><dd class="mono"><?= h(Term::fingerprint('ed') ?: A('še ni ustvarjen')) ?></dd>
+        <dt><?= h(A('Ključ RSA (rezerva)')) ?></dt><dd class="mono"><?= h(Term::fingerprint('rsa') ?: A('še ni ustvarjen')) ?></dd>
+      </dl>
+      <p class="small muted" style="margin:0"><?= h(A('Terminal vklopiš pri posamezni napravi (Nastavitve → Terminal). Ključa se ustvarita samodejno ob prvem vklopu.')) ?>
+        <?php if (!$tK): ?> <button class="btn sm" form="term-keys" type="submit"><?= icon('key', 14) ?><?= h(A('Ustvari ključa zdaj')) ?></button><?php endif; ?></p>
+    </div></section>
+
   <?php $tlsAll = db()->query('SELECT COUNT(*) n, COALESCE(SUM(tls_check),0) on_, COALESCE(SUM(tls_check=1 AND tls_ok=0),0) bad FROM devices WHERE active=1')->fetch(); ?>
   <section class="panel" id="tls"><div class="panel-head"><h2><?= icon('lock', 18) ?><?= h(A('Preverjanje certifikata NOC')) ?></h2>
     <div class="actions"><span class="small muted"><?= h(A('vklopljeno pri {a} od {n} naprav', ['a' => (int)$tlsAll['on_'], 'n' => (int)$tlsAll['n']])) ?></span>
@@ -138,6 +150,7 @@ $num = function (string $k, string $label, string $unit, string $hint = '') {
 <form id="fwlog-on" method="post" action="/settings/fwlog-all" data-confirm="<?= h(A('Vklopim varnostno analizo pri vseh napravah? Routerji dobijo pravila za beleženje s samodejno posodobitvijo.')) ?>"><?= Auth::csrf() ?><input type="hidden" name="on" value="1"></form>
 <form id="fwlog-off" method="post" action="/settings/fwlog-all" data-confirm="<?= h(A('Izklopim varnostno analizo pri vseh napravah?')) ?>"><?= Auth::csrf() ?><input type="hidden" name="on" value="0"></form>
 <form id="ai-test" method="post" action="/settings/ai-test"><?= Auth::csrf() ?></form>
+<form id="term-keys" method="post" action="/settings/term-keys"><?= Auth::csrf() ?></form>
 <form id="ai-review-all" method="post" action="/settings/ai-review-all" data-confirm="<?= h(A('AI pregleda konfiguracijo vseh naprav (en klic na napravo). Za vsako dobiš sporočilo na Telegram. Nadaljujem?')) ?>"><?= Auth::csrf() ?></form>
 <?php if (Ai::on()): $aiNotes = db()->query('SELECT * FROM ai_notes WHERE device_id IS NULL ORDER BY id')->fetchAll(); ?>
 <section class="panel" id="ai-notes" style="margin-top:20px">

@@ -79,6 +79,11 @@ if (str_starts_with($path, '/api/')) {
         Speed::done($dev, (int)$m[1], $_GET);
         json_out(['ok' => true]);
     }
+    if ($path === '/api/term-key' && $method === 'GET') {   // javni ključ NOC za uporabnika noc-term (terminal)
+        $k = Term::pubKey(($_GET['t'] ?? '') === 'rsa' ? 'rsa' : 'ed');
+        if ($k === '') json_out(['error' => 'no key'], 404);
+        header('Content-Type: text/plain; charset=utf-8'); header('Cache-Control: no-store'); echo $k, "\n"; exit;
+    }
     if ($path === '/api/speed-file' && $method === 'GET') Speed::serveFile((int)($_GET['bytes'] ?? 0));   // testna datoteka (meritev s prenosom z NOC)
     if ($path === '/api/fw-confirm' && $method === 'GET') {   // router po spremembi požarnega zidu potrdi, da še doseže NOC
         db()->prepare('UPDATE devices SET fw_confirmed_at=NOW() WHERE id=?')->execute([$dev['id']]);
@@ -106,7 +111,7 @@ Auth::start();
 function view(string $name, array $vars = []): never {
     extract($vars, EXTR_SKIP);
     $V = APP_ROOT . '/views';
-    if ($name === 'login') { require "$V/login.php"; exit; }
+    if ($name === 'login' || !empty($vars['bare'])) { require "$V/$name.php"; exit; }   // samostojne strani (prijava, terminal)
     require "$V/_top.php"; require "$V/$name.php"; require "$V/_bottom.php"; exit;
 }
 function post(string $k, string $d = ''): string { return trim((string)($_POST[$k] ?? $d)); }
@@ -334,6 +339,24 @@ if (($seg[0] ?? '') === 'devices' && ctype_digit($seg[1] ?? '')) {
         MikrotikScript::invalidate($id); Ufw::write();
         audit('device.fwlog', $d['name'] . ($on ? ' on' : ' off'));
         back("/devices/$id?tab=protect#fwlog", $on ? A('Varnostna analiza vklopljena. Router dobi nastavitve s samodejno posodobitvijo v nekaj minutah (ali takoj z ukazom s strani Paket).') : A('Varnostna analiza izklopljena. Router nastavitve odstrani ob naslednji posodobitvi.'));
+    }
+    if ($sub === 'terminal') {   // terminal routerja v brskalniku (SSH s strežnika NOC)
+        if ($method === 'POST') {
+            $on = post('on') === '1' ? 1 : 0;
+            if ($on && ($e = Term::ensureKeys()) !== '') back("/devices/$id?tab=settings#term", $e, 'err');
+            db()->prepare('UPDATE devices SET term_enabled=? WHERE id=?')->execute([$on, $id]);
+            audit('device.terminal-set', $d['name'] . ($on ? ' on' : ' off'));
+            back("/devices/$id?tab=settings#term", $on ? A('Terminal vklopljen. Na routerju ga nastavi namestitveni ukaz (Paket) – doda uporabnika noc-term s ključem NOC in dovoli SSH s strežnika NOC.') : A('Terminal izklopljen. Uporabnika noc-term odstrani naslednji namestitveni ukaz.'));
+        }
+        if (($seg[3] ?? '') === 'log' && ctype_digit($seg[4] ?? '')) {   // izpis seje
+            $st = db()->prepare('SELECT id FROM term_sessions WHERE id=? AND device_id=?'); $st->execute([(int)$seg[4], $id]);
+            $t = $st->fetchColumn() ? Term::transcript((int)$seg[4]) : null;
+            if ($t === null) back("/devices/$id?tab=settings#term", A('Izpis seje ni na voljo.'), 'err');
+            audit('device.terminal-log', $d['name'] . ' #' . (int)$seg[4]);
+            header('Content-Type: text/plain; charset=utf-8'); header('Cache-Control: no-store'); echo $t; exit;
+        }
+        if (!(int)$d['term_enabled']) back("/devices/$id?tab=settings#term", A('Terminal pri tej napravi ni vklopljen.'), 'err');
+        view('terminal', ['d' => $d, 'token' => Term::token($d, Auth::$user), 'title' => A('Terminal') . ' · ' . $d['name'], 'nav' => 'devices', 'bare' => true]);
     }
     if ($sub === 'speed' && $method === 'POST') {   // meritev hitrosti interneta
         if (post('op') === 'auto') {
@@ -738,6 +761,12 @@ if ($path === '/users/delete' && $method === 'POST') {
 }
 
 // ---------------------------------------------------------------- nastavitve
+if ($path === '/settings/term-keys' && $method === 'POST') {   // ključa NOC za terminal routerjev
+    Auth::requireSuper();
+    $e = Term::ensureKeys();
+    audit('settings.term-keys', $e ?: 'ok');
+    back('/settings#term', $e === '' ? A('Ključa za terminal sta pripravljena.') : $e, $e === '' ? 'ok' : 'err');
+}
 if ($path === '/settings/fwlog-all' && $method === 'POST') {   // varnostna analiza pri vseh napravah
     Auth::requireSuper();
     $on = post('on') === '1' ? 1 : 0;

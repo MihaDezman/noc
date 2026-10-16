@@ -530,3 +530,11 @@ pre.raw { margin: 0; padding: 16px 20px; font-family: var(--mono); font-size: .8
 .graph-pair .panel-head h3 .ico { color: var(--violet); }
 .graph-pair .panel-body { padding: 12px 14px; }
 @media (max-width: 900px) { .graph-pair { grid-template-columns: 1fr; } .graph-dev-head .graph-now { margin-left: 0; } }
+
+/* ---- Terminal routerja (samostojna stran) */
+.term-page { margin: 0; position: fixed; inset: 0; overflow: hidden; display: flex; flex-direction: column; background: #11131c; }
+.term-bar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 8px 14px; background: var(--panel); border-bottom: 1px solid var(--line); }
+.term-bar .term-note { margin-left: auto; display: inline-flex; align-items: center; gap: 4px; }
+.term-bar .ico.flip { transform: rotate(180deg); }
+.term-box { flex: 1; min-height: 0; padding: 6px 4px 4px 10px; }
+.term-box .xterm { height: 100%; }

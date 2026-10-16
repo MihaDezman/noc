@@ -36,7 +36,7 @@ final class Score
         $s = json_decode((string)($d['status_json'] ?? ''), true) ?: [];
         if (is_array($s['usr'] ?? null)) {
             foreach ($s['usr'] as $u) if (is_array($u) && ($u['n'] ?? '') === 'admin' && empty($u['dis'])) { $add('warning', A('Vklopljen privzeti uporabnik "admin" – napadalci ga poskušajo prvega. Ustvari svojega uporabnika (skupina full) in admina izklopi: /user disable admin'), '', 8); break; }
-            $full = array_filter($s['usr'], fn($u) => is_array($u) && ($u['g'] ?? '') === 'full' && empty($u['dis']));
+            $full = array_filter($s['usr'], fn($u) => is_array($u) && ($u['g'] ?? '') === 'full' && empty($u['dis']) && ($u['n'] ?? '') !== Term::USER);   // noc-term (terminal NOC) ne šteje
             if (count($full) > 3) $add('info', A('{n} uporabnikov s polnimi pravicami', ['n' => count($full)]), '', 2);
         }
         // 5. WireGuard

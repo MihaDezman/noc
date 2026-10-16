@@ -401,6 +401,8 @@ ROS;
         $s .= Filter::rsc($d);
         // požarni zid samo ob ročni namestitvi – samodejna posodobitev obstoječih pravil noc-fw ne spreminja
         $s .= self::$auto ? "# --- pozarni zid: nespremenjen (samodejna posodobitev)\n\n" : Firewall::rsc($d);
+        // terminal NOC (uporabnik noc-term, SSH s strežnika) – prav tako samo ob ročni namestitvi
+        $s .= self::$auto ? "# --- terminal NOC: nespremenjen (samodejna posodobitev)\n\n" : Term::rsc($d);
         $s .= "# --- fetch,info ne polni loga (vsak push bi zapisal vrstico 'Download ... FINISHED'); napake fetcha se se vedno belezijo\n";
         $s .= ":foreach r in=[/system logging find] do={ :if ([:tostr [/system logging get \$r topics]] = \"info\") do={ /system logging set \$r topics=info,!fetch } }\n\n";
         $s .= FwLog::rsc($d);   // varnostna analiza (stikalo pri napravi) – tudi pri samodejni posodobitvi
@@ -422,6 +424,7 @@ ROS;
             . "/ip firewall raw remove [find comment~\"^noc-block\"]\n/ip firewall address-list remove [find list=noc-block]\n"
             . Filter::restoreDns($d)
             . Firewall::removeRsc($d)
+            . ":do { /user ssh-keys remove [find user=\"" . Term::USER . "\"] } on-error={}\n:do { /user remove [find name=\"" . Term::USER . "\"] } on-error={}\n/ip firewall filter remove [find comment~\"^noc-term\"]\n"
             . "/system script environment remove [find name~\"^noc\"]\n:log info \"noc: odstranjeno\"\n";
     }
 
