@@ -49,7 +49,7 @@ final class Diff
         $suf = 0;
         while ($suf < $na - $pre && $suf < $nb - $pre && $a[$na - 1 - $suf] === $b[$nb - 1 - $suf]) $suf++;
         $A = array_slice($a, $pre, $na - $pre - $suf); $B = array_slice($b, $pre, $nb - $pre - $suf);
-        $mid = self::myers($A, $B);
+        $mid = self::middle($A, $B);
         $ops = [];
         for ($i = 0; $i < $pre; $i++) $ops[] = [' ', $a[$i]];
         foreach ($mid as $o) $ops[] = $o;
@@ -57,16 +57,64 @@ final class Diff
         return $ops;
     }
 
-    private static function myers(array $a, array $b): array
+    /**
+     * Vrstice, ki jih na drugi strani sploh ni, so zagotovo dodane/odstranjene – izločimo jih pred Myersom
+     * (kot GNU diff). Tako tisoč novih vnosov v seznamu naslovov ne napihne iskanja (pomnilnik raste s kvadratom razlik).
+     */
+    private static function middle(array $a, array $b): array
+    {
+        if (!$a) return array_map(fn($l) => ['+', $l], $b);
+        if (!$b) return array_map(fn($l) => ['-', $l], $a);
+        $inA = array_count_values($a); $inB = array_count_values($b);
+        $ia = array_keys(array_filter($a, fn($l) => isset($inB[$l]))); $ib = array_keys(array_filter($b, fn($l) => isset($inA[$l])));
+        $fa = array_map(fn($i) => $a[$i], $ia); $fb = array_map(fn($i) => $b[$i], $ib);
+        $core = self::myers($fa, $fb);
+        if ($core === null) return self::bag($a, $b);
+        // nazaj v polno zaporedje: izločene vrstice vstavimo pred naslednjo vrstico iz jedra
+        $ops = []; $x = 0; $y = 0; $pa = 0; $pb = 0;
+        $flushA = function (int $to) use (&$x, &$ops, $a) { for (; $x < $to; $x++) $ops[] = ['-', $a[$x]]; };
+        $flushB = function (int $to) use (&$y, &$ops, $b) { for (; $y < $to; $y++) $ops[] = ['+', $b[$y]]; };
+        foreach ($core as [$op, $l]) {
+            if ($op !== '+') { $flushA($ia[$pa]); }
+            if ($op !== '-') { $flushB($ib[$pb]); }
+            if ($op === ' ') { $ops[] = [' ', $l]; $x++; $y++; $pa++; $pb++; }
+            elseif ($op === '-') { $ops[] = ['-', $l]; $x++; $pa++; }
+            else { $ops[] = ['+', $l]; $y++; $pb++; }
+        }
+        $flushA(count($a)); $flushB(count($b));
+        return $ops;
+    }
+
+    /** Rezerva za zelo različni datoteki: požrešno skupno zaporedje (linearno, ni nujno najkrajše, a vedno pravilno) */
+    private static function bag(array $a, array $b): array
+    {
+        $pos = [];
+        foreach ($a as $i => $l) $pos[$l][] = $i;
+        $ptr = array_fill_keys(array_keys($pos), 0);
+        $ops = []; $x = 0; $n = count($a);
+        foreach ($b as $l) {
+            if (!isset($pos[$l])) { $ops[] = ['+', $l]; continue; }
+            $p = &$ptr[$l]; $list = $pos[$l];
+            while ($p < count($list) && $list[$p] < $x) $p++;
+            if ($p < count($list) && $list[$p] - $x <= 200) {   // ujemanje blizu: vmesne vrstice so odstranjene
+                for (; $x < $list[$p]; $x++) $ops[] = ['-', $a[$x]];
+                $ops[] = [' ', $l]; $x++; $p++;
+            } else $ops[] = ['+', $l];
+            unset($p);
+        }
+        for (; $x < $n; $x++) $ops[] = ['-', $a[$x]];
+        return $ops;
+    }
+
+    /** Myers O(ND); null, če je razlik preveč (pomnilnik sledi raste kot D²) */
+    private static function myers(array $a, array $b): ?array
     {
         $n = count($a); $m = count($b); $max = $n + $m;
         if ($n === 0) return array_map(fn($l) => ['+', $l], $b);
         if ($m === 0) return array_map(fn($l) => ['-', $l], $a);
-        if ($max > 20000) {   // zelo različni: preprost prikaz
-            return array_merge(array_map(fn($l) => ['-', $l], $a), array_map(fn($l) => ['+', $l], $b));
-        }
         $v = [1 => 0]; $trace = [];
         for ($d = 0; $d <= $max; $d++) {
+            if ($d > 800) return null;
             $trace[] = $v;
             for ($k = -$d; $k <= $d; $k += 2) {
                 $x = ($k === -$d || ($k !== $d && ($v[$k - 1] ?? -1) < ($v[$k + 1] ?? -1))) ? ($v[$k + 1] ?? 0) : ($v[$k - 1] ?? 0) + 1;
