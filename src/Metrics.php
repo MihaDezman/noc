@@ -80,6 +80,19 @@ final class Metrics
     }
 
     /** Vsako noč: dnevni povzetki in brisanje starih podatkov */
+    /**
+     * Konec poletnega časa: ura gre z 03:00 nazaj na 02:00 in ura med 02 in 03 se ponovi. Minutni zapisi prvega prehoda
+     * so takrat "v prihodnosti" – nove vrstice z istim časom bi se zavrgle (INSERT IGNORE), alarmi (vztrajnost) in
+     * zaznava tišine pa bi eno uro gledali stare podatke. Običajno v prihodnosti ni ničesar, zato je to poceni.
+     */
+    public static function clockGuard(): void
+    {
+        $pdo = db();
+        $n = $pdo->exec('DELETE FROM health_1m WHERE ts > NOW() + INTERVAL 2 MINUTE') + $pdo->exec('DELETE FROM iface_1m WHERE ts > NOW() + INTERVAL 2 MINUTE');
+        $m = $pdo->exec('UPDATE devices SET last_seen_at=NOW() WHERE last_seen_at > NOW() + INTERVAL 2 MINUTE');
+        if ($n || $m) error_log("noc: ura je šla nazaj (premik časa) – odstranjenih minutnih zapisov iz prihodnosti: $n, popravljenih naprav: $m");
+    }
+
     public static function rollup(): void
     {
         $pdo = db();

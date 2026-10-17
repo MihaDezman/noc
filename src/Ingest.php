@@ -52,10 +52,11 @@ final class Ingest
         if ($d['wan_iface'] !== '' && !in_array($d['wan_iface'], $monitor, true)) $monitor[] = $d['wan_iface'];   // WAN ima zgodovino vedno
         $seen = []; $keepT = []; $events = []; $speedDrops = [];
         $evIfaces = array_values(array_unique(array_merge($monitor, Devices::list((string)$d['down_ifaces']))));   // dogodki za WAN in izbrane vmesnike
-        $upIf = $pdo->prepare('INSERT INTO device_ifaces (device_id, name, type, comment, mac, running, disabled, rate, rx_byte, tx_byte, rx_bps, tx_bps, rx_error, tx_error, link_downs, last_up, last_down, link_downs_noc, updated_at)
-                               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,FROM_UNIXTIME(?))
-                               ON DUPLICATE KEY UPDATE type=VALUES(type), comment=VALUES(comment), mac=VALUES(mac), running=VALUES(running), disabled=VALUES(disabled), rate=VALUES(rate),
-                               rx_byte=VALUES(rx_byte), tx_byte=VALUES(tx_byte), rx_bps=VALUES(rx_bps), tx_bps=VALUES(tx_bps), rx_error=VALUES(rx_error), tx_error=VALUES(tx_error), link_downs=VALUES(link_downs), last_up=VALUES(last_up), last_down=VALUES(last_down), link_downs_noc=VALUES(link_downs_noc), updated_at=VALUES(updated_at)');
+        $ifRows = [];   // vsi vmesniki v enem stavku (prej en stavek na vmesnik)
+        $upIfHead = 'INSERT INTO device_ifaces (device_id, name, type, comment, mac, running, disabled, rate, rx_byte, tx_byte, rx_bps, tx_bps, rx_error, tx_error, link_downs, last_up, last_down, link_downs_noc, updated_at)';
+        $upIfRow = '(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,FROM_UNIXTIME(?))';
+        $upIfTail = 'ON DUPLICATE KEY UPDATE type=VALUES(type), comment=VALUES(comment), mac=VALUES(mac), running=VALUES(running), disabled=VALUES(disabled), rate=VALUES(rate),
+                               rx_byte=VALUES(rx_byte), tx_byte=VALUES(tx_byte), rx_bps=VALUES(rx_bps), tx_bps=VALUES(tx_bps), rx_error=VALUES(rx_error), tx_error=VALUES(tx_error), link_downs=VALUES(link_downs), last_up=VALUES(last_up), last_down=VALUES(last_down), link_downs_noc=VALUES(link_downs_noc), updated_at=VALUES(updated_at)';
         $ins1 = $pdo->prepare('INSERT IGNORE INTO iface_1m (device_id, iface, ts, rx_bps, tx_bps) VALUES (?,?,?,?,?)');
         $ins5 = $pdo->prepare('INSERT INTO iface_5m (device_id, iface, ts, rx_bytes, tx_bytes, rx_peak, tx_peak, secs) VALUES (?,?,?,?,?,?,?,?)
                                ON DUPLICATE KEY UPDATE rx_bytes=rx_bytes+VALUES(rx_bytes), tx_bytes=tx_bytes+VALUES(tx_bytes), rx_peak=GREATEST(rx_peak, VALUES(rx_peak)), tx_peak=GREATEST(tx_peak, VALUES(tx_peak)), secs=LEAST(300, secs+VALUES(secs))');
@@ -87,10 +88,11 @@ final class Ingest
                 $old = self::rateMbps((string)$p['rate']); $new = self::rateMbps($rate);
                 if ($old && $new && $new !== $old) { $events[] = [$n, 'speed', $p['rate'] . ' → ' . $rate, $now]; $speedDrops[$n] = [$new < $old, $p['rate'] . ' → ' . $rate]; }
             }
-            $upIf->execute([$id, $n, mb_substr((string)($i['t'] ?? ''), 0, 32), mb_substr((string)($i['c'] ?? ''), 0, 255), (string)($i['mac'] ?? ''),
+            $ifRows[] = [$id, $n, mb_substr((string)($i['t'] ?? ''), 0, 32), mb_substr((string)($i['c'] ?? ''), 0, 255), (string)($i['mac'] ?? ''),
                 !empty($i['run']) ? 1 : 0, !empty($i['dis']) ? 1 : 0, mb_substr($rate, 0, 16), $rx, $tx, $rxb, $txb,
-                (int)($i['rxe'] ?? 0), (int)($i['txe'] ?? 0), (int)($i['ld'] ?? 0), mb_substr((string)($i['lu'] ?? ''), 0, 32), mb_substr((string)($i['ldt'] ?? ''), 0, 32), $ldNoc, $keepT[$n] ?? $now]);
+                (int)($i['rxe'] ?? 0), (int)($i['txe'] ?? 0), (int)($i['ld'] ?? 0), mb_substr((string)($i['lu'] ?? ''), 0, 32), mb_substr((string)($i['ldt'] ?? ''), 0, 32), $ldNoc, $keepT[$n] ?? $now];
         }
+        self::bulk($pdo, $upIfHead, $upIfRow, $upIfTail, $ifRows);
         if ($seen) {   // vmesniki, ki jih ni več
             $in = implode(',', array_fill(0, count($seen), '?'));
             $pdo->prepare("DELETE FROM device_ifaces WHERE device_id=? AND name NOT IN ($in)")->execute(array_merge([$id], $seen));
@@ -148,19 +150,21 @@ final class Ingest
             $since = $st0->fetchColumn();
             $learning = !$since || strtotime((string)$since) > $now - 86400;
             $ignore = array_map('mb_strtolower', Devices::list((string)($d['newdev_ignore'] ?? '')));
-            $up = $pdo->prepare('INSERT INTO lan_hosts (device_id, mac, ip, hostname, server, status, first_seen, last_seen) VALUES (?,?,?,?,?,?,NOW(),NOW())
-                                 ON DUPLICATE KEY UPDATE ip=VALUES(ip), hostname=IF(VALUES(hostname)="", hostname, VALUES(hostname)), server=VALUES(server), status=VALUES(status), last_seen=NOW()');
+            $leaseRows = [];
+            $upHead = 'INSERT INTO lan_hosts (device_id, mac, ip, hostname, server, status, first_seen, last_seen)';
+            $upTail = 'ON DUPLICATE KEY UPDATE ip=VALUES(ip), hostname=IF(VALUES(hostname)="", hostname, VALUES(hostname)), server=VALUES(server), status=VALUES(status), last_seen=NOW()';
             foreach ($leases as $l) {
                 if (!is_array($l)) continue;
                 $mac = normalize_mac((string)($l['m'] ?? '')); $ip = (string)($l['a'] ?? '');
                 if ($mac === '' || !filter_var($ip, FILTER_VALIDATE_IP)) continue;
                 $host = mb_substr((string)($l['h'] ?? ''), 0, 120); $srv = mb_substr((string)($l['s'] ?? ''), 0, 64);
-                $up->execute([$id, $mac, $ip, $host, $srv, 'bound']);
+                $leaseRows[] = [$id, $mac, $ip, $host, $srv, 'bound'];
                 if (!isset($knownMacs[$mac]) && !$learning && (int)($d['newdev_alert'] ?? 1) === 1 && !in_array(mb_strtolower($srv), $ignore, true)) {
                     $newHosts[] = ['mac' => $mac, 'ip' => $ip, 'host' => $host, 'srv' => $srv];
                 }
                 $knownMacs[$mac] = true;
             }
+            self::bulk($pdo, $upHead, '(?,?,?,?,?,?,NOW(),NOW())', $upTail, $leaseRows);
         }
 
         // --- IP pooli (vsakih 5 min); med pošiljanji obdržimo zadnje znane vrednosti
@@ -182,18 +186,28 @@ final class Ingest
         // --- logi (vrstico, ki jo že imamo, zavrnemo – router lahko po ponovnem zagonu ali prenamestitvi pošlje znova)
         $logs = (array)($b['logs'] ?? []);
         if ($logs) {
-            $insL = $pdo->prepare('INSERT INTO logs (device_id, ts, topics, severity, message) VALUES (?,?,?,?,?)');
-            $exists = $pdo->prepare('SELECT 1 FROM logs WHERE device_id=? AND ts=? AND topics=? AND message=? LIMIT 1');
-            $dups = 0;
+            $lines = [];
             foreach ($logs as $l) {
                 if (!is_array($l)) continue;
                 $tp = str_replace(';', ',', mb_substr((string)($l['tp'] ?? ''), 0, 120));
-                $msg = mb_substr((string)($l['m'] ?? ''), 0, 1000);
-                $lts = self::logTime((string)($l['t'] ?? ''), $now);
-                $exists->execute([$id, $lts, $tp, $msg]);
-                if ($exists->fetchColumn()) { $dups++; continue; }
-                $insL->execute([$id, $lts, $tp, self::severity($tp, $msg), $msg]);
+                $lines[] = [self::logTime((string)($l['t'] ?? ''), $now), $tp, mb_substr((string)($l['m'] ?? ''), 0, 1000)];
             }
+            // obstoječe vrstice z istimi časi preberemo naenkrat (prej ena poizvedba na vrstico)
+            $have = [];
+            if ($lines) {
+                $tss = array_values(array_unique(array_column($lines, 0)));
+                $st = $pdo->prepare('SELECT ts, topics, message FROM logs WHERE device_id=? AND ts IN (' . implode(',', array_fill(0, count($tss), '?')) . ')');
+                $st->execute(array_merge([$id], $tss));
+                foreach ($st as $r) $have[$r['ts'] . "\0" . $r['topics'] . "\0" . mb_strtolower($r['message'])] = true;
+            }
+            $dups = 0; $logRows = [];
+            foreach ($lines as [$lts, $tp, $msg]) {
+                $k = $lts . "\0" . $tp . "\0" . mb_strtolower($msg);   // primerjava kot v bazi (utf8mb4_unicode_ci ne loči velikih in malih črk)
+                if (isset($have[$k])) { $dups++; continue; }
+                $have[$k] = true;
+                $logRows[] = [$id, $lts, $tp, self::severity($tp, $msg), $msg];
+            }
+            self::bulk($pdo, 'INSERT INTO logs (device_id, ts, topics, severity, message)', '(?,?,?,?,?)', '', $logRows);
             if ($dups) {
                 $prev = explode('|', setting('logdup:' . $id, '0|'));
                 setting_set('logdup:' . $id, ((int)$prev[0] + $dups) . '|' . date('Y-m-d H:i:s'));
@@ -238,6 +252,13 @@ final class Ingest
         if ($sfpRows) $safe('sfp', fn() => Alerts::sfp($d, array_filter($sfpRows)));
 
         return ['ok' => true, 'tick' => (int)($b['tick'] ?? 0)];
+    }
+
+    /** Več vrstic v enem INSERT (po $chunk naenkrat) */
+    private static function bulk(PDO $pdo, string $head, string $row, string $tail, array $rows, int $chunk = 200): void
+    {
+        foreach (array_chunk($rows, $chunk) as $c)
+            $pdo->prepare($head . ' VALUES ' . implode(',', array_fill(0, count($c), $row)) . ($tail !== '' ? ' ' . $tail : ''))->execute(array_merge(...$c));
     }
 
     /** Ping: v2 = surovi časi odgovorov (/ping as-value), v1 = flood-ping (stare skripte) -> [gwMs, gwLoss, extMs, extLoss] */

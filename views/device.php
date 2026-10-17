@@ -785,9 +785,17 @@ $upd = $s['upd'] ?? [];
         <dt><?= h(A('DNS routerja')) ?></dt><dd class="mono"><?= h($routerDns === null ? '–' : ($routerDns !== '' ? $routerDns : A('od ponudnika'))) ?></dd>
         <?php if ($d['dns_original'] !== null): $o = json_decode((string)$d['dns_original'], true) ?: []; ?><dt><?= h(A('Prvotni DNS')) ?></dt><dd class="mono"><?= h(($o['servers'] ?? '') !== '' ? $o['servers'] : A('od ponudnika')) ?></dd><?php endif; ?>
       </dl></div></section>
+    <?php $one = MikrotikScript::oneLiner($d); $selfUpd = (int)($d['auto_update'] ?? 1) === 1 && (string)($d['script_ver'] ?? '') !== ''; ?>
     <section class="panel"><div class="panel-head"><h2><?= icon('download', 18) ?><?= h(A('Uveljavi na routerju')) ?></h2></div>
-      <div class="panel-body"><p class="small muted" style="margin-top:0"><?= h(A('Po shranjevanju prilepi v terminal routerja:')) ?></p>
-        <?php $one = MikrotikScript::oneLiner($d); ?><div class="cmd"><code><?= h($one) ?></code><button type="button" data-copy="<?= h($one) ?>"><?= icon('copy', 14) ?></button></div>
+      <div class="panel-body">
+      <?php if ($selfUpd): ?>
+        <p class="small" style="margin-top:0"><?= icon('check', 14) ?> <?= h(A('Router se posodablja sam: shranjene spremembe dobi ob naslednjem pushu (v minuti). Shraniš lahko večkrat – velja zadnje stanje.')) ?></p>
+        <details><summary class="small muted" style="cursor:pointer"><?= h(A('Ročna namestitev (če se router ne posodobi)')) ?></summary>
+          <div class="cmd" style="margin-top:8px"><code><?= h($one) ?></code><button type="button" data-copy="<?= h($one) ?>"><?= icon('copy', 14) ?></button></div></details>
+      <?php else: ?>
+        <p class="small muted" style="margin-top:0"><?= h(A('Ta router se (še) ne posodablja sam. Ko shraniš vse spremembe (lahko večkrat), enkrat prilepi v terminal routerja:')) ?></p>
+        <div class="cmd"><code><?= h($one) ?></code><button type="button" data-copy="<?= h($one) ?>"><?= icon('copy', 14) ?></button></div>
+      <?php endif; ?>
         <p class="small muted"><?= h(A('Stanje se tukaj osveži v minuti po namestitvi.')) ?></p></div></section>
     <section class="panel"><div class="panel-body small muted">
       <?= icon('info', 14) ?> <?= h(A('Vse spremembe na routerju nosijo oznako "noc-filter" in se ob izklopu odstranijo v celoti. NOC ne beleži, katere strani kdo obiskuje.')) ?>

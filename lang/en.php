@@ -1528,4 +1528,10 @@ return [
     'vgnezdeni ukazi v oglatih oklepajih' => 'nested commands in square brackets',
     'Še ni dodanih naprav.' => 'No devices added yet.',
     'Najprej dodaj naročnika.' => 'Add a customer first.',
+    'Pošiljanje obvestil' => 'Sending notifications',
+    'Router se posodablja sam: shranjene spremembe dobi ob naslednjem pushu (v minuti). Shraniš lahko večkrat – velja zadnje stanje.' => 'The router updates itself: it gets saved changes with the next push (within a minute). You can save several times – the latest state applies.',
+    'Ročna namestitev (če se router ne posodobi)' => 'Manual install (if the router does not update)',
+    'Ta router se (še) ne posodablja sam. Ko shraniš vse spremembe (lahko večkrat), enkrat prilepi v terminal routerja:' => 'This router does not update itself (yet). When you have saved all changes (several times is fine), paste once into the router terminal:',
+    'Zaščita shranjena. Router jo dobi sam ob naslednjem pushu (v minuti).' => 'Protection saved. The router gets it with the next push (within a minute).',
+    'Zaščita shranjena. Ta router se (še) ne posodablja sam – ko končaš s spremembami, prilepi namestitveni ukaz.' => 'Protection saved. This router does not update itself (yet) – when you are done, paste the install command.',
 ];

@@ -540,7 +540,8 @@ if (($seg[0] ?? '') === 'devices' && ctype_digit($seg[1] ?? '')) {
         if ($prof !== 'off' && post('filter_ip_lists') && !is_file(rtrim((string)cfg('data_dir', '/var/lib/noc'), '/') . '/spamhaus-drop.txt')) Filter::updateDropList();
         MikrotikScript::invalidate($id);
         audit('device.filter', $d['name'] . ' ' . $prof);
-        back("/devices/$id?tab=protect", A('Zaščita shranjena. Na routerju se uveljavi, ko poženeš namestitveni ukaz s strani Paket.'));
+        $selfUpd = (int)($d['auto_update'] ?? 1) === 1 && (string)($d['script_ver'] ?? '') !== '';
+        back("/devices/$id?tab=protect", $selfUpd ? A('Zaščita shranjena. Router jo dobi sam ob naslednjem pushu (v minuti).') : A('Zaščita shranjena. Ta router se (še) ne posodablja sam – ko končaš s spremembami, prilepi namestitveni ukaz.'));
     }
     if ($sub === 'fw' && $method === 'POST') {
         Firewall::save($d, array_map('strval', (array)($_POST['fx'] ?? [])));

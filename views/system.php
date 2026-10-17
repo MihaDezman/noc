@@ -1,5 +1,5 @@
 <?php
-$cronDef = ['minute' => [A('Alarmi in ping s strežnika'), 3], 'flows' => [A('Traffic-flow'), 12], 'daily' => [A('Dnevno stiskanje in čiščenje'), 1500]];
+$cronDef = ['minute' => [A('Alarmi in ping s strežnika'), 3], 'notify' => [A('Pošiljanje obvestil'), 3], 'flows' => [A('Traffic-flow'), 12], 'daily' => [A('Dnevno stiskanje in čiščenje'), 1500]];
 $fwOn = (int)db()->query('SELECT COUNT(*) FROM devices WHERE active=1 AND fwlog_enabled=1')->fetchColumn();
 if ($fwOn) $cronDef['fwlog'] = [A('Varnostna analiza'), 3];
 if (Ai::on()) $cronDef['ai'] = [A('AI pomočnik'), 5];
