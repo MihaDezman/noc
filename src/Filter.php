@@ -92,6 +92,13 @@ final class Filter
         }
         $s .= "# omrezja z zascito\n";
         foreach (self::networks($d) as $n) $s .= "/ip firewall address-list add list=noc-filter-lan address=$n comment=\"noc-filter\"\n";
+        // naprave v zaščitenih omrežjih morajo DNS routerja doseči tudi, če njihov vmesnik (npr. VLAN za goste) ni v seznamu LAN –
+        // sicer preusmeritev DNS na router konča na "drop all not coming from LAN" in internet ne deluje. Nad pravilom "ni odprt na WAN".
+        $acc = fn(string $not) => implode('', array_map(fn($proto) => self::top('/ip firewall filter', "chain=input src-address-list=noc-filter-lan$not protocol=$proto dst-port=53 action=accept comment=\"noc-filter: DNS za zascitena omrezja\""), ['udp', 'tcp']));
+        $s .= "# DNS routerja za zascitena omrezja (ne z WAN)\n";
+        if (str_starts_with($ws, 'in-interface-list=')) $s .= $acc(' in-interface-list="!' . trim(substr($ws, strlen('in-interface-list=')), '"') . '"');
+        elseif ($wan !== '') $s .= ":if ([:len [/interface find name=\"$wan\"]] > 0) do={\n    " . str_replace("\n:do", "\n    :do", rtrim($acc(" in-interface=\"!$wan\""))) . "\n} else={\n    " . str_replace("\n:do", "\n    :do", rtrim($acc(''))) . "\n}\n";
+        else $s .= $acc('');
 
         if ((int)($d['filter_force_dns'] ?? 1)) {
             $s .= "# naprave z rocno vpisanim DNS gredo vseeno prek routerja\n";
