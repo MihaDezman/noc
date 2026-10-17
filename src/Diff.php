@@ -22,6 +22,7 @@ final class Diff
      */
     public static function isNocLine(string $l): bool
     {
+        if (preg_match('#^/user\b#', ltrim($l))) return false;   // uporabniki so vedno sprememba stranke (oznaka "noc" jih ne skrije)
         $noc = preg_quote((string)cfg('noc_ip', '-'), '/');
         return (bool)preg_match('/name="?noc[-a-z]*\b|comment="?noc[-:. ]|noc\.dezman\.net|list=noc-|nocsyslog|topics=info,!fetch|dst-address=' . $noc . '\b/i', $l);
     }

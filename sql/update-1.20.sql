@@ -1,5 +1,5 @@
 -- NOC 1.20: meritve hitrosti interneta
-ALTER TABLE noc_actions MODIFY kind ENUM('block','unblock','upgrade','speed') NOT NULL;
+ALTER TABLE noc_actions MODIFY kind ENUM('block','unblock','upgrade','speed','term','wgsrv','wgdel') NOT NULL;   -- celoten seznam (glej update-1.22)
 ALTER TABLE devices ADD COLUMN IF NOT EXISTS speed_auto TINYINT(1) NOT NULL DEFAULT 0;
 
 -- meritve hitrosti interneta (btest na strežnik NOC ali prenos datoteke)

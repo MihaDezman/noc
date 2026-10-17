@@ -124,6 +124,7 @@ final class MikrotikScript
         $gwFallback = filter_var($d['wan_gateway'] ?? '', FILTER_VALIDATE_IP) ? $d['wan_gateway'] : '';
         $ext = trim((string)($d['ping_target'] ?? '')) ?: '1.1.1.1';
         $inc = (string)($d['log_include'] ?? ''); $exc = (string)($d['log_exclude'] ?? '');
+        if ($exc === '') $exc = '^#nikoli#';   // prazen regex bi ujel vse teme in izločil vse loge
         $tls = (int)($d['tls_check'] ?? 0) === 1;
         // preverjanje certifikata NOC (stikalo pri napravi): push najprej s preverjanjem, ob napaki SSL brez (nadzor ne sme
         // izpasti), prenos skripte za samodejno posodobitev pa VEDNO s preverjanjem – podtaknjena skripta se ne uvozi
@@ -324,10 +325,11 @@ final class MikrotikScript
         :if ([:typeof [:find [:tostr (\$out->"data")] "\"upd\":1"]] = "num") do={
             :log info "noc: na voljo nova skripta - samodejna posodobitev"
             :execute script=("/tool fetch url=\"" . \$updUrl . "\"{$updCheck} http-header-field=\"X-Api-Key: " . \$key . "\" dst-path=noc-install.rsc; :delay 2s; /import noc-install.rsc; /file remove noc-install.rsc")
-        }
-        # potrjeni ukrepi iz NOC (npr. blokada napadalca) - prenos in uvoz v ozadju
-        :if ([:typeof [:find [:tostr (\$out->"data")] "\"act\":1"]] = "num") do={
-            :execute script=("/tool fetch url=\"" . \$actUrl . "\"{$updCheck} http-header-field=\"X-Api-Key: " . \$key . "\" dst-path=noc-action.rsc; :delay 2s; /import noc-action.rsc; /file remove noc-action.rsc")
+        } else={
+            # potrjeni ukrepi iz NOC (npr. blokada napadalca) - prenos in uvoz v ozadju; ne hkrati s posodobitvijo (počaka na naslednji push)
+            :if ([:typeof [:find [:tostr (\$out->"data")] "\"act\":1"]] = "num") do={
+                :execute script=("/tool fetch url=\"" . \$actUrl . "\"{$updCheck} http-header-field=\"X-Api-Key: " . \$key . "\" dst-path=noc-action.rsc; :delay 2s; /import noc-action.rsc; /file remove noc-action.rsc")
+            }
         }
     }
 } do={ :log warning ("noc: push ni uspel - " . \$e) }
@@ -353,8 +355,9 @@ ROS;
 :local f "noc-export.rsc"
 :do { /file remove [find name=\$f] } on-error={}
 /export terse file=noc-export
-:delay 5s
-:local size [/file get \$f size]
+:local size 0
+:for i from=1 to=30 do={ :if (\$size = 0) do={ :delay 1s; :do { :set size [/file get \$f size] } on-error={} } }
+:if (\$size = 0) do={ :log warning "noc: backup ni uspel - izvoz konfiguracije ni nastal"; :error "noc: ni izvoza" }
 :local uid [:tostr [:rndnum from=100000000 to=999999999]]
 :local off 0
 :local part 0
@@ -376,7 +379,7 @@ ROS;
         $noc = (string)cfg('noc_ip'); $port = (int)cfg('flow_port', 2055); $pol = self::POLICY;
         $h = crc32('noc-backup-' . $d['id']); $min = 5 + $h % 51; $hour = 2 + intdiv($h, 51) % 3;   // določljivo: ista naprava = ista ura
         $s = "# NOC – namestitev za \"{$d['cmt_name']}\" (" . (ros_cmt((string)$d['model']) ?: 'MikroTik') . ")\n# Generirano " . date('Y-m-d H:i') . " – noc.dezman.net\n# Uvoz: /import noc-install.rsc\n\n";
-        $s .= "# --- počisti prejšnjo namestitev\n/system scheduler remove [find name~\"^noc-\"]\n/system script remove [find name~\"^noc-\"]\n\n";
+        $s .= "# --- počisti prejšnjo namestitev (načrtovana posodobitev RouterOS in tekoča meritev hitrosti ostaneta)\n/system scheduler remove [find where name~\"^noc-\" and name!=\"noc-upgrade\"]\n/system script remove [find where name~\"^noc-\" and name!=\"noc-speed\"]\n\n";
         $s .= "# --- skripti\n/system script add name=noc-push policy=$pol comment=\"noc.dezman.net\" source=\"" . self::esc(self::pushBody($d, $key)) . "\"\n\n";
         $s .= "/system script add name=noc-backup policy=$pol comment=\"noc.dezman.net\" source=\"" . self::esc(self::backupBody($d, $key)) . "\"\n\n";
         $s .= "# --- urnik: push vsako minuto, backup enkrat dnevno\n";
@@ -385,10 +388,8 @@ ROS;
 
         if (!empty($an['needs_icmp_rule']) && $noc !== '') {
             $s .= "# --- ping s strežnika NOC (input chain na tem routerju zavrže ICMP z interneta)\n";
-            $s .= ":if ([:len [/ip firewall filter find comment~\"^noc: ping s\"]] = 0) do={\n";
-            $s .= "    :if ([:len [/ip firewall filter find]] > 0) do={\n";
-            $s .= "        /ip firewall filter add chain=input protocol=icmp src-address=$noc action=accept comment=\"noc: ping s streznika\" place-before=([/ip firewall filter find]->0)\n";
-            $s .= "    } else={ /ip firewall filter add chain=input protocol=icmp src-address=$noc action=accept comment=\"noc: ping s streznika\" }\n}\n\n";
+            $s .= ":if ([:len [/ip firewall filter find comment~\"^noc: ping s\"]] = 0) do={\n"
+                . Firewall::top('/ip firewall filter', "chain=input protocol=icmp src-address=$noc action=accept comment=\"noc: ping s streznika\"") . "}\n\n";
         }
         if ((int)$d['flow_enabled'] === 1 && $noc !== '') {
             if (!empty($an['flow_existing'])) {

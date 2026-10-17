@@ -70,13 +70,14 @@ final class Speed
         }
         // prenos datoteke: 10 MB, pri hitri liniji (pod 3 s) še 100 MB za natančnejšo meritev
         [$u1, $n1] = self::httpUrl($base, 10_000_000); [$u2, $n2] = self::httpUrl($base, 100_000_000);
-        $h1 = $n1 ? " $hdr" : ''; $h2 = $n2 ? " $hdr" : '';
+        // API ključ in preverjanje certifikata NOC samo za prenos z NOC (Cloudflare ima drugo verigo certifikatov)
+        $h1 = $n1 ? "$chk $hdr" : ''; $h2 = $n2 ? "$chk $hdr" : '';
         $t0 = $ts ? ':set s [:timestamp]; ' : '';
         $tm = fn(string $var) => $ts ? " :set $var [:tostr ([:timestamp] - \$s)];" : '';
         $s .= ":local d1 \"\"\n:local t1 \"\"\n:local d2 \"\"\n:local t2 \"\"\n:local s 0\n"
             . ":if (\$nocSpdM = \"http\") do={\n"
-            . "  :do { {$t0}:local r [/tool fetch url=\"$u1\"$chk$h1 output=none as-value];" . $tm('t1') . " :set d1 [:tostr (\$r->\"duration\")]\n"
-            . "    :if ((\$r->\"duration\") < 3s) do={ :do { {$t0}:local r2 [/tool fetch url=\"$u2\"$chk$h2 output=none as-value];" . $tm('t2') . " :set d2 [:tostr (\$r2->\"duration\")] } on-error={} }\n"
+            . "  :do { {$t0}:local r [/tool fetch url=\"$u1\"$h1 output=none as-value];" . $tm('t1') . " :set d1 [:tostr (\$r->\"duration\")]\n"
+            . "    :if ((\$r->\"duration\") < 3s) do={ :do { {$t0}:local r2 [/tool fetch url=\"$u2\"$h2 output=none as-value];" . $tm('t2') . " :set d2 [:tostr (\$r2->\"duration\")] } on-error={} }\n"
             . "  } on-error={}\n"
             . "}\n"
             . ":do { /tool fetch url=(\"$base/api/speed-done/$id?m=\" . \$nocSpdM . \"&r=\" . [:tostr \$nocSpdR] . \"&t=\" . [:tostr \$nocSpdT] . \"&d1=\" . \$d1 . \"&t1=\" . \$t1 . \"&d2=\" . \$d2 . \"&t2=\" . \$t2)$chk $hdr output=none } on-error={}\n"

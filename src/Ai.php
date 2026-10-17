@@ -641,7 +641,7 @@ final class Ai
         $imp = array_values(array_filter($open, fn($f) => $f['severity'] !== 'info'));
         $cnt = fn(string $s) => count(array_filter($open, fn($f) => $f['severity'] === $s));
         $m = '🔍 <b>' . A('AI pregled konfiguracije') . ' – ' . htmlspecialchars($d['name']) . '</b>' . "\n";
-        if (!$imp) $m .= '✅ ' . A('Brez pomembnih težav.') . ($cnt('info') ? ' ' . A('{n} manjših predlogov.', ['n' => $cnt('info')]) : '') . "\n";
+        if (!$imp) $m .= '✅ ' . A('Brez pomembnih težav.') . ($cnt('info') ? ' ' . A('Manjši predlogi: {n}.', ['n' => $cnt('info')]) : '') . "\n";
         else {
             $m .= "🔴 {$cnt('critical')} · 🟠 {$cnt('warning')} · 🔵 {$cnt('info')}\n";
             foreach (array_slice($imp, 0, 6) as $f) $m .= $ico[$f['severity']] . ' ' . htmlspecialchars(mb_strimwidth($f['title'], 0, 90, '…')) . "\n";

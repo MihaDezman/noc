@@ -63,7 +63,7 @@ CREATE TABLE IF NOT EXISTS wg_daily (      -- promet in čas povezave uporabnika
   PRIMARY KEY (peer_id, day),
   FOREIGN KEY (peer_id) REFERENCES wg_peers(id) ON DELETE CASCADE
 ) ENGINE=InnoDB;
-ALTER TABLE noc_actions MODIFY kind ENUM('block','unblock','upgrade') NOT NULL;
+ALTER TABLE noc_actions MODIFY kind ENUM('block','unblock','upgrade','speed','term','wgsrv','wgdel') NOT NULL;   -- celoten seznam: ponovni zagon na novejši bazi ne sme skrčiti ENUM
 ALTER TABLE noc_actions ADD COLUMN IF NOT EXISTS verified_at DATETIME NULL;   -- posodobitev: router po ponovnem zagonu poroča novo verzijo
 ALTER TABLE devices
   ADD COLUMN IF NOT EXISTS sec_score TINYINT UNSIGNED NULL,

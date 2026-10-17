@@ -29,7 +29,7 @@ final class Incidents
             $iid = self::openFor((int)$g['device_id']);
             if (!$iid) {
                 $st = $pdo->prepare('SELECT message FROM alerts WHERE id=?'); $st->execute([(int)explode(',', $g['ids'])[0]]);
-                $iid = self::create((int)$g['device_id'], $g['s'], 'warning', A('{n} opozoril hkrati', ['n' => $g['n']]) . ': ' . $st->fetchColumn()); $new++;
+                $iid = self::create((int)$g['device_id'], $g['s'], 'warning', A('Hkratna opozorila: {n}', ['n' => $g['n']]) . ': ' . $st->fetchColumn()); $new++;
             }
             $pdo->exec('UPDATE alerts SET incident_id=' . (int)$iid . ' WHERE id IN (' . implode(',', array_map('intval', explode(',', $g['ids']))) . ')');
         }

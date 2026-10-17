@@ -10,25 +10,35 @@ declare(strict_types=1);
  */
 final class AiApply
 {
-    /** Ukazi, ki jih NOC nikoli ne izvede samodejno */
+    /** Ukazi, ki jih NOC nikoli ne izvede samodejno (preverja se normalizirana vrstica: /a/b/c -> /a b c) */
     private const BLOCK = [
-        '/noc[-_.:]|noc\.dezman/i' => 'dotika se nastavitev NOC',
-        '/reset-configuration|\/system\s+(reboot|shutdown)|backup\s+load|\/system\s+package\s+(downgrade|uninstall)/i' => 'ponastavitev ali ponovni zagon routerja',
-        '/(^|[\s;{])(:execute|\/import)\b|\/system\s+(script|scheduler)|\/tool\s+fetch/i' => 'izvajanje skript ali prenos datotek',
+        '/noc/i' => 'dotika se nastavitev NOC',
+        '/reset-configuration|\/system (reboot|shutdown|package|device-mode)|backup load|\/system backup/i' => 'ponastavitev, ponovni zagon ali paketi routerja',
+        '/\/system (script|scheduler)|\/import\b|\/tool (fetch|e-mail|sms|sniffer|traffic-generator|netwatch)|\/container\b/i' => 'izvajanje skript ali prenos datotek',
+        '/(^|[^\w-])on-event=|(^|[^\w-])source=|(^|[^\w-])(on-up|on-down|on-login|on-logout)=/i' => 'ukaz s skripto v parametru',
+        '/:(execute|parse|global|return|jobname|terminal|beep|environment)\b/i' => 'skriptni ukazi',
+        '/\$/' => 'spremenljivke v ukazu',
         '/\/file\b/i' => 'spreminjanje datotek na routerju',
-        '/\/user\s+(remove|group)/i' => 'brisanje uporabnikov ali skupin',
-        '/\/certificate\b|\/ip\s+ssh\b/i' => 'certifikati ali nastavitve SSH (prek tega teče uveljavitev)',
+        '/\/user (remove|group)/i' => 'brisanje uporabnikov ali skupin',
+        '/\/certificate\b|\/ip ssh\b/i' => 'certifikati ali nastavitve SSH (prek tega teče uveljavitev)',
     ];
     /** Ukazi, ki zahtevajo izrecno potrditev (lahko odrežejo dostop ali promet) */
     private const WARN = [
         '/\/user\b/i' => 'uporabniki routerja – preveri, da sam ne izgubiš dostopa',
-        '/\/ip\s+service\b/i' => 'storitve (Winbox, SSH …) – preveri dovoljene naslove',
+        '/\/ip service\b/i' => 'storitve (Winbox, SSH …) – preveri dovoljene naslove',
         '/action=(drop|reject)/i' => 'pravilo, ki zavrže promet',
-        '/\/interface\s+list\b/i' => 'seznami vmesnikov (LAN/WAN) vplivajo na požarni zid',
-        '/\b(remove|disable)\b/i' => 'odstranitev ali izklop',
-        '/\/ip\s+(route|address|dhcp-client|pool|dhcp-server)\b/i' => 'naslovi in usmerjanje – lahko prekine promet',
-        '/\/tool\s+mac-server|\/ip\s+neighbor/i' => 'dostop prek MAC',
+        '/\/interface list\b/i' => 'seznami vmesnikov (LAN/WAN) vplivajo na požarni zid',
+        '/\b(remove|disable)\b|disabled=yes/i' => 'odstranitev ali izklop',
+        '/\/ip (route|address|dhcp-client|pool|dhcp-server)\b|\/routing\b/i' => 'naslovi in usmerjanje – lahko prekine promet',
+        '/\/tool mac-server|\/ip neighbor/i' => 'dostop prek MAC',
+        '/~/' => 'izbira po vzorcu – preveri, česa se dotakne',
     ];
+
+    /** RouterOS v7 sprejema tudi poti s poševnicami (/ip/firewall/filter) – pred preverjanjem v obliko s presledki */
+    public static function normalize(string $line): string
+    {
+        return (string)preg_replace_callback('#(?<![\w.:"=/-])/([A-Za-z][\w-]*(?:/[A-Za-z][\w-]*)+)#', fn($m) => '/' . str_replace('/', ' ', $m[1]), preg_replace('/\s+/', ' ', $line));
+    }
 
     /** Vrstice popravka: brez komentarjev; večvrstične bloke {…} in nadaljevanja \ združi v eno vrstico */
     public static function lines(string $fix): array
@@ -51,10 +61,14 @@ final class AiApply
     /** [stopnja ok|warn|block, razlog] */
     public static function check(string $line): array
     {
-        foreach (self::BLOCK as $re => $why) if (preg_match($re, $line)) return ['block', A($why)];
         if (preg_match('/[^\x20-\x7E]/', $line)) return ['block', A('nenavadni znaki v ukazu')];
         if (strlen($line) > 1500) return ['block', A('predolga vrstica')];
-        foreach (self::WARN as $re => $why) if (preg_match($re, $line)) return ['warn', A($why)];
+        $n = self::normalize($line);
+        // [ ... ] je dovoljen samo kot [find ...] / [/pot find ...] brez gnezdenja
+        $rest = preg_replace('/\[\s*(?:\/[A-Za-z][\w -]*\s)?find\b[^\[\]]*\]/i', '', $n);
+        if (str_contains((string)$rest, '[') || str_contains((string)$rest, ']')) return ['block', A('vgnezdeni ukazi v oglatih oklepajih')];
+        foreach (self::BLOCK as $re => $why) if (preg_match($re, $n)) return ['block', A($why)];
+        foreach (self::WARN as $re => $why) if (preg_match($re, $n)) return ['warn', A($why)];
         return ['ok', ''];
     }
 

@@ -11,6 +11,7 @@
         <td class="num"><?php if ($r['last_id']): ?><a class="btn sm" href="/devices/<?= (int)$r['id'] ?>/backups/<?= (int)$r['last_id'] ?>"><?= icon('eye', 14) ?><?= h(A('Odpri')) ?></a><?php endif; ?></td>
       </tr><?php endforeach; ?></tbody>
     </table></div>
+    <?php if (!$rows): ?><div class="empty"><?= h(A('Še ni dodanih naprav.')) ?></div><?php endif; ?>
   </section>
   <section class="panel">
     <div class="panel-head"><h2><?= icon('diff', 18) ?><?= h(A('Zadnje spremembe')) ?></h2></div>

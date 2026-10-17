@@ -121,6 +121,12 @@ final class Ingest
             'temp' => $temp, 'volt' => $volt, 'gw_ms' => $gwMs, 'gw_loss' => $gwLoss, 'ext_ms' => $extMs, 'ext_loss' => $extLoss,
             'conns' => isset($b['conns']) && (int)$b['conns'] >= 0 ? (int)$b['conns'] : null, 'leases' => isset($b['nLeases']) ? (int)$b['nLeases'] : null,
         ];
+        // nesmiselna vrednost z routerja (npr. temperatura 12345) ne sme zavrniti celotnega pusha (stolpci imajo omejen obseg)
+        $clamp = fn($v, float $lo, float $hi) => $v === null ? null : (($v < $lo || $v > $hi) ? null : $v);
+        foreach (['cpu', 'mem_pct', 'hdd_pct', 'gw_loss', 'ext_loss'] as $k) $h[$k] = $clamp($h[$k], 0, 100);
+        $h['temp'] = $clamp($h['temp'], -50, 200); $h['volt'] = $clamp($h['volt'], 0, 100);
+        $h['gw_ms'] = $clamp($h['gw_ms'], 0, 60000); $h['ext_ms'] = $clamp($h['ext_ms'], 0, 60000);
+        if ($h['conns'] !== null) $h['conns'] = min($h['conns'], 4294967295); if ($h['leases'] !== null) $h['leases'] = max(0, min($h['leases'], 65535));
         $pdo->prepare('INSERT IGNORE INTO health_1m (device_id, ts, cpu, mem_pct, hdd_pct, temp, volt, gw_ms, gw_loss, ext_ms, ext_loss, conns, leases) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)')
             ->execute([$id, $ts, $h['cpu'], $h['mem_pct'], $h['hdd_pct'], $h['temp'], $h['volt'], $h['gw_ms'], $h['gw_loss'], $h['ext_ms'], $h['ext_loss'], $h['conns'], $h['leases']]);
         $pdo->prepare('INSERT INTO health_5m (device_id, ts, cpu_avg, cpu_max, mem_pct, hdd_pct, temp_max, gw_ms, gw_loss, ext_ms, ext_loss, conns_max, n) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,1)
@@ -222,12 +228,14 @@ final class Ingest
 
         // --- alarmi iz svežih podatkov
         $d = Devices::decorate(array_merge($d, ['last_seen_at' => date('Y-m-d H:i:s'), 'status_json' => json_encode($status)]));
-        Alerts::evaluatePush($d, $h, $rebooted, $uptime);
-        if ($pools !== null) Alerts::pools($d, $pools);
-        if ($newHosts) Alerts::newHosts($d, $newHosts);
-        if (!empty($b['logs'])) Alerts::attacks($d);
-        Alerts::links($d, $speedDrops);
-        if ($sfpRows) Alerts::sfp($d, array_filter($sfpRows));
+        // podatki so že shranjeni – napaka pri ocenjevanju alarmov ne sme vrniti 500 (router bi izgubil odgovor upd/act)
+        $safe = function (string $what, callable $fn) use ($d) { try { $fn(); } catch (\Throwable $e) { error_log("noc alerts $what {$d['name']}: " . $e->getMessage()); } };
+        $safe('push', fn() => Alerts::evaluatePush($d, $h, $rebooted, $uptime));
+        if ($pools !== null) $safe('pools', fn() => Alerts::pools($d, $pools));
+        if ($newHosts) $safe('hosts', fn() => Alerts::newHosts($d, $newHosts));
+        if (!empty($b['logs'])) $safe('attacks', fn() => Alerts::attacks($d));
+        $safe('links', fn() => Alerts::links($d, $speedDrops));
+        if ($sfpRows) $safe('sfp', fn() => Alerts::sfp($d, array_filter($sfpRows)));
 
         return ['ok' => true, 'tick' => (int)($b['tick'] ?? 0)];
     }
@@ -376,8 +384,10 @@ final class Ingest
         $t = trim($t);
         if (preg_match('/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/', $t)) return $t;
         if (preg_match('/^(\d{2}):(\d{2}):(\d{2})$/', $t)) { $ts = strtotime(date('Y-m-d ', $now) . $t); if ($ts > $now + 300) $ts -= 86400; return date('Y-m-d H:i:s', $ts); }
-        if (preg_match('/^(\d{2})-(\d{2}) (\d{2}:\d{2}:\d{2})$/', $t, $m)) return date('Y', $now) . "-{$m[1]}-{$m[2]} {$m[3]}";
-        if (preg_match('/^([a-z]{3})\/(\d{2})(?:\/(\d{4}))? (\d{2}:\d{2}:\d{2})$/i', $t, $m)) { $ts = strtotime("{$m[2]} {$m[1]} " . ($m[3] ?: date('Y', $now)) . " {$m[4]}"); if ($ts) return date('Y-m-d H:i:s', $ts); }
+        // brez leta: zapis z 31. 12. po polnoči spada v lansko leto (sicer bi bil "v prihodnosti" in bi alarm ostal odprt vse leto)
+        $past = fn(int $ts) => $ts > $now + 300 ? (int)strtotime('-1 year', $ts) : $ts;
+        if (preg_match('/^(\d{2})-(\d{2}) (\d{2}:\d{2}:\d{2})$/', $t, $m)) { $ts = strtotime(date('Y', $now) . "-{$m[1]}-{$m[2]} {$m[3]}"); if ($ts) return date('Y-m-d H:i:s', $past($ts)); }
+        if (preg_match('/^([a-z]{3})\/(\d{2})(?:\/(\d{4}))? (\d{2}:\d{2}:\d{2})$/i', $t, $m)) { $ts = strtotime("{$m[2]} {$m[1]} " . ($m[3] ?: date('Y', $now)) . " {$m[4]}"); if ($ts) return date('Y-m-d H:i:s', $m[3] ? $ts : $past($ts)); }
         return date('Y-m-d H:i:s', $now);
     }
 
@@ -434,11 +444,13 @@ final class Ingest
         // prejšnji backup primerjamo brez ključa (starejši backupi ga še lahko vsebujejo) – sicer lažna "sprememba"
         $lastNorm = $last ? Diff::normalize(self::stripKey($d, $last['content'])) : '';
         if ($last && sha1($lastNorm) === $sha) { $pdo->prepare('UPDATE config_backups SET created_at=NOW() WHERE id=?')->execute([$last['id']]); return ['ok' => true, 'changed' => false]; }
-        [$add, $rem] = $last ? Diff::count($lastNorm, $norm) : [substr_count($norm, "\n") + 1, 0];
+        // primerjava enkrat (pri velikih izvozih je draga): število sprememb in spremembe stranke
+        $ops = $last ? Diff::ops(explode("\n", $lastNorm), explode("\n", $norm)) : [];
+        [$add, $rem] = $last ? [count(array_filter($ops, fn($o) => $o[0] === '+')), count(array_filter($ops, fn($o) => $o[0] === '-'))] : [substr_count($norm, "\n") + 1, 0];
         $pdo->prepare('INSERT INTO config_backups (device_id, created_at, sha1, bytes, added, removed, content) VALUES (?, NOW(), ?, ?, ?, ?, ?)')
             ->execute([$id, $sha, strlen($content), $add, $rem, $content]);
         // dogodek samo, če se je spremenilo kaj poleg tega, kar upravlja NOC (samodejna posodobitev skripte ni sprememba stranke)
-        if ($last && ($own = Diff::ownChanges($lastNorm, $norm))) {
+        if ($last && ($own = array_values(array_filter($ops, fn($o) => $o[0] !== ' ' && !Diff::isNocLine($o[1]))))) {
             $oa = count(array_filter($own, fn($o) => $o[0] === '+')); $or = count($own) - $oa;
             Alerts::event($d, 'config', 'info', A('Konfiguracija spremenjena: +{a} / −{r} vrstic', ['a' => $oa, 'r' => $or]));
         }

@@ -12,7 +12,7 @@
 <?php if ($prev && !$raw): ?>
   <div class="panel-head"><h2><?= icon('diff', 18) ?><span class="tag up">+<?= (int)$b['added'] ?></span> <span class="tag down">−<?= (int)$b['removed'] ?></span></h2></div>
   <div class="diff"><?php foreach ($hunks as $o):
-    if ($o[0] === '…') { echo '<div class="gap">' . h(A('… {n} nespremenjenih vrstic', ['n' => $o[1]])) . '</div>'; continue; }
+    if ($o[0] === '…') { echo '<div class="gap">' . h(A('… nespremenjenih vrstic: {n}', ['n' => $o[1]])) . '</div>'; continue; }
     $cls = $o[0] === '+' ? 'add' : ($o[0] === '-' ? 'rem' : '');
     echo '<div class="' . $cls . '">' . h($o[0] . ' ' . $o[1]) . '</div>';
   endforeach; ?></div>

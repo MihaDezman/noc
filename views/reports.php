@@ -29,5 +29,6 @@
       </div></td>
     </tr><?php endforeach; ?></tbody>
   </table></div>
+  <?php if (!$tenants): ?><div class="empty"><?= h(A('Najprej dodaj naročnika.')) ?></div><?php endif; ?>
 </section>
 <?php endif; ?>

@@ -66,7 +66,7 @@ $dur = fn(int $s) => $s < 60 ? $s . ' s' : ($s < 3600 ? intdiv($s, 60) . ' min' 
     <p class="sub"><?= h(trim(($d['site'] ? $d['site'] . ' · ' : '') . ($d['model'] ?: 'MikroTik') . ' · RouterOS ' . preg_replace('/\s.*$/', '', (string)$d['os_version']))) ?></p>
 
     <table class="kpi"><tr>
-      <td><div class="k"><?= h(A('Razpoložljivost')) ?></div><div class="v" style="color:<?= $slaColor($sla['pct']) ?>"><?= h(Sla::fmt($sla['pct'])) ?></div><div class="k"><?= $sla['count'] ? h(A('{n} izpadov, skupaj {t}', ['n' => $sla['count'], 't' => $dur($sla['down_s'])])) : h(A('brez izpadov')) ?></div></td>
+      <td><div class="k"><?= h(A('Razpoložljivost')) ?></div><div class="v" style="color:<?= $slaColor($sla['pct']) ?>"><?= h(Sla::fmt($sla['pct'])) ?></div><div class="k"><?= $sla['count'] ? h(A('izpadi: {n}, skupaj {t}', ['n' => $sla['count'], 't' => $dur($sla['down_s'])])) : h(A('brez izpadov')) ?></div></td>
       <td><div class="k"><?= h(A('Prenos WAN')) ?></div><div class="v"><?= h(fmt_bytes($x['rx'] + $x['tx'])) ?></div><div class="k">↓ <?= h(fmt_bytes($x['rx'])) ?> · ↑ <?= h(fmt_bytes($x['tx'])) ?></div></td>
       <td><div class="k"><?= h(A('Najvišja hitrost')) ?></div><div class="v"><?= h(fmt_bps($x['peakRx'])) ?></div><div class="k">↑ <?= h(fmt_bps($x['peakTx'])) ?><?= $d['wan_down_mbps'] ? ' · ' . h(A('zakup {d}/{u} Mb/s', ['d' => $d['wan_down_mbps'], 'u' => $d['wan_up_mbps'] ?: '?'])) : '' ?></div></td>
       <td><div class="k"><?= h(A('Latenca do interneta')) ?></div><div class="v"><?= $x['lat']['ext'] !== null ? number_format((float)$x['lat']['ext'], 1, ',', '') . ' ms' : '–' ?></div><div class="k"><?= $x['lat']['gw'] !== null ? h(A('do ponudnika {m} ms', ['m' => number_format((float)$x['lat']['gw'], 1, ',', '')])) : '' ?></div></td>

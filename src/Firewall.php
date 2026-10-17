@@ -177,7 +177,7 @@ final class Firewall
         $ap = ''; $rb = '';
         $sel = fn($id) => in_array($id, $ids, true);
         // vrstni red: pravila, dodana z top(), pristanejo na vrhu v obratnem vrstnem redu
-        if ($sel('forward_wan')) $ap .= self::top('/ip firewall filter', "chain=forward connection-state=new connection-nat-state=!dstnat $ws action=drop comment=\"noc-fw: nove povezave z WAN\"");
+        if ($sel('forward_wan')) $ap .= self::top('/ip firewall filter', "chain=forward connection-state=new connection-nat-state=!dstnat ipsec-policy=in,none $ws action=drop comment=\"noc-fw: nove povezave z WAN\"");
         // obstoječe "accept established" (in fasttrack pred njim) ostane nedotaknjeno – dodamo samo, če ga ni
         if (($sel('forward_invalid') || $sel('forward_wan')) && !$hasInv($c['forward'])) $ap .= self::top('/ip firewall filter', 'chain=forward connection-state=invalid action=drop comment="noc-fw: invalid"');
         if ($sel('forward_wan') && !$hasEst($c['forward'])) $ap .= self::top('/ip firewall filter', 'chain=forward connection-state=established,related,untracked action=accept comment="noc-fw: vzpostavljene povezave"');
@@ -199,7 +199,8 @@ final class Firewall
             $ap .= "/ip firewall filter add chain=input $ws action=drop comment=\"noc-fw: vse ostalo z WAN\"\n";   // na konec
         }
         // zasebna omrežja (LAN, VLAN-i, WireGuard) + upravljalni naslovi – tako se ne zakleneš tudi prek VPN tunela
-        $svcAddr = implode(',', array_unique(array_merge(self::mgmtIps(), ['10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16'])));
+        $noc = (string)cfg('noc_ip', '');   // strežnik NOC (terminal, AI popravki prek SSH) mora ostati dovoljen
+        $svcAddr = implode(',', array_unique(array_merge(self::mgmtIps(), filter_var($noc, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4) ? ["$noc/32"] : [], ['10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16'])));
         foreach (['telnet', 'ftp', 'www', 'api', 'api-ssl'] as $n) if ($sel('svc_' . $n)) { $ap .= "/ip service set $n disabled=yes\n"; $rb .= "/ip service set $n disabled=" . (($orig['svc'][$n]['on'] ?? true) ? 'no' : 'yes') . "\n"; }
         // RouterOS 7.24+ ima "available-from", starejše verzije "address"
         $svcSet = fn(string $n, string $v) => "/ip service set $n " . self::svcAddrKey($d) . "=$v\n";
@@ -232,7 +233,7 @@ final class Firewall
         $s .= self::top('/ip firewall filter', 'chain=input src-address-list=noc-mgmt action=accept comment="noc-fw: upravljanje"');
         $s .= "# izbrani popravki\n" . $ap
             . ":delay 3s\n"
-            . ":onerror e in={ /tool fetch url=\"$base/api/fw-confirm\" http-header-field=\"X-Api-Key: $key\" output=none; :set nocFwOk true; :log info \"noc: pozarni zid potrjen\" } do={ :log warning (\"noc: pozarni zid ni potrjen - povrnitev cez 5 min - \" . \$e) }\n\n";
+            . ":onerror e in={ /tool fetch url=\"$base/api/fw-confirm\" http-header-field=\"X-Api-Key: $key\" output=none; :global nocFwOk; :set nocFwOk true; :log info \"noc: pozarni zid potrjen\" } do={ :log warning (\"noc: pozarni zid ni potrjen - povrnitev cez 5 min - \" . \$e) }\n\n";
         return $s;
     }
 

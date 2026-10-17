@@ -40,6 +40,8 @@ final class Ufw
     {
         $f = (string)cfg('ufw_list'); if ($f === '') return;
         $new = implode("\n", self::ips()) . "\n";
-        if (!is_file($f) || file_get_contents($f) !== $new) @file_put_contents($f, $new);   // piši samo ob spremembi
+        if (!is_file($f) || file_get_contents($f) !== $new) {   // piši samo ob spremembi; atomarno (root skripta ne sme prebrati pol datoteke)
+            $tmp = $f . '.tmp'; if (@file_put_contents($tmp, $new) !== false) @rename($tmp, $f);
+        }
     }
 }

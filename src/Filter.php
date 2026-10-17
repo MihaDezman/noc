@@ -56,10 +56,7 @@ final class Filter
     }
 
     /** Dodaj pravilo na vrh (pred prvo nedinamično), če ne gre, na konec */
-    private static function top(string $menu, string $args): string
-    {
-        return ":do { $menu add $args place-before=([$menu find where dynamic=no]->0) } on-error={ $menu add $args }\n";
-    }
+    private static function top(string $menu, string $args): string { return Firewall::top($menu, $args); }
 
     /** Del namestitvenega paketa: vedno najprej počisti, nato po potrebi nastavi */
     public static function rsc(array $d): string
@@ -72,15 +69,23 @@ final class Filter
            . "/ip firewall address-list remove [find comment~\"^noc-filter\"]\n"
            . "/ip dns static remove [find comment~\"^noc-filter\"]\n";
         if ($p === 'off') {
-            if (($d['dns_original'] ?? null) !== null) $s .= self::restoreDns($d);
+            // prvotni DNS vrnemo samo, če router še uporablja filtrirni DNS (sicer bi vsaka posodobitev povozila kasnejše ročne spremembe DNS)
+            $cur = (string)((json_decode((string)($d['status_json'] ?? ''), true) ?: [])['flt']['dns'] ?? '');
+            $filtered = (bool)array_filter(array_merge(...array_values(self::PROFILES)), fn($ip) => $cur !== '' && str_contains($cur, $ip));
+            if (($d['dns_original'] ?? null) !== null && ($filtered || $cur === '')) $s .= self::restoreDns($d);
             return $s . "\n";
         }
         $orig = json_decode((string)$d['dns_original'], true) ?: [];
         $s .= "\n# --- filtrirni DNS: " . self::label($p) . " (prej: " . (($orig['servers'] ?? '') !== '' ? ros_cmt((string)$orig['servers']) : 'od ponudnika') . ")\n"
             . "/ip dns set servers=" . implode(',', self::PROFILES[$p]) . " allow-remote-requests=yes\n"
             . "/ip dns cache flush\n";
+        // DNS routerja ni dostopen z interneta: seznam WAN (vsi WAN vmesniki, tudi rezervni), sicer WAN vmesnik naprave
+        $ws = (string)(Firewall::audit($d)['wanSel'] ?? '');
         $wan = ros_esc((string)$d['wan_iface']);
-        if ($wan !== '') {
+        if (str_starts_with($ws, 'in-interface-list=')) {
+            $s .= "# DNS routerja ni dostopen z interneta\n";
+            foreach (['udp', 'tcp'] as $proto) $s .= self::top('/ip firewall filter', "chain=input $ws protocol=$proto dst-port=53 action=drop comment=\"noc-filter: DNS ni odprt na WAN\"");
+        } elseif ($wan !== '') {
             $s .= "# DNS routerja ni dostopen z interneta\n:if ([:len [/interface find name=\"$wan\"]] > 0) do={\n";
             foreach (['udp', 'tcp'] as $proto) $s .= "    " . self::top('/ip firewall filter', "chain=input in-interface=\"$wan\" protocol=$proto dst-port=53 action=drop comment=\"noc-filter: DNS ni odprt na WAN\"");
             $s .= "}\n";
@@ -90,7 +95,7 @@ final class Filter
 
         if ((int)($d['filter_force_dns'] ?? 1)) {
             $s .= "# naprave z rocno vpisanim DNS gredo vseeno prek routerja\n";
-            foreach (['udp', 'tcp'] as $proto) $s .= self::top('/ip firewall nat', "chain=dstnat src-address-list=noc-filter-lan protocol=$proto dst-port=53 action=redirect to-ports=53 comment=\"noc-filter: DNS prek routerja\"");
+            foreach (['udp', 'tcp'] as $proto) $s .= self::top('/ip firewall nat', "chain=dstnat src-address-list=noc-filter-lan dst-address-list=!noc-filter-lan protocol=$proto dst-port=53 action=redirect to-ports=53 comment=\"noc-filter: DNS prek routerja\"");
         }
         if ((int)($d['filter_block_doh'] ?? 1)) {
             $s .= "# sifriran DNS (DoH, DoT) bi obsel filter\n";

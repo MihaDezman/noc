@@ -120,7 +120,15 @@ final class Metrics
         self::purge('audit', 'at < NOW() - INTERVAL 730 DAY');
         self::purge('notify_queue', 'sent_at < NOW() - INTERVAL 7 DAY');
         self::purge('ai_log', 'at < NOW() - INTERVAL 180 DAY');
-        self::purge('noc_actions', "created_at < NOW() - INTERVAL 365 DAY AND status IN ('done','rejected')");
+        self::purge('noc_actions', "created_at < NOW() - INTERVAL 365 DAY AND status IN ('done','rejected','failed','cancelled','proposed','sent')");
+        self::purge('incidents', 'ended_at < NOW() - INTERVAL 730 DAY');
+        self::purge('term_sessions', "created_at < NOW() - INTERVAL 365 DAY AND status <> 'open'");
+        self::purge('ai_applies', "created_at < NOW() - INTERVAL 365 DAY AND status NOT IN ('queued','running')");
+        // AI pregledi: zadnjih 10 na napravo (ugotovitve starejših niso več aktualne)
+        foreach ($pdo->query('SELECT DISTINCT device_id FROM ai_reviews')->fetchAll(PDO::FETCH_COLUMN) as $id)
+            $pdo->exec('DELETE FROM ai_reviews WHERE device_id=' . (int)$id . ' AND id NOT IN (SELECT id FROM (SELECT id FROM ai_reviews WHERE device_id=' . (int)$id . ' ORDER BY id DESC LIMIT 10) x) AND id NOT IN (SELECT review_id FROM ai_applies)');
+        // nastavitve izbrisanih naprav (verzija skripte, števec dvojnikov logov)
+        $pdo->exec("DELETE FROM settings WHERE (k LIKE 'sv:%' OR k LIKE 'logdup:%') AND CAST(SUBSTRING_INDEX(k, ':', -1) AS UNSIGNED) NOT IN (SELECT id FROM devices)");
         self::purge('lan_hosts', 'last_seen < NOW() - INTERVAL 180 DAY');
         self::purge('login_attempts', 'at < NOW() - INTERVAL 7 DAY');
         self::purge('backup_parts', 'at < NOW() - INTERVAL 1 DAY');

@@ -24,5 +24,6 @@ foreach ($devs as $d) { $u = $d['status']['upd'] ?? []; if (!empty($u['latest'])
     <?php endforeach; ?>
     </tbody>
   </table></div>
+  <?php if (!$devs): ?><div class="empty"><?= h(A('Še ni dodanih naprav.')) ?></div><?php endif; ?>
   <div class="panel-body small muted" style="border-top:1px solid var(--line-2)"><?= icon('info', 14) ?> <?= h(A('Posodobitev na routerju: /system package update install – nato /system routerboard upgrade in ponovni zagon, da se posodobi še firmware.')) ?></div>
 </section>

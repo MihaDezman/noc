@@ -139,7 +139,7 @@ final class Term
         $st->execute([hash('sha256', $token)]); $s = $st->fetch();
         if (!$s || $s['status'] !== 'new') return ['error' => A('Žeton ne velja ali je že porabljen – osveži stran.')];
         if (strtotime((string)$s['created_at']) < time() - self::TOKEN_TTL) return ['error' => A('Žeton je potekel – osveži stran.')];
-        if ($ip !== '' && $s['client_ip'] !== '' && $ip !== $s['client_ip']) return ['error' => A('Seja je bila odprta z drugega naslova.')];
+        if ($s['client_ip'] !== '' && $ip !== $s['client_ip']) return ['error' => A('Seja je bila odprta z drugega naslova.')];
         if ($s['role'] !== 'superadmin' || !(int)$s['u_active']) return ['error' => A('Terminal je na voljo samo skrbniku.')];
         $q = db()->prepare('SELECT * FROM devices WHERE id=? AND active=1'); $q->execute([$s['device_id']]); $d = $q->fetch();
         if (!$d || !(int)$d['term_enabled']) return ['error' => A('Terminal pri tej napravi ni vklopljen.')];

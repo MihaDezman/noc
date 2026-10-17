@@ -30,6 +30,7 @@
   });
   // ---- kopiraj ukaz
   document.querySelectorAll('[data-copy]').forEach(function (b) {
+    if (!b.title) { b.title = T.copy || 'Copy'; b.setAttribute('aria-label', b.title); }
     b.addEventListener('click', function () {
       navigator.clipboard.writeText(b.dataset.copy).then(function () {
         var old = b.innerHTML; b.textContent = '✓'; b.title = T.copied || 'OK';
@@ -80,7 +81,9 @@
     if (v >= 1e3) return Math.round(v / 1e3) + ' kb/s';
     return Math.round(v) + ' b/s';
   }
-  function fmtNum(v, u, d) { return v == null ? '–' : (+v).toFixed(d || 0).replace('.', ',') + (u || ''); }
+  var DEC = (window.NOC && NOC.lang === 'en') ? '.' : ',';
+  function dec(v) { return String(v).replace('.', DEC); }
+  function fmtNum(v, u, d) { return v == null ? '–' : dec((+v).toFixed(d || 0)) + (u || ''); }
   function fmtTime(ts, long) {
     var d = new Date(ts * 1000), p = function (n) { return (n < 10 ? '0' : '') + n; };
     var t = p(d.getHours()) + ':' + p(d.getMinutes());
@@ -102,13 +105,13 @@
     };
     if (kind === 'cpu') return {
       series: [{ label: T.cpu, stroke: violet, fill: fill(violet, '45'), width: 1.6, fmt: function (v) { return fmtNum(v, ' %'); } }, { label: T.mem, stroke: yellow, width: 1.5, fmt: function (v) { return fmtNum(v, ' %'); } }],
-      axisFmt: function (v) { return v + ' %'; }, scale: { range: [0, 100] }
+      axisFmt: function (v) { return dec(v) + ' %'; }, scale: { range: [0, 100] }
     };
     if (kind === 'sfp') return {
       series: [{ label: 'RX', stroke: aqua, width: 1.8, fmt: function (v) { return fmtNum(v, ' dBm', 2); } }, { label: 'TX', stroke: violet, width: 1.5, fmt: function (v) { return fmtNum(v, ' dBm', 2); } }],
-      axisFmt: function (v) { return v + ' dBm'; }, scale: { range: function (u, mn, mx) { return [Math.floor(mn - 2), Math.ceil(mx + 2)]; } }
+      axisFmt: function (v) { return dec(v) + ' dBm'; }, scale: { range: function (u, mn, mx) { return [Math.floor(mn - 2), Math.ceil(mx + 2)]; } }
     };
-    if (kind === 'temp') return { series: [{ label: T.temp, stroke: down, width: 1.6, fmt: function (v) { return fmtNum(v, ' °C', 1); } }], axisFmt: function (v) { return v + ' °'; }, scale: {} };
+    if (kind === 'temp') return { series: [{ label: T.temp, stroke: down, width: 1.6, fmt: function (v) { return fmtNum(v, ' °C', 1); } }], axisFmt: function (v) { return dec(v) + ' °'; }, scale: {} };
     if (kind === 'conns') return { series: [{ label: T.conns, stroke: violet, fill: fill(violet, '35'), width: 1.5, fmt: function (v) { return fmtNum(v); } }], axisFmt: function (v) { return v; }, scale: {} };
     if (kind === 'ping') return {
       series: [
@@ -118,7 +121,7 @@
         { label: T.ext + ' ' + T.loss, stroke: down, fill: down + '30', width: 0, scale: 'loss', bars: true, fmt: function (v) { return fmtNum(v, ' %'); } },
         { label: T.tiger, stroke: yellow, width: 1.2, dash: [4, 3], fmt: function (v) { return fmtNum(v, ' ms', 1); } }
       ],
-      axisFmt: function (v) { return v + ' ms'; }, scale: {}, loss: true
+      axisFmt: function (v) { return dec(v) + ' ms'; }, scale: {}, loss: true
     };
     return { series: [], axisFmt: String, scale: {} };
   }

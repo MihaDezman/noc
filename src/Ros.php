@@ -103,7 +103,7 @@ final class Ros
         return "# NOC: nacrtovana posodobitev RouterOS (ukaz #$actionId)\n"
             . ":do { /system scheduler remove [find name=\"noc-upgrade\"] } on-error={}\n"
             . ":do { /system scheduler add name=\"noc-upgrade\" start-time=03:30:00 interval=1d policy=read,write,policy,test,reboot comment=\"noc: posodobitev RouterOS\" on-event=\"$ev\" } on-error={}\n"
-            . ":local nocPol \"\"\n:do { :set nocPol [:tostr [/system scheduler get [find name=\"noc-upgrade\"] policy]] } on-error={}\n"
-            . ":if (\$nocPol~\"reboot\") do={ :log info \"noc: posodobitev nacrtovana ob 03:30\"; $done } else={ :do { /system scheduler remove [find name=\"noc-upgrade\"] } on-error={}; :log warning \"noc: posodobitve ni mogoce nacrtovati (manjka pravica reboot)\"; $fail }\n";
+            . "{ :local nocPol \"\"\n:do { :set nocPol [:tostr [/system scheduler get [find name=\"noc-upgrade\"] policy]] } on-error={}\n"
+            . ":if (\$nocPol~\"reboot\") do={ :log info \"noc: posodobitev nacrtovana ob 03:30\"; $done } else={ :do { /system scheduler remove [find name=\"noc-upgrade\"] } on-error={}; :log warning \"noc: posodobitve ni mogoce nacrtovati (manjka pravica reboot)\"; $fail } }\n";
     }
 }

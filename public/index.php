@@ -84,7 +84,11 @@ if (str_starts_with($path, '/api/')) {
         if ($k === '') json_out(['error' => 'no key'], 404);
         header('Content-Type: text/plain; charset=utf-8'); header('Cache-Control: no-store'); echo $k, "\n"; exit;
     }
-    if ($path === '/api/speed-file' && $method === 'GET') Speed::serveFile((int)($_GET['bytes'] ?? 0));   // testna datoteka (meritev s prenosom z NOC)
+    if ($path === '/api/speed-file' && $method === 'GET') {   // testna datoteka (meritev s prenosom z NOC) – samo med meritvijo te naprave
+        $st = db()->prepare("SELECT 1 FROM noc_actions WHERE device_id=? AND kind='speed' AND status='sent' AND sent_at > NOW() - INTERVAL 10 MINUTE LIMIT 1"); $st->execute([$dev['id']]);
+        if (!$st->fetchColumn()) json_out(['error' => 'no test'], 403);
+        Speed::serveFile((int)($_GET['bytes'] ?? 0));
+    }
     if ($path === '/api/fw-confirm' && $method === 'GET') {   // router po spremembi požarnega zidu potrdi, da še doseže NOC
         db()->prepare('UPDATE devices SET fw_confirmed_at=NOW() WHERE id=?')->execute([$dev['id']]);
         db()->prepare('INSERT INTO audit (user_id, action, detail, ip) VALUES (NULL, ?, ?, ?)')->execute(['device.fw-confirm', $dev['name'], client_ip()]);
@@ -120,6 +124,13 @@ function view(string $name, array $vars = []): never {
 function post(string $k, string $d = ''): string { return trim((string)($_POST[$k] ?? $d)); }
 function back(string $to, ?string $msg = null, string $type = 'ok'): never { if ($msg) Auth::flash($msg, $type); redirect($to); }
 function q(string $k, string $d = ''): string { return trim((string)($_GET[$k] ?? $d)); }
+/** Pot iz Referer samo, če kaže na ta strežnik (brez preusmeritev drugam) */
+function local_back(string $fallback): string {
+    $r = (string)($_SERVER['HTTP_REFERER'] ?? ''); $u = parse_url($r);
+    if ($r === '' || !$u || ($u['host'] ?? '') !== explode(':', (string)($_SERVER['HTTP_HOST'] ?? ''))[0]) return $fallback;
+    $p = ($u['path'] ?? '/') . (isset($u['query']) ? '?' . $u['query'] : '') . (isset($u['fragment']) ? '#' . $u['fragment'] : '');
+    return str_starts_with($p, '/') && !str_starts_with($p, '//') ? $p : $fallback;
+}
 
 // ---------------------------------------------------------------- prijava
 if ($path === '/login') {
@@ -128,7 +139,7 @@ if ($path === '/login') {
         $r = Auth::login(post('email'), post('password'));
         if ($r === 'ok') redirect('/');
         if ($r === 'totp') redirect('/login/2fa');
-        view('login', ['error' => Auth::loginBlocked(post('email')) ? A('Preveč neuspelih poskusov – počakaj 15 minut.') : A('Napačen uporabnik ali geslo.')]);
+        view('login', ['error' => Auth::loginBlocked(post('email')) ? A('Preveč neuspelih poskusov – počakaj 15 minut.') : A('Napačna e-pošta ali geslo.')]);
     }
     if (Auth::$user) redirect('/');
     view('login', ['error' => '']);
@@ -156,7 +167,7 @@ $seg = explode('/', trim($path, '/'));
 if ($path === '/lang' && $method === 'POST') {
     $l = in_array(post('lang'), ['sl', 'en'], true) ? post('lang') : 'sl';
     db()->prepare('UPDATE users SET lang=? WHERE id=?')->execute([$l, Auth::$user['id']]);
-    redirect($_SERVER['HTTP_REFERER'] ?? '/');
+    redirect(local_back('/'));
 }
 
 // ---------------------------------------------------------------- JSON za grafe
@@ -634,7 +645,7 @@ if (($seg[0] ?? '') === 'alerts' && ctype_digit($seg[1] ?? '') && ($seg[2] ?? ''
     [$w, $p] = Auth::deviceScope('d');
     $st = db()->prepare("UPDATE alerts a JOIN devices d ON d.id=a.device_id SET a.acked_by=?, a.acked_at=NOW() WHERE a.id=? AND $w");
     $st->execute(array_merge([Auth::$user['id'], (int)$seg[1]], $p));
-    back($_SERVER['HTTP_REFERER'] ?? '/alerts', A('Alarm potrjen.'));
+    back(local_back('/alerts'), A('Alarm potrjen.'));
 }
 
 // ---------------------------------------------------------------- WireGuard (vse naprave, uvoz iz generatorja)
@@ -715,7 +726,7 @@ if ($path === '/reports/send' && $method === 'POST') {
     if (Ai::on('report')) { @set_time_limit(120); try { Ai::reportSummary($tid, $ym); } catch (\Throwable $e) { error_log('noc ai report: ' . $e->getMessage()); } }
     $n = Report::send($tid, $ym, $to);
     audit('report.send', "$tid $ym → $n");
-    back('/reports', $n ? A('Poročilo poslano na {n} naslov(ov).', ['n' => $n]) : A('Poročilo ni bilo poslano – preveri e-naslove naročnika in SMTP.'), $n ? 'ok' : 'err');
+    back('/reports', $n ? A('Poročilo poslano (prejemnikov: {n}).', ['n' => $n]) : A('Poročilo ni bilo poslano – preveri e-naslove naročnika in SMTP.'), $n ? 'ok' : 'err');
 }
 
 if ($path === '/reports/ai' && $method === 'POST') {   // AI odstavek za naročnika (ustvari ali ustvari znova)

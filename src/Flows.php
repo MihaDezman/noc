@@ -25,10 +25,12 @@ final class Flows
         foreach ($files as $f) {
             $base = basename($f);
             if (strcmp($base, $last) <= 0 || !preg_match('/^nfcapd\.(\d{12})$/', $base, $m)) continue;
-            self::file($f, $byIp, DateTime::createFromFormat('YmdHi', $m[1])->format('Y-m-d H:i:00'));
+            // napaka v eni datoteki ne sme povzročiti ponovne obdelave že prištetih (podvojen promet) – datoteko preskočimo
+            try { self::file($f, $byIp, DateTime::createFromFormat('YmdHi', $m[1])->format('Y-m-d H:i:00')); }
+            catch (\Throwable $e) { error_log("noc flows $base: " . $e->getMessage()); }
             $last = $base; $done++;
+            setting_set('flow_last', $last);   // po vsaki datoteki
         }
-        if ($done) setting_set('flow_last', $last);
         foreach ($files as $f) if (filemtime($f) < time() - 2 * 86400) @unlink($f);   // surove tokove hranimo 2 dni
         if ($done) {
             self::hostAlerts($devs);
@@ -83,7 +85,7 @@ final class Flows
                 if ($geoOn) { $cc = Geo::cc($sa); $as = Geo::asn($sa)[0]; $geo[$id][$cc][$as][1] = ($geo[$id][$cc][$as][1] ?? 0) + (int)$byt; if ($cc !== '') $hg[$id][$da][$cc] = ($hg[$id][$da][$cc] ?? 0) + (int)$byt; }
             }
         }
-        pclose($h);
+        if (($rc = pclose($h)) !== 0) error_log("noc flows: nfdump $f vrnil $rc");
         $ins = db()->prepare('INSERT INTO host_5m (device_id, ip, ts, up_bytes, down_bytes) VALUES (?,?,?,?,?) ON DUPLICATE KEY UPDATE up_bytes=up_bytes+VALUES(up_bytes), down_bytes=down_bytes+VALUES(down_bytes)');
         foreach ($agg as $id => $hosts) foreach ($hosts as $ip => $v) $ins->execute([$id, $ip, $slot, $v[0] ?? 0, $v[1] ?? 0]);
         $devById = []; foreach ($byIp as $d) $devById[(int)$d['id']] = $d;

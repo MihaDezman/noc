@@ -24,7 +24,7 @@ $lvTag = fn(string $lv) => $lv === 'block' ? 'down' : ($lv === 'warn' ? 'warn' :
 
 <?php else: $hasBlock = false; $hasWarn = false; foreach ($plan as [, , $rows]) foreach ($rows as [, $lv]) { $hasBlock = $hasBlock || $lv === 'block'; $hasWarn = $hasWarn || $lv === 'warn'; } ?>
 <section class="panel">
-  <div class="panel-head"><h2><?= icon('eye', 18) ?><?= h(A('Predogled')) ?></h2><span class="small muted"><?= h(A('{n} ugotovitev', ['n' => count($plan)])) ?></span></div>
+  <div class="panel-head"><h2><?= icon('eye', 18) ?><?= h(A('Predogled')) ?></h2><span class="small muted"><?= h(A('ugotovitev: {n}', ['n' => count($plan)])) ?></span></div>
   <div class="panel-body small muted" style="padding-bottom:0"><?= h(A('NOC se z routerjem poveže prek SSH, vklopi Safe Mode in izvede ukaze enega za drugim. Ob prvi napaki, ali če router po spremembah ne doseže več NOC, se seja prekine in router SAM razveljavi vse spremembe. Šele ko je vse v redu, NOC Safe Mode potrdi.')) ?></div>
   <?php foreach ($plan as [$k, $title, $rows]): ?>
   <div class="panel-body" style="border-top:1px solid var(--line-2)">

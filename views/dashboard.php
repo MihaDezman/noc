@@ -41,10 +41,10 @@ $pct = fn($k) => $n ? round($cnt[$k] / $n * 100, 2) : 0;
         <i style="width:<?= $pct('up') ?>%;background:#2ee59d"></i><i style="width:<?= $pct('warn') ?>%;background:#ffb020"></i><i style="width:<?= $pct('down') ?>%;background:#ff4d61"></i><i style="width:<?= $pct('new') ?>%;background:#5d627e"></i>
       </div>
       <div class="fleet-legend">
-        <span><span class="dot up"></span><?= $cnt['up'] ?> <?= h(A('deluje')) ?></span>
-        <span><span class="dot warn"></span><?= $cnt['warn'] ?> <?= h(A('opozorilo')) ?></span>
-        <span><span class="dot down"></span><?= $cnt['down'] ?> <?= h(A('ne deluje')) ?></span>
-        <?php if ($cnt['new']): ?><span><span class="dot"></span><?= $cnt['new'] ?> <?= h(A('čaka')) ?></span><?php endif; ?>
+        <span><span class="dot up"></span><?= h(A('deluje')) ?>: <b><?= $cnt['up'] ?></b></span>
+        <span><span class="dot warn"></span><?= h(A('opozorilo')) ?>: <b><?= $cnt['warn'] ?></b></span>
+        <span><span class="dot down"></span><?= h(A('ne deluje')) ?>: <b><?= $cnt['down'] ?></b></span>
+        <?php if ($cnt['new']): ?><span><span class="dot"></span><?= h(A('čaka')) ?>: <b><?= $cnt['new'] ?></b></span><?php endif; ?>
       </div>
     </div>
   </div>
@@ -113,7 +113,7 @@ $pct = fn($k) => $n ? round($cnt[$k] / $n * 100, 2) : 0;
       <li><span class="sev-bar <?= (int)$sevCnt['anom'] ? 'warning' : 'info' ?>"></span><div class="what"><?= h(A('Nenavaden promet pametnih naprav')) ?></div><b><?= (int)$sevCnt['anom'] ?></b></li>
       <li><span class="sev-bar <?= (int)$sevCnt['geo'] ? 'warning' : 'info' ?>"></span><div class="what"><?= h(A('Pametne naprave v novih državah')) ?></div><b><?= (int)$sevCnt['geo'] ?></b></li>
       <li><span class="sev-bar <?= (int)$sevCnt['wg'] ? 'warning' : 'info' ?>"></span><div class="what"><?= h(A('VPN prijave iz nove države')) ?></div><b><?= (int)$sevCnt['wg'] ?></b></li>
-      <li><span class="sev-bar info"></span><div class="what"><?= h(A('VPN uporabnikov povezanih zdaj')) ?></div><b><?= $vpnOn ?></b></li>
+      <li><span class="sev-bar info"></span><div class="what"><?= h(A('Trenutno povezani VPN uporabniki')) ?></div><b><?= $vpnOn ?></b></li>
     </ul>
   </section>
 </div>

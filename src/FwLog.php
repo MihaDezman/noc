@@ -111,11 +111,11 @@ final class FwLog
         $pdo->beginTransaction();   // ena transakcija namesto zapisa na disk za vsako vrstico
         try {
             foreach ($agg as $k => $hits) { [$id, $ts, $kind, $src, $dst, $proto, $port] = explode('|', $k); $ins->execute([(int)$id, $ts, $kind, $src, $dst, $proto, (int)$port, $hits]); }
+            setting_set('fwlog_pos', $st['ino'] . ':' . $pos . ':' . self::head($f, $pos));   // položaj v isti transakciji – ob padcu se vrstice ne preštejejo dvakrat
             $pdo->commit();
         } catch (\Throwable $e) { $pdo->rollBack(); throw $e; }
         $up = $pdo->prepare('UPDATE devices SET fwlog_seen_at=FROM_UNIXTIME(?) WHERE id=?');
         foreach ($seen as $id => $t) $up->execute([$t, $id]);
-        setting_set('fwlog_pos', $st['ino'] . ':' . $pos . ':' . self::head($f, $pos));
         return "vrstic $n" . ($skip ? ", neznanih $skip" : '');
     }
 
@@ -323,6 +323,6 @@ final class FwLog
         if (!(int)($d['fwlog_enabled'] ?? 0)) return ['', A('izklopljena')];
         if (!$d['fwlog_seen_at']) return ['warn', A('čaka na prve zapise z routerja')];
         $age = time() - strtotime((string)$d['fwlog_seen_at']);
-        return $age < 6 * 3600 ? ['up', A('deluje · zadnji zapis {t}', ['t' => fmt_ago($d['fwlog_seen_at'])])] : ['warn', A('ni zapisov od {t}', ['t' => fmt_ago($d['fwlog_seen_at'])])];
+        return $age < 6 * 3600 ? ['up', A('deluje · zadnji zapis {t}', ['t' => fmt_ago($d['fwlog_seen_at'])])] : ['warn', A('brez novih zapisov · zadnji {t}', ['t' => fmt_ago($d['fwlog_seen_at'])])];
     }
 }

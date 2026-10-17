@@ -18,6 +18,8 @@ sudo mkdir -p /var/www/noc
 cd /var/www/noc
 sudo composer install                      # PHPMailer
 mysql -u noc -p noc < sql/schema.sql
+# schema.sql že vsebuje vse posodobitve – označi jih kot izvedene, da jih bin/update.sh ne poganja znova
+sudo mkdir -p /var/lib/noc && ls sql/update-*.sql | xargs -n1 basename | sudo tee /var/lib/noc/applied-sql.txt > /dev/null
 cp config.sample.php config.php
 php -r "echo bin2hex(random_bytes(32)), PHP_EOL;"   # vrednost za app_secret
 nano config.php                             # geslo baze, app_secret, SMTP, noc_ip

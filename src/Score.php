@@ -31,21 +31,21 @@ final class Score
         // 3. backup
         $st = db()->prepare('SELECT MAX(created_at) FROM config_backups WHERE device_id=?'); $st->execute([$id]); $bk = $st->fetchColumn();
         $maxDays = max(1, (int)(Devices::thresholds($d)['th_backup_days'] ?? 2));
-        if (!$bk || strtotime((string)$bk) < time() - ($maxDays + 1) * 86400) $add('warning', $bk ? A('Zadnji backup konfiguracije je star {t}', ['t' => fmt_ago((string)$bk)]) : A('Ni backupa konfiguracije'), "/devices/$id?tab=backups", 10);
+        if (!$bk || strtotime((string)$bk) < time() - ($maxDays + 1) * 86400) $add('warning', $bk ? A('Zadnji backup konfiguracije: {t}', ['t' => fmt_ago((string)$bk)]) : A('Ni backupa konfiguracije'), "/devices/$id?tab=backups", 10);
         // 4. uporabniki routerja
         $s = json_decode((string)($d['status_json'] ?? ''), true) ?: [];
         if (is_array($s['usr'] ?? null)) {
             foreach ($s['usr'] as $u) if (is_array($u) && ($u['n'] ?? '') === 'admin' && empty($u['dis'])) { $add('warning', A('Vklopljen privzeti uporabnik "admin" – napadalci ga poskušajo prvega. Ustvari svojega uporabnika (skupina full) in admina izklopi: /user disable admin'), '', 8); break; }
             $full = array_filter($s['usr'], fn($u) => is_array($u) && ($u['g'] ?? '') === 'full' && empty($u['dis']) && ($u['n'] ?? '') !== Term::USER);   // noc-term (terminal NOC) ne šteje
-            if (count($full) > 3) $add('info', A('{n} uporabnikov s polnimi pravicami', ['n' => count($full)]), '', 2);
+            if (count($full) > 3) $add('info', A('Uporabniki s polnimi pravicami: {n}', ['n' => count($full)]), '', 2);
         }
         // 5. WireGuard
         $in = count(Wg::inactive(90, $id));
-        if ($in) $add('warning', A('{n} VPN uporabnikov se ni povezalo več kot 90 dni, a so še vklopljeni', ['n' => $in]), "/devices/$id?tab=wg#wg-inactive", min(10, 2 * $in));
+        if ($in) $add('warning', A('VPN uporabniki brez povezave več kot 90 dni, a še vklopljeni: {n}', ['n' => $in]), "/devices/$id?tab=wg#wg-inactive", min(10, 2 * $in));
         // 6. odprte AI ugotovitve
         $st = db()->prepare("SELECT findings FROM ai_reviews WHERE device_id=? AND status='done' ORDER BY id DESC LIMIT 1"); $st->execute([$id]);
         $ai = array_filter((array)json_decode((string)$st->fetchColumn(), true), fn($f) => is_array($f) && ($f['state'] ?? 'open') === 'open' && ($f['severity'] ?? '') === 'critical');
-        if ($ai) $add('warning', A('AI pregled: {n} odprtih kritičnih ugotovitev', ['n' => count($ai)]), "/devices/$id?tab=protect#ai-review", min(15, 5 * count($ai)));
+        if ($ai) $add('warning', A('AI pregled – odprte kritične ugotovitve: {n}', ['n' => count($ai)]), "/devices/$id?tab=protect#ai-review", min(15, 5 * count($ai)));
         // 7. stik z zlonamernimi strežniki (7 dni)
         $st = db()->prepare("SELECT COUNT(*) FROM alerts WHERE device_id=? AND (akey LIKE 'threat:%' OR akey LIKE 'outbl:%') AND started_at > NOW() - INTERVAL 7 DAY"); $st->execute([$id]);
         if ($n = (int)$st->fetchColumn()) $add('critical', A('Naprave v LAN-u so v zadnjih 7 dneh {n}× komunicirale z zlonamernimi strežniki', ['n' => $n]), "/devices/$id?tab=alerts", 15);

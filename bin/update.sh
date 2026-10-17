@@ -41,7 +41,20 @@ ok "baza shranjena: $DUMP ($(du -h "$DUMP" | cut -f1))"
 G add -A
 if ! G diff --cached --quiet; then G commit -qm "stanje pred v$VER"; ok "commit: stanje pred v$VER"; else ok "brez lokalnih sprememb"; fi
 
-# 3. nova koda
+# 3. spremembe baze (vsaka samo enkrat) – PRED novo kodo: če kaj ne uspe, ostane stara koda, ki dela s staro bazo
+#    (vse sql/update-*.sql so dodajalne in jih je mogoče pognati znova)
+mkdir -p "$(dirname "$STATE")"; touch "$STATE"
+TMPSQL=$(mktemp -d); trap 'rm -rf "$TMPSQL"' EXIT
+unzip -oq "$ZIP" 'sql/update-*.sql' -d "$TMPSQL" 2>/dev/null || true
+for f in $(ls -1 "$TMPSQL"/sql/update-*.sql 2>/dev/null | sort -V); do
+    b=$(basename "$f")
+    grep -qx "$b" "$STATE" && continue
+    mysql --defaults-extra-file="$MYCNF" noc < "$f" || fail "$b ni uspel – koda ostaja stara (nič ni zamenjano); baza je shranjena v $DUMP"
+    echo "$b" >> "$STATE"
+    ok "baza: $b"
+done
+
+# 4. nova koda
 unzip -oq "$ZIP" -d "$APP"
 # koda je v lasti root, www-data jo samo bere: spletni strežnik ne more spremeniti skript, ki jih poganja root
 # (bin/ufw-sync.sh v root cronu, bin/fwlog-setup.sh, git hooki). Aplikacija piše samo v /var/lib/noc.
@@ -50,16 +63,6 @@ find "$APP" -path "$APP/.git" -prune -o -type d -exec chmod 750 {} + -o -type f 
 chmod 750 "$APP"/bin/*.sh
 [ -d "$APP/.git" ] && { chown -R root:root "$APP/.git"; chmod 700 "$APP/.git"; }
 ok "koda razširjena, pravice nastavljene (root:www-data, samo branje za splet)"
-
-# 4. spremembe baze (vsaka samo enkrat)
-mkdir -p "$(dirname "$STATE")"; touch "$STATE"
-for f in $(ls -1 sql/update-*.sql 2>/dev/null | sort -V); do
-    b=$(basename "$f")
-    grep -qx "$b" "$STATE" && continue
-    mysql --defaults-extra-file="$MYCNF" noc < "$f" || fail "$b ni uspel – baza je shranjena v $DUMP"
-    echo "$b" >> "$STATE"
-    ok "baza: $b"
-done
 
 # 4a. routerji prevzamejo novo skripto že ob naslednjem pushu (brez 30-min čakanja po prejšnjem poskusu)
 #     routerji z isto verzijo skripte se ne posodabljajo, zato je ponastavitev neškodljiva

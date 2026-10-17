@@ -22,7 +22,7 @@ $num = function (string $k, string $label, string $unit, string $hint = '') {
   </div>
   <div class="grid g2">
   <section class="panel"><div class="panel-head"><h2><?= icon('laptop', 18) ?><?= h(A('Naprave v LAN-u (traffic-flow)')) ?></h2></div><div class="panel-body form">
-    <div class="row"><?= $num('th_host_gb_h', A('Prenos v zadnji uri'), 'GB') ?><?= $num('th_host_mbps', A('Povprečna hitrost'), 'Mb/s') ?><?= $num('th_host_min', A('… v zadnjih'), 'min') ?></div>
+    <div class="row c3"><?= $num('th_host_gb_h', A('Prenos v zadnji uri'), 'GB') ?><?= $num('th_host_mbps', A('Povprečna hitrost'), 'Mb/s') ?><?= $num('th_host_min', A('… v zadnjih'), 'min') ?></div>
   </div></section>
   <section class="panel"><div class="panel-head"><h2><?= icon('shield', 18) ?><?= h(A('Varnost in vzdrževanje')) ?></h2></div><div class="panel-body form">
     <div class="row"><?= $num('th_attack', A('Napad: neuspelih prijav'), A('št.'), A('z istega IP-ja')) ?><?= $num('th_attack_min', A('… v'), 'min') ?></div>
@@ -70,7 +70,7 @@ $num = function (string $k, string $label, string $unit, string $hint = '') {
     </div></section>
 
   <?php $tB = Term::bridgeUp(); $tK = Term::hasKeys(); $tN = (int)db()->query('SELECT COUNT(*) FROM devices WHERE active=1 AND term_enabled=1')->fetchColumn(); ?>
-  <section class="panel" id="term"><div class="panel-head"><h2><?= icon('terminal', 18) ?><?= h(A('Terminal routerjev')) ?></h2><span class="small muted"><?= h(A('vklopljen pri {n} napravah', ['n' => $tN])) ?></span></div>
+  <section class="panel" id="term"><div class="panel-head"><h2><?= icon('terminal', 18) ?><?= h(A('Terminal routerjev')) ?></h2><span class="small muted"><?= h(A('vklopljen pri napravah: {n}', ['n' => $tN])) ?></span></div>
     <div class="panel-body form">
       <dl class="kv small">
         <dt><?= h(A('Most (storitev noc-term)')) ?></dt><dd><?= $tB ? '<span class="tag up">' . h(A('teče')) . '</span>' : '<span class="tag down">' . h(A('ne teče')) . '</span> <span class="muted">' . h(A('namestitev: deploy/term/README.md')) . '</span>' ?></dd>
@@ -115,7 +115,7 @@ $num = function (string $k, string $label, string $unit, string $hint = '') {
   <section class="panel" id="ai"><div class="panel-head"><h2><?= icon('zap', 18) ?><?= h(A('AI pomočnik')) ?></h2>
     <div class="actions"><?= $aiSet ? '<span class="tag up">' . h(A('vklopljen')) . '</span>' : '<span class="tag">' . h(A('ni nastavljen')) . '</span>' ?>
       <?php if ($aiSet): $rvPend = (int)db()->query("SELECT COUNT(*) FROM ai_reviews WHERE status='pending'")->fetchColumn(); ?>
-        <?php if ($rvPend): ?><span class="small muted"><?= h(A('pregled v teku: še {n} naprav', ['n' => $rvPend])) ?></span><?php else: ?><button class="btn sm" form="ai-review-all" type="submit"><?= icon('shield', 14) ?><?= h(A('Preglej konfiguracijo vseh naprav')) ?></button><?php endif; ?>
+        <?php if ($rvPend): ?><span class="small muted"><?= h(A('pregled v teku, preostalo naprav: {n}', ['n' => $rvPend])) ?></span><?php else: ?><button class="btn sm" form="ai-review-all" type="submit"><?= icon('shield', 14) ?><?= h(A('Preglej konfiguracijo vseh naprav')) ?></button><?php endif; ?>
         <button class="btn sm" form="ai-test" type="submit"><?= icon('send', 14) ?><?= h(A('Preizkus')) ?></button><?php endif; ?></div></div>
     <div class="panel-body form">
       <p class="small muted" style="margin:0"><?= h(A('Claude (Anthropic) razloži alarme, pregleda nočne spremembe konfiguracije in bdi nad samim NOC. Samo bere in svetuje – na routerjih ali v NOC ne spremeni ničesar. Gesla in ključi se pred pošiljanjem odstranijo.')) ?></p>

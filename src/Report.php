@@ -100,7 +100,7 @@ final class Report
     /** Cron: 1. v mesecu pošlje poročila za prejšnji mesec vsem naročnikom z vklopljenim pošiljanjem */
     public static function monthlyCron(): string
     {
-        if ((int)date('j') !== 1) return '';
+        if ((int)date('j') > 5) return '';   // 1. v mesecu; če takrat ni uspelo, poskusi še do 5.
         $ym = date('Y-m', strtotime('first day of last month'));
         if (setting('report_sent') === $ym) return '';
         $n = 0;

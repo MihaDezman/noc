@@ -4,7 +4,7 @@ $ranges = ['6h' => '6 h', '24h' => '24 h', '7d' => '7 d', '30d' => '30 d'];
 $wanRows = Devices::ifacesMany(array_column($devs, 'id'));
 ?>
 <div class="page-head">
-  <div><h1><?= h(A('Grafi')) ?></h1><p><?= h(A('Promet na WAN in latenca za vse routerje')) ?> · <?= h(count($devs) . ' ' . plural(count($devs), A('naprava'), A('napravi'), A('naprave'), A('naprav'))) ?></p></div>
+  <div><h1><?= h(A('Grafi')) ?></h1><p><?= h(A('Promet na WAN in latenca za vse naprave')) ?> · <?= h(count($devs) . ' ' . plural(count($devs), A('naprava'), A('napravi'), A('naprave'), A('naprav'))) ?></p></div>
   <div class="actions"><?= range_seg($ranges, '24h', 'graphs') ?></div>
 </div>
 

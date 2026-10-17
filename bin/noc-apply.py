@@ -27,6 +27,7 @@ def php(*args, stdin=None):
 class Session:
     def __init__(self, info):
         self.log = []
+        self.closed = False
         cmd = ['ssh', '-tt', '-F', '/dev/null', '-p', str(int(info['port'])), '-o', 'BatchMode=yes', '-o', 'IdentitiesOnly=yes',
                '-o', 'ConnectTimeout=15', '-o', 'ServerAliveInterval=15', '-o', 'StrictHostKeyChecking=accept-new',
                '-o', 'UserKnownHostsFile=' + info['known_hosts'], '-o', 'LogLevel=ERROR']
@@ -75,6 +76,9 @@ class Session:
         os.write(self.fd, s.encode('utf-8'))
 
     def close(self, abort=False):
+        if self.closed:            # drugi klic (finally) ne sme poslati signala že pobranemu PID-u
+            return
+        self.closed = True
         try:
             if abort:
                 self.send('\x04')       # Ctrl+D v Safe Mode: razveljavi in odjavi

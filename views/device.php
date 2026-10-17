@@ -4,7 +4,7 @@ $isSuper = Auth::isSuper();
 $ports = face_ports($ifaces, $d['wan_iface'], 40);
 $wanRow = null; foreach ($ifaces as $i) if ($i['name'] === $d['wan_iface']) $wanRow = $i;
 $tabs = ['overview' => ['dashboard', A('Pregled')], 'ifaces' => ['ethernet', A('Vmesniki')], 'clients' => ['laptop', A('Naprave v LAN')], 'sla' => ['gauge', A('Razpoložljivost')], 'security' => ['shield', A('Varnost')], 'logs' => ['scroll', A('Logi')], 'alerts' => ['bell', A('Alarmi')]];
-$manage = in_array($tab, ['backups', 'settings', 'protect'], true);   // upravljanje: odpre se z gumbom v glavi, ne kot zavihek
+$manage = in_array($tab, ['backups', 'settings', 'protect', 'wg'], true);   // upravljanje: odpre se z gumbom v glavi, ne kot zavihek
 $upd = $s['upd'] ?? [];
 ?>
 <div class="crumbs"><a href="/devices"><?= h(A('Naprave')) ?></a><?= icon('chev', 14) ?><?= h($d['tenant_name'] ?: '–') ?></div>
@@ -63,7 +63,7 @@ $upd = $s['upd'] ?? [];
 <?php else: ?><div style="height:18px"></div><?php endif; ?>
 
 <?php if ($manage): ?>
-<?php $mt = ['backups' => ['archive', A('Konfiguracija')], 'settings' => ['settings', A('Nastavitve')], 'protect' => ['shield', A('Zaščita omrežja')]][$tab]; ?>
+<?php $mt = ['backups' => ['archive', A('Konfiguracija')], 'settings' => ['settings', A('Nastavitve')], 'protect' => ['shield', A('Zaščita omrežja')], 'wg' => ['lock', 'WireGuard']][$tab]; ?>
 <div class="manage-head"><a href="/devices/<?= $id ?>" class="small"><?= icon('chev', 14, 'flip') ?><?= h(A('Nazaj na pregled naprave')) ?></a><h2><?= icon($mt[0], 18) ?><?= h($mt[1]) ?></h2></div>
 <?php else: ?>
 <nav class="tabs">
@@ -190,7 +190,7 @@ $upd = $s['upd'] ?? [];
     <section class="panel" id="ros">
       <div class="panel-head"><h2><?= icon('refresh', 18) ?>RouterOS <?= h($rosL) ?></h2><span class="small muted"><?= h(A('nameščen {v}', ['v' => $rosV])) ?></span></div>
       <?php if ($rosSec): ?><ul class="feed"><?php foreach (array_slice($rosSec, 0, 6) as [$rv, $line]): ?><li><span class="sev-bar critical"></span><div class="what small"><b><?= h($rv) ?></b> · <?= h($line) ?></div></li><?php endforeach; ?>
-        <?php if (count($rosSec) > 6): ?><li><div class="what small muted"><?= h(A('… in še {n} varnostnih popravkov', ['n' => count($rosSec) - 6])) ?></div></li><?php endif; ?></ul>
+        <?php if (count($rosSec) > 6): ?><li><div class="what small muted"><?= h(A('… še varnostnih popravkov: {n}', ['n' => count($rosSec) - 6])) ?></div></li><?php endif; ?></ul>
       <?php else: ?><div class="panel-body small muted"><?= h(A('V novejših verzijah ni označenih varnostnih popravkov.')) ?></div><?php endif; ?>
       <?php if ($isSuper): ?><div class="panel-body actions" style="border-top:1px solid var(--line-2)">
         <?php if ($upg && (in_array($upg['status'], ['approved', 'sent'], true) || ($upg['status'] === 'done' && !$upg['verified_at']))): ?>
@@ -440,7 +440,7 @@ $upd = $s['upd'] ?? [];
   <section class="panel"><div class="panel-body">
     <div class="small muted"><?= h($lbl) ?></div>
     <div style="font-size:2rem;font-weight:600;color:var(--<?= Sla::cls($p['pct']) ?: 'text' ?>)"><?= h(Sla::fmt($p['pct'])) ?></div>
-    <div class="small muted"><?= $p['count'] ? h(A('{n} izpadov, skupaj {t}', ['n' => $p['count'], 't' => $dur($p['down_s'])])) : h(A('brez izpadov')) ?></div>
+    <div class="small muted"><?= $p['count'] ? h(A('izpadi: {n}, skupaj {t}', ['n' => $p['count'], 't' => $dur($p['down_s'])])) : h(A('brez izpadov')) ?></div>
   </div></section>
   <?php endforeach; ?>
 </div>
@@ -516,10 +516,10 @@ $upd = $s['upd'] ?? [];
       <?php foreach ($fw['bl_out'] as $x): ?><tr><td class="mono small"><?= h($x['who']) ?></td><td class="small"><span class="tag down"><?= h(A('varnostna lista')) ?></span> <?= h($x['dl']) ?> · <?= (int)$x['hits'] ?>×</td><td class="small nowrap"><?= h(fmt_ago($x['last'])) ?></td></tr><?php endforeach; ?>
       <?php $thr = Devices::thresholds($d); foreach ($fw['out'] as $x): $f = [];
         if ((int)$x['bl_hits']) $f[] = '<span class="tag down">' . h(A('varnostna lista')) . '</span> ' . h((string)$x['bl_sample']) . ' · ' . (int)$x['bl_hits'] . '×';
-        if ((int)$x['smtp_ips']) $f[] = '<span class="tag ' . ((int)$x['smtp_ips'] >= (int)$thr['th_out_smtp'] ? 'warn' : '') . '">SMTP</span> ' . h(A('{n} strežnikov', ['n' => (int)$x['smtp_ips']]));
-        if ((int)$x['scan_ips'] >= (int)$thr['th_out_ips']) $f[] = '<span class="tag warn">' . h(A('skeniranje')) . '</span> ' . h(A('port {p} → {n} naslovov', ['p' => (int)$x['scan_port'], 'n' => (int)$x['scan_ips']]));
-        elseif ((int)$x['scan_ips'] >= 20) $f[] = '<span class="muted">' . h(A('port {p} → {n} naslovov', ['p' => (int)$x['scan_port'], 'n' => (int)$x['scan_ips']])) . '</span>';
-        if (!$f) $f[] = '<span class="muted">' . h(A('{n} različnih ciljev v 5 min', ['n' => (int)$x['dst_ips']])) . '</span>'; ?>
+        if ((int)$x['smtp_ips']) $f[] = '<span class="tag ' . ((int)$x['smtp_ips'] >= (int)$thr['th_out_smtp'] ? 'warn' : '') . '">SMTP</span> ' . h(A('strežnikov: {n}', ['n' => (int)$x['smtp_ips']]));
+        if ((int)$x['scan_ips'] >= (int)$thr['th_out_ips']) $f[] = '<span class="tag warn">' . h(A('skeniranje')) . '</span> ' . h(A('port {p} → naslovov: {n}', ['p' => (int)$x['scan_port'], 'n' => (int)$x['scan_ips']]));
+        elseif ((int)$x['scan_ips'] >= 20) $f[] = '<span class="muted">' . h(A('port {p} → naslovov: {n}', ['p' => (int)$x['scan_port'], 'n' => (int)$x['scan_ips']])) . '</span>';
+        if (!$f) $f[] = '<span class="muted">' . h(A('različnih ciljev v 5 min: {n}', ['n' => (int)$x['dst_ips']])) . '</span>'; ?>
       <tr><td class="mono small"><?= h($x['who']) ?></td><td class="small"><?= implode(' · ', $f) ?></td><td class="small nowrap"><?= h(fmt_ago($x['last'])) ?></td></tr>
       <?php endforeach; ?>
     </tbody></table></div><?php endif; ?>
@@ -720,11 +720,11 @@ $upd = $s['upd'] ?? [];
         <label class="f"><span><?= h(A('Omrežje za VPN uporabnike')) ?></span><input type="text" name="srv_net" class="mono" value="<?= h(WgServer::nextNet()) ?>" required><small><?= h(A('predlagano prvo prosto (ne prekriva se z drugimi napravami v NOC)')) ?></small></label>
         <label class="f"><span><?= h(A('UDP port')) ?></span><input type="number" name="srv_port" min="1024" max="65535" value="<?= WgServer::nextPort($d) ?>" required></label>
       </div>
-      <div class="row c3">
-        <label class="f"><span><?= h(A('Dostop VPN uporabnikov')) ?></span><select name="srv_mode"><option value="lan"><?= h(A('Kot LAN – vse kot naprava v pisarni')) ?></option><option value="net"><?= h(A('Samo LAN omrežje – brez upravljanja routerja')) ?></option></select></label>
-        <label class="f"><span><?= h(A('Endpoint v configu')) ?> <small>(<?= h(A('prazno = javni IP naprave')) ?>)</small></span><input type="text" name="endpoint" class="mono" value="<?= h((string)($d['wg_endpoint'] ?? '')) ?>" placeholder="<?= h($d['public_ip'] ?: 'vpn.domena.si') ?>"></label>
-        <div style="align-self:end"><button class="btn primary"><?= icon('server', 15) ?><?= h(A('Ustvari strežnik')) ?></button></div>
+      <div class="row">
+        <label class="f"><span><?= h(A('Dostop VPN uporabnikov')) ?></span><select name="srv_mode"><option value="lan"><?= h(A('Kot LAN – enak dostop kot naprava v pisarni')) ?></option><option value="net"><?= h(A('Samo LAN omrežje – brez upravljanja routerja')) ?></option></select></label>
+        <label class="f"><span><?= h(A('Endpoint v configu')) ?></span><input type="text" name="endpoint" class="mono" value="<?= h((string)($d['wg_endpoint'] ?? '')) ?>" placeholder="<?= h($d['public_ip'] ?: 'vpn.domena.si') ?>"><small><?= h(A('prazno = javni IP naprave')) ?></small></label>
       </div>
+      <div class="actions"><button class="btn primary"><?= icon('server', 15) ?><?= h(A('Ustvari strežnik')) ?></button></div>
       <small class="muted"><?= h(A('Router doda vmesnik in naslov ter odpre UDP port na vrhu požarnega zidu (pravilo noc-wg). Pri "kot LAN" vmesnik doda v seznam LAN; pri "samo LAN omrežje" doda pravila za LAN omrežja, DNS in ping routerja.')) ?></small>
     </form>
   </details>
@@ -827,7 +827,7 @@ $upd = $s['upd'] ?? [];
     <div class="panel-body fw-foot">
       <div class="small muted"><?= icon('info', 14) ?> <?= h(A('Upravljalni naslovi ({ips}) so vedno dovoljeni. Če router po spremembi ne doseže NOC, se vse samodejno povrne v 5 minutah.', ['ips' => implode(', ', Firewall::mgmtIps()) ?: '–'])) ?>
         <?php if (!Firewall::mgmtIps()): ?><br><b style="color:var(--down)"><?= h(A('Najprej vpiši upravljalne naslove v Alarmi in obvestila.')) ?></b><?php endif; ?></div>
-      <div class="actions"><span class="small muted"><?= h(A('Na routerju: {n} pravil noc-fw', ['n' => $fwOnRouter])) ?><?= $d['fw_confirmed_at'] ? ' · ' . h(A('potrjeno {t}', ['t' => fmt_ago($d['fw_confirmed_at'])])) : '' ?></span>
+      <div class="actions"><span class="small muted"><?= h(A('Pravila noc-fw na routerju: {n}', ['n' => $fwOnRouter])) ?><?= $d['fw_confirmed_at'] ? ' · ' . h(A('potrjeno {t}', ['t' => fmt_ago($d['fw_confirmed_at'])])) : '' ?></span>
         <button class="btn primary" <?= !Firewall::mgmtIps() ? 'disabled' : '' ?>><?= icon('check', 16) ?><?= h(A('Shrani izbiro')) ?></button></div>
     </div>
   </form>
@@ -989,7 +989,7 @@ $upd = $s['upd'] ?? [];
     </div></div>
   <div class="panel-body">
     <p class="small muted" style="margin-top:0"><?= h(A('Terminal routerja v brskalniku: strežnik NOC se z routerjem poveže prek SSH kot uporabnik noc-term s ključem NOC (geslo se nikjer ne shrani). SSH na routerju je dovoljen samo z naslova strežnika NOC ({ip}). Router ga nastavi ali odstrani sam ob naslednjem pushu. Vsaka seja se zabeleži z izpisom.', ['ip' => (string)cfg('noc_ip', '–')])) ?></p>
-    <form method="post" action="/devices/<?= $id ?>/terminal"<?= $tOn ? '' : ' data-confirm="' . h(A('Vklopim terminal? Po namestitvenem ukazu bo imel strežnik NOC polni dostop do tega routerja prek SSH.')) . '"' ?>><?= Auth::csrf() ?><input type="hidden" name="on" value="<?= $tOn ? '0' : '1' ?>">
+    <form method="post" action="/devices/<?= $id ?>/terminal"<?= $tOn ? '' : ' data-confirm="' . h(A('Vklopim terminal? Ob naslednjem pushu (v minuti) bo imel strežnik NOC polni dostop do tega routerja prek SSH.')) . '"' ?>><?= Auth::csrf() ?><input type="hidden" name="on" value="<?= $tOn ? '0' : '1' ?>">
       <button class="btn sm"><?= icon('power', 14) ?><?= h($tOn ? A('Izklopi terminal') : A('Vklopi terminal')) ?></button>
       <?php $st = db()->prepare("SELECT status FROM noc_actions WHERE device_id=? AND kind='term' AND status IN ('approved','sent') LIMIT 1"); $st->execute([$id]); if ($st->fetchColumn()): ?><span class="tag info" style="margin-left:8px"><?= icon('clock', 12) ?><?= h(A('nastavitev čaka na router')) ?></span><?php endif; ?>
     </form>

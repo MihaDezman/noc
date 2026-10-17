@@ -12,7 +12,7 @@ final class Alerts
         return ['hdd' => A('Disk zaseden'), 'mem' => A('Pomnilnik zaseden'), 'cpu' => A('CPU obremenjen'), 'temp' => A('Temperatura'),
                 'update' => A('Na voljo nov RouterOS'), 'reboot' => A('Ponovni zagon'), 'config' => A('Sprememba konfiguracije'), 'backup' => A('Brez backupa'),
                 'pool' => A('Zasedenost IP poola'), 'attack' => A('Napad na router (prijave)'), 'fwscan' => A('Skeniranje z interneta'), 'fwspike' => A('Porast poskusov z interneta'),
-                'threat' => A('Stik z zlonamernim strežnikom'), 'anom' => A('Nenaden promet pametne naprave'), 'geo' => A('Pametna naprava v novi državi'), 'wggeo' => A('VPN prijava iz nove države'), 'speedlow' => A('Hitrost pod zakupljeno')];
+                'threat' => A('Stik z zlonamernim strežnikom'), 'anom' => A('Nenavaden promet pametne naprave'), 'geo' => A('Pametna naprava v novi državi'), 'wggeo' => A('VPN prijava iz nove države'), 'speedlow' => A('Hitrost pod zakupljeno')];
     }
 
     /** Ali je ta vrsta alarma pri napravi izklopljena (Nastavitve naprave) */
@@ -104,7 +104,7 @@ final class Alerts
         $extDown = $h['ext_loss'] !== null && self::sustained($id, 'ext_loss >= 100', $pm);
         $gwDown = $h['gw_loss'] !== null && self::sustained($id, 'gw_loss >= 100', $pm);
         self::set($d, $extDown && ($gwDown || $h['gw_loss'] === null), 'wan_down', 'critical', A('Internet ne deluje že {m} min (WAN)', ['m' => $pm]));
-        self::set($d, $extDown && $h['gw_loss'] !== null && !$gwDown, 'ext_down', 'critical', A('Prehod ponudnika odgovarja, internet pa ne že {m} min', ['m' => $pm]));
+        self::set($d, $extDown && $h['gw_loss'] !== null && !$gwDown, 'ext_down', 'critical', A('Prehod ponudnika odgovarja, internet pa ne deluje že {m} min', ['m' => $pm]));
         self::clear($d, 'gw_down');   // stari ključ (v1.0)
         if ($h['gw_loss'] !== null && !$gwDown) {
             self::set($d, self::sustained($id, 'gw_loss >= ' . (int)$th['th_gw_loss'], $pm), 'gw_loss', 'warning', A('Izguba paketov do prehoda nad {p} %', ['p' => (int)$th['th_gw_loss']]));
@@ -141,7 +141,7 @@ final class Alerts
         // vsi pingi hkrati (zaporedno bi pri 100 napravah trajalo več kot minuto)
         $need = array_filter($devs, fn($d) => filter_var($d['public_ip'], FILTER_VALIDATE_IP) && ($minute % 5 === 0 || !$d['online']));
         $pings = self::pingMany(array_column($need, 'public_ip'), 5);
-        foreach ($devs as $d) {
+        foreach ($devs as $d) { try {   // napaka pri eni napravi ne ustavi preverjanja ostalih
             $th = Devices::thresholds($d);
             $ok = null; $ms = null; $loss = null;
             if (isset($pings[$d['public_ip']]) && ($minute % 5 === 0 || !$d['online'])) {
@@ -157,7 +157,7 @@ final class Alerts
                 if ($ok) { self::clear($d, 'offline'); self::raise($d, 'push', 'warning', A('Router odgovarja na ping, pošiljanje podatkov pa ne deluje že {m} min', ['m' => intdiv($silent, 60)])); }
                 else { self::clear($d, 'push'); self::raise($d, 'offline', 'critical', A('Naprava nedosegljiva že {m} min', ['m' => intdiv($silent, 60)])); }
             }
-        }
+        } catch (\Throwable $e) { error_log('noc cron ' . ($d['name'] ?? '?') . ': ' . $e->getMessage()); } }
     }
 
     /** Več pingov hkrati (po 50): [ip => [ok, ms, loss%]] */
@@ -216,7 +216,7 @@ final class Alerts
         if (count($hosts) <= 3) {
             foreach ($hosts as $h) self::event($d, 'newdev', 'info', A('Nova naprava v LAN-u: {h}', ['h' => $fmt($h)]));
         } else {
-            self::event($d, 'newdev', 'info', A('{n} novih naprav v LAN-u, npr. {h}', ['n' => count($hosts), 'h' => $fmt($hosts[0])]));
+            self::event($d, 'newdev', 'info', A('Nove naprave v LAN-u: {n}, npr. {h}', ['n' => count($hosts), 'h' => $fmt($hosts[0])]));
         }
     }
 

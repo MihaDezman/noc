@@ -29,7 +29,10 @@ def log(msg):
 
 async def php(*args):
     p = await asyncio.create_subprocess_exec(PHP, TERM_PHP, *args, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL)
-    out, _ = await p.communicate()
+    try:
+        out, _ = await asyncio.wait_for(p.communicate(), 30)
+    except asyncio.TimeoutError:
+        p.kill(); await p.wait(); return ''
     return out.decode('utf-8', 'replace')
 
 
@@ -53,7 +56,8 @@ async def handler(ws, *_):
     path, headers = req_info(ws)
     q = urllib.parse.parse_qs(urllib.parse.urlparse(path).query)
     tok = (q.get('t') or [''])[0]
-    ip = (headers.get('X-Forwarded-For') or '').split(',')[0].strip()
+    # Apache doda pravi naslov odjemalca na KONEC glave (prve vrednosti lahko pošlje odjemalec sam)
+    ip = (headers.get('X-Forwarded-For') or '').split(',')[-1].strip()
     try:
         info = json.loads(await php('check', tok, ip))
     except Exception:
@@ -96,6 +100,28 @@ async def handler(ws, *_):
             loop.remove_reader(fd)
     loop.add_reader(fd, readable)
 
+    # vnos v psevdoterminal prek medpomnilnika: velik prilepljen blok se ne izgubi in ne prekine seje
+    wbuf = bytearray()
+
+    def writable():
+        try:
+            n = os.write(fd, wbuf)
+        except (BlockingIOError, InterruptedError):
+            return
+        except OSError:
+            wbuf.clear(); n = 0
+        del wbuf[:n]
+        if not wbuf:
+            loop.remove_writer(fd)
+
+    def send_in(data):
+        if len(wbuf) > (1 << 20):      # več kot 1 MB čakajočega vnosa: zavrzi (zaščita)
+            return
+        empty = not wbuf
+        wbuf.extend(data)
+        if empty:
+            loop.add_writer(fd, writable)
+
     total = 0; started = time.time(); last_in = time.time(); reason = 'odjava'
     try:
         logf = open(info['log'], 'ab')
@@ -123,7 +149,7 @@ async def handler(ws, *_):
                 continue
             if m.get('t') == 'i':
                 last_in = time.time()
-                os.write(fd, str(m.get('d', '')).encode('utf-8', 'replace'))
+                send_in(str(m.get('d', '')).encode('utf-8', 'replace'))
             elif m.get('t') == 'r':
                 set_size(fd, m.get('c', 120), m.get('r', 32))
 
@@ -150,10 +176,11 @@ async def handler(ws, *_):
         for t in pending:
             t.cancel()
     finally:
-        try:
-            loop.remove_reader(fd)
-        except Exception:
-            pass
+        for rm in (loop.remove_reader, loop.remove_writer):
+            try:
+                rm(fd)
+            except Exception:
+                pass
         try:
             os.kill(pid, signal.SIGHUP)
         except ProcessLookupError:

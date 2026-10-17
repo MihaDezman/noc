@@ -10,7 +10,7 @@ $srvDevs = array_filter($devs, fn($x) => Wg::serverIfaces($x)); ?>
 <section class="panel">
   <div class="panel-head">
     <form class="filters" method="get"><input type="search" name="q" value="<?= h($sq) ?>" placeholder="<?= h(A('Išči ime, IP ali napravo …')) ?>"><button class="btn sm"><?= icon('search', 15) ?><?= h(A('Išči')) ?></button></form>
-    <span class="small muted"><?= h(A('{n} uporabnikov', ['n' => count($peers)])) ?></span>
+    <span class="small muted"><?= h(count($peers) . ' ' . plural(count($peers), 'uporabnik', 'uporabnika', 'uporabniki', 'uporabnikov')) ?></span>
   </div>
   <?php if (!$peers): ?><div class="empty"><?= icon('lock', 28) ?><div><?= h($sq !== '' ? A('Ni zadetkov.') : A('Še ni WireGuard uporabnikov. Pokažejo se, ko routerji pošljejo podatke z novo skripto (samodejno v nekaj minutah).')) ?></div></div><?php else: ?>
   <div class="tbl-wrap"><table class="tbl">
