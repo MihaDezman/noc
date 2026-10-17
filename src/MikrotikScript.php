@@ -122,6 +122,8 @@ final class MikrotikScript
         $ver = self::$ver;
         $base = rtrim((string)cfg('base_url'), '/');
         $gwFallback = filter_var($d['wan_gateway'] ?? '', FILTER_VALIDATE_IP) ? $d['wan_gateway'] : '';
+        $gwMode = (string)($d['gw_ping'] ?? 'auto');
+        if ($gwMode === 'fixed' && $gwFallback === '') $gwMode = 'auto';   // brez veljavnega naslova ostane samodejno
         $ext = trim((string)($d['ping_target'] ?? '')) ?: '1.1.1.1';
         $inc = (string)($d['log_include'] ?? ''); $exc = (string)($d['log_exclude'] ?? '');
         if ($exc === '') $exc = '^#nikoli#';   // prazen regex bi ujel vse teme in izločil vse loge
@@ -150,6 +152,7 @@ final class MikrotikScript
 :local updUrl "$base/api/install/auto"
 :local actUrl "$base/api/action"
 :local gwFallback "$gwFallback"
+:local gwMode "$gwMode"
 :local extTarget "$ext"
 :local logInc "$inc"
 :local logExc "$exc"
@@ -205,14 +208,18 @@ final class MikrotikScript
 
 # --- ping: privzeti prehod (WAN) in zunanji cilj
 # navaden /ping (flood-ping je na novejsih RouterOS omejen z device-mode); case izracuna NOC
+# gwMode: auto = prehod iz privzete poti, fixed = vpisan naslov, off = prehoda ne pingamo (ponudnik ne odgovarja na ping)
 :local gw ""
-:do { :set gw [:tostr [/ip route get ([/ip route find where dst-address=0.0.0.0/0 active=yes]->0) gateway]] } on-error={}
-:if ([:typeof [:find \$gw "%"]] = "num") do={ :set gw [:pick \$gw 0 [:find \$gw "%"]] }
-# PPPoE / point-to-point: pot kaze na vmesnik -> prehod je "network" naslova na tem vmesniku
-:if ([:typeof [:toip \$gw]] != "ip" && [:len \$gw] > 0) do={
-    :do { :set gw [:tostr [/ip address get ([/ip address find where interface=\$gw]->0) network]] } on-error={ :set gw "" }
+:if (\$gwMode = "auto") do={
+    :do { :set gw [:tostr [/ip route get ([/ip route find where dst-address=0.0.0.0/0 active=yes]->0) gateway]] } on-error={}
+    :if ([:typeof [:find \$gw "%"]] = "num") do={ :set gw [:pick \$gw 0 [:find \$gw "%"]] }
+    # PPPoE / point-to-point: pot kaze na vmesnik -> prehod je "network" naslova na tem vmesniku
+    :if ([:typeof [:toip \$gw]] != "ip" && [:len \$gw] > 0) do={
+        :do { :set gw [:tostr [/ip address get ([/ip address find where interface=\$gw]->0) network]] } on-error={ :set gw "" }
+    }
+    :if ([:typeof [:toip \$gw]] != "ip") do={ :set gw \$gwFallback }
 }
-:if ([:typeof [:toip \$gw]] != "ip") do={ :set gw \$gwFallback }
+:if (\$gwMode = "fixed") do={ :set gw \$gwFallback }
 :local gwOn false
 :local gwT [:toarray ""]
 :if ([:len \$gw] > 0) do={

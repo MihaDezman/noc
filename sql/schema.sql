@@ -52,6 +52,7 @@ CREATE TABLE devices (
   public_ip      VARCHAR(45)  NOT NULL DEFAULT '',     -- statični javni IP (ping s tigra, traffic-flow, ufw)
   wan_iface      VARCHAR(64)  NOT NULL DEFAULT '',
   wan_gateway    VARCHAR(45)  NOT NULL DEFAULT '',     -- rezerva, če skripta prehoda ne najde sama
+  gw_ping        ENUM('auto','fixed','off') NOT NULL DEFAULT 'auto',
   ping_target    VARCHAR(64)  NOT NULL DEFAULT '1.1.1.1',
   lan_networks   VARCHAR(500) NOT NULL DEFAULT '',     -- 192.168.1.0/24,10.0.0.0/23
   monitor_ifaces VARCHAR(500) NOT NULL DEFAULT '',     -- vmesniki z zgodovino prometa (prvi = WAN)

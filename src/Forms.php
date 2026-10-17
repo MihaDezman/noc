@@ -14,6 +14,7 @@ final class DeviceForm
         return [
             'name' => mb_substr(ros_clean(post('name')) ?: 'MikroTik', 0, 120), 'site' => mb_substr(ros_clean(post('site')), 0, 160),
             'public_ip' => $ip(post('public_ip')), 'wan_iface' => mb_substr(trim(ros_clean(post('wan_iface'))), 0, 64), 'wan_gateway' => $ip(post('wan_gateway')),
+            'gw_ping' => in_array(post('gw_ping'), ['auto', 'fixed', 'off'], true) ? post('gw_ping') : 'auto',
             'ping_target' => preg_replace('/[^a-zA-Z0-9.\-]/', '', post('ping_target', '1.1.1.1')) ?: '1.1.1.1',
             'lan_networks' => $nets, 'monitor_ifaces' => $csv(post('monitor_ifaces')), 'down_ifaces' => $csv(post('down_ifaces')),
             'wan_down_mbps' => (int)post('wan_down_mbps') ?: null, 'wan_up_mbps' => (int)post('wan_up_mbps') ?: null,

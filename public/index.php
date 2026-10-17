@@ -247,9 +247,9 @@ if ($path === '/devices/create' && $method === 'POST') {
     $tenantId = (int)post('tenant_id');
     if (post('new_tenant') !== '') { db()->prepare('INSERT INTO tenants (name) VALUES (?)')->execute([post('new_tenant')]); $tenantId = (int)db()->lastInsertId(); }
     $f = DeviceForm::read();
-    db()->prepare('INSERT INTO devices (tenant_id, driver, kind, name, site, model, serial, os_version, public_ip, wan_iface, wan_gateway, ping_target, lan_networks, monitor_ifaces, down_ifaces, wan_down_mbps, wan_up_mbps, flow_enabled, export_raw, analysis_json, notes)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
-        ->execute([$tenantId ?: null, 'mikrotik', 'router', $f['name'], $f['site'], $an['model'], $an['serial'], $an['ros_version'], $f['public_ip'], $f['wan_iface'], $f['wan_gateway'], $f['ping_target'],
+    db()->prepare('INSERT INTO devices (tenant_id, driver, kind, name, site, model, serial, os_version, public_ip, wan_iface, wan_gateway, gw_ping, ping_target, lan_networks, monitor_ifaces, down_ifaces, wan_down_mbps, wan_up_mbps, flow_enabled, export_raw, analysis_json, notes)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
+        ->execute([$tenantId ?: null, 'mikrotik', 'router', $f['name'], $f['site'], $an['model'], $an['serial'], $an['ros_version'], $f['public_ip'], $f['wan_iface'], $f['wan_gateway'], $f['gw_ping'], $f['ping_target'],
             $f['lan_networks'], $f['monitor_ifaces'], $f['down_ifaces'], $f['wan_down_mbps'], $f['wan_up_mbps'], $f['flow_enabled'], $rsc, json_encode($an, JSON_UNESCAPED_UNICODE), $f['notes']]);
     $id = (int)db()->lastInsertId();
     Devices::newKey($id);
@@ -336,8 +336,8 @@ if (($seg[0] ?? '') === 'devices' && ctype_digit($seg[1] ?? '')) {
         foreach ($_POST['th'] ?? [] as $k => $v) if (preg_match('/^th_[a-z_]+$/', (string)$k) && is_numeric($v)) $th[$k] = (float)$v;
         $off = array_values(array_intersect(array_keys(Alerts::offable()), (array)($_POST['off'] ?? [])));
         if ($off) $th['off'] = $off;
-        db()->prepare('UPDATE devices SET tenant_id=?, name=?, site=?, public_ip=?, wan_iface=?, wan_gateway=?, ping_target=?, lan_networks=?, monitor_ifaces=?, down_ifaces=?, wan_down_mbps=?, wan_up_mbps=?, flow_enabled=?, log_include=?, log_exclude=?, thresholds=?, notes=? WHERE id=?')
-            ->execute([(int)post('tenant_id') ?: null, $f['name'], $f['site'], $f['public_ip'], $f['wan_iface'], $f['wan_gateway'], $f['ping_target'], $f['lan_networks'], $f['monitor_ifaces'], $f['down_ifaces'],
+        db()->prepare('UPDATE devices SET tenant_id=?, name=?, site=?, public_ip=?, wan_iface=?, wan_gateway=?, gw_ping=?, ping_target=?, lan_networks=?, monitor_ifaces=?, down_ifaces=?, wan_down_mbps=?, wan_up_mbps=?, flow_enabled=?, log_include=?, log_exclude=?, thresholds=?, notes=? WHERE id=?')
+            ->execute([(int)post('tenant_id') ?: null, $f['name'], $f['site'], $f['public_ip'], $f['wan_iface'], $f['wan_gateway'], $f['gw_ping'], $f['ping_target'], $f['lan_networks'], $f['monitor_ifaces'], $f['down_ifaces'],
                 $f['wan_down_mbps'], $f['wan_up_mbps'], $f['flow_enabled'], $f['log_include'], $f['log_exclude'], $th ? json_encode($th) : null, $f['notes'], $id]);
         db()->prepare('UPDATE devices SET auto_update=? WHERE id=?')->execute([post('auto_update') ? 1 : 0, $id]);
         db()->prepare('UPDATE devices SET newdev_alert=?, newdev_ignore=? WHERE id=?')->execute([post('newdev_alert') ? 1 : 0, implode(',', Devices::list(post('newdev_ignore'))), $id]);

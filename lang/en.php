@@ -243,7 +243,7 @@ return [
     'Različic' => 'Versions',
     'Razširi zip in datoteko povleci v Winbox → Files.' => 'Unzip and drag the file into Winbox → Files.',
     'Revizijska sled' => 'Audit trail',
-    'Rezerva – skripta prehod najde sama iz privzete poti.' => 'Fallback – the script finds the gateway from the default route.',
+    'Skripta prehod najde sama; ta naslov je rezerva ali cilj pinga (glej Ping prehoda).' => 'The script finds the gateway itself; this address is a fallback or the ping target (see Gateway ping).',
     'Router odgovarja na ping, pošiljanje podatkov pa ne deluje že {m} min' => 'Router answers ping, but data push has failed for {m} min',
     'Samega sebe ne moreš izbrisati.' => 'You cannot delete yourself.',
     'Scheduler in fetch morata biti dovoljena. Preveri:' => 'Scheduler and fetch must be allowed. Check:',
@@ -1534,4 +1534,9 @@ return [
     'Ta router se (še) ne posodablja sam. Ko shraniš vse spremembe (lahko večkrat), enkrat prilepi v terminal routerja:' => 'This router does not update itself (yet). When you have saved all changes (several times is fine), paste once into the router terminal:',
     'Zaščita shranjena. Router jo dobi sam ob naslednjem pushu (v minuti).' => 'Protection saved. The router gets it with the next push (within a minute).',
     'Zaščita shranjena. Ta router se (še) ne posodablja sam – ko končaš s spremembami, prilepi namestitveni ukaz.' => 'Protection saved. This router does not update itself (yet) – when you are done, paste the install command.',
+    'Ping prehoda' => 'Gateway ping',
+    'Samodejno (prehod iz privzete poti)' => 'Automatic (gateway of the default route)',
+    'Naslov iz polja Prehod ponudnika' => 'Address from the Provider gateway field',
+    'Ne pingaj prehoda' => 'Do not ping the gateway',
+    'Če prehod ponudnika ne odgovarja na ping, ga izklopi ali vpiši drug naslov.' => 'If the provider gateway does not answer pings, turn it off or enter another address.',
 ];

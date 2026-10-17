@@ -17,10 +17,14 @@ $isNew ??= false;
 <div class="row c3">
   <label class="f"><?= h(A('WAN vmesnik')) ?><input type="text" name="wan_iface" value="<?= h($f['wan_iface']) ?>" class="mono"></label>
   <label class="f"><?= h(A('Javni (statični) IP')) ?><input type="text" name="public_ip" value="<?= h($f['public_ip']) ?>" class="mono"><small><?= h(A('Za ping s strežnika in sprejem traffic-flow.')) ?></small></label>
-  <label class="f"><?= h(A('Prehod ponudnika')) ?><input type="text" name="wan_gateway" value="<?= h($f['wan_gateway']) ?>" class="mono"><small><?= h(A('Rezerva – skripta prehod najde sama iz privzete poti.')) ?></small></label>
+  <label class="f"><?= h(A('Prehod ponudnika')) ?><input type="text" name="wan_gateway" value="<?= h($f['wan_gateway']) ?>" class="mono"><small><?= h(A('Skripta prehod najde sama; ta naslov je rezerva ali cilj pinga (glej Ping prehoda).')) ?></small></label>
 </div>
 <div class="row c3">
+  <?php $gp = (string)($f['gw_ping'] ?? 'auto'); ?>
+  <label class="f"><?= h(A('Ping prehoda')) ?><select name="gw_ping"><?php foreach (['auto' => A('Samodejno (prehod iz privzete poti)'), 'fixed' => A('Naslov iz polja Prehod ponudnika'), 'off' => A('Ne pingaj prehoda')] as $k => $l): ?><option value="<?= $k ?>"<?= $gp === $k ? ' selected' : '' ?>><?= h($l) ?></option><?php endforeach; ?></select><small><?= h(A('Če prehod ponudnika ne odgovarja na ping, ga izklopi ali vpiši drug naslov.')) ?></small></label>
   <label class="f"><?= h(A('Zunanji cilj za ping')) ?><input type="text" name="ping_target" value="<?= h($f['ping_target']) ?>" class="mono"></label>
+</div>
+<div class="row c3">
   <label class="f"><?= h(A('Zakupljen download (Mb/s)')) ?><input type="number" min="0" name="wan_down_mbps" value="<?= h($f['wan_down_mbps']) ?>"></label>
   <label class="f"><?= h(A('Zakupljen upload (Mb/s)')) ?><input type="number" min="0" name="wan_up_mbps" value="<?= h($f['wan_up_mbps']) ?>"></label>
 </div>
