@@ -128,7 +128,7 @@ final class Actions
         }
         if ($a && $a['kind'] === 'upgrade') {
             Notify::telegram($fail
-                ? '⚠️ <b>' . htmlspecialchars($d['name']) . '</b> – ' . A('router ni dovolil načrtovane posodobitve iz skripte NOC (pravica reboot). Posodobi ročno: v terminalu /system package update install ali Winbox → System → Packages → Check For Updates.')
+                ? '⚠️ <b>' . htmlspecialchars($d['name']) . '</b> – ' . A('router ni dovolil načrtovane posodobitve iz skripte NOC (manjka pravica reboot). Enkrat ročno prilepi namestitveni ukaz s strani Paket in posodobitev načrtuj znova – ali pa posodobi ročno (System → Packages → Check For Updates).')
                 : '📅 <b>' . htmlspecialchars($d['name']) . '</b> – ' . A('posodobitev na RouterOS {v} je načrtovana ob 03:30', ['v' => $a['ip']]));
             return;
         }

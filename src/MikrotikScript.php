@@ -309,7 +309,9 @@ final class MikrotikScript
     }
 }
 
-:local data {"v"=1;"sv"=\$scriptVer;"tick"=\$nocTick;"ident"=\$ident;"res"=\$res;"rb"=\$rb;"health"=\$hl;"ifs"=\$ifs;"rates"=\$rates;"ping"=\$ping;"conns"=\$conns;"nLeases"=\$nLeases;"leases"=\$leases;"pools"=\$pools;"flt"=\$flt;"sfp"=\$sfp;"wg"=\$wg;"wgx"=\$wgErr;"wgi"=\$wgi;"usr"=\$usr;"logs"=\$logs;"upd"=\$nocUpd{$tlsData}}
+:local rbt 0
+:do { :if ([:tostr [/system script get [find name="noc-push"] policy]] ~ "reboot") do={ :set rbt 1 } } on-error={}
+:local data {"v"=1;"rbt"=\$rbt;"sv"=\$scriptVer;"tick"=\$nocTick;"ident"=\$ident;"res"=\$res;"rb"=\$rb;"health"=\$hl;"ifs"=\$ifs;"rates"=\$rates;"ping"=\$ping;"conns"=\$conns;"nLeases"=\$nLeases;"leases"=\$leases;"pools"=\$pools;"flt"=\$flt;"sfp"=\$sfp;"wg"=\$wg;"wgx"=\$wgErr;"wgi"=\$wgi;"usr"=\$usr;"logs"=\$logs;"upd"=\$nocUpd{$tlsData}}
 :local body [:serialize to=json value=\$data]
 # varovalka: fetch ima omejitev velikosti - prevelik push (npr. ogromne vrstice loga) pošlji brez logov
 :if ([:len \$body] > 48000) do={
@@ -392,6 +394,11 @@ ROS;
         $s .= "# --- urnik: push vsako minuto, backup enkrat dnevno\n";
         $s .= "/system scheduler add name=noc-push interval=1m start-time=startup on-event=noc-push policy=$pol comment=\"noc.dezman.net\"\n";
         $s .= sprintf("/system scheduler add name=noc-backup interval=1d start-time=%02d:%02d:00 on-event=noc-backup policy=%s comment=\"noc.dezman.net\"\n\n", $hour, $min, $pol);
+        // pravica reboot (samo za načrtovano posodobitev RouterOS ob 03:30): skripta ne more dati več pravic, kot jih ima sama,
+        // zato jo dobi ob ročni namestitvi (admin); samodejna posodobitev jo ohrani, če jo je push že imel, sicer ostane brez
+        $s .= "# --- pravica reboot za nacrtovano posodobitev RouterOS (pri rocni namestitvi)\n"
+            . ":do { /system script set [find where name=\"noc-push\" or name=\"noc-backup\"] policy=$pol,reboot } on-error={}\n"
+            . ":do { /system scheduler set [find where name=\"noc-push\" or name=\"noc-backup\"] policy=$pol,reboot } on-error={}\n\n";
 
         if (!empty($an['needs_icmp_rule']) && $noc !== '') {
             $s .= "# --- ping s strežnika NOC (input chain na tem routerju zavrže ICMP z interneta)\n";

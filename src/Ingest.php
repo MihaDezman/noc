@@ -217,7 +217,7 @@ final class Ingest
         // --- status naprave (za prikaz)
         $status = [
             'ident' => (string)($b['ident'] ?? ''), 'res' => $res, 'rb' => $rb, 'health' => $healthRaw, 'ping' => $ping,
-            'wg' => (array)($b['wg'] ?? []), 'wgi' => (array)($b['wgi'] ?? []), 'usr' => array_key_exists('usr', $b) ? (array)$b['usr'] : ($oldStatus['usr'] ?? null), 'upd' => (array)($b['upd'] ?? []), 'h' => $h, 'at' => date('c', $now),
+            'wg' => (array)($b['wg'] ?? []), 'wgi' => (array)($b['wgi'] ?? []), 'usr' => array_key_exists('usr', $b) ? (array)$b['usr'] : ($oldStatus['usr'] ?? null), 'upd' => (array)($b['upd'] ?? []), 'rbt' => isset($b['rbt']) ? (int)$b['rbt'] : ($oldStatus['rbt'] ?? null), 'h' => $h, 'at' => date('c', $now),
             'pools' => $pools ?? ($oldStatus['pools'] ?? []),
             'flt' => is_array($b['flt'] ?? null) && $b['flt'] ? $b['flt'] : ($oldStatus['flt'] ?? null),
         ];

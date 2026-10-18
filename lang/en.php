@@ -1325,7 +1325,6 @@ return [
     'Posodobitev na {v} poslana routerju – ob 03:30 jo namesti. O izidu dobiš obvestilo.' => 'Upgrade to {v} sent to the router – it installs it at 03:30. You will be notified of the result.',
     'Izklopljenih {n} neaktivnih uporabnikov – router jih izklopi ob naslednjem pushu.' => '{n} inactive users disabled – the router disables them on the next push.',
     'Pošiljanje datoteke ni uspelo' => 'Sending the file failed',
-    'router ni dovolil načrtovane posodobitve iz skripte NOC (pravica reboot). Posodobi ročno: v terminalu /system package update install ali Winbox → System → Packages → Check For Updates.' => 'the router did not allow scheduling the upgrade from the NOC script (reboot permission). Upgrade manually: /system package update install in the terminal or Winbox → System → Packages → Check For Updates.',
     // 1.20 meritve hitrosti, grafi
     'btest na strežnik NOC' => 'btest to the NOC server',
     'prenos datoteke' => 'file download',
@@ -1539,4 +1538,7 @@ return [
     'Naslov iz polja Prehod ponudnika' => 'Address from the Provider gateway field',
     'Ne pingaj prehoda' => 'Do not ping the gateway',
     'Če prehod ponudnika ne odgovarja na ping, ga izklopi ali vpiši drug naslov.' => 'If the provider gateway does not answer pings, turn it off or enter another address.',
+    'router ni dovolil načrtovane posodobitve iz skripte NOC (manjka pravica reboot). Enkrat ročno prilepi namestitveni ukaz s strani Paket in posodobitev načrtuj znova – ali pa posodobi ročno (System → Packages → Check For Updates).' => 'the router did not allow the scheduled update from the NOC script (reboot permission missing). Paste the install command from the Package page once and schedule the update again – or update manually (System → Packages → Check For Updates).',
+    'Skripta NOC na routerju nima pravice za ponovni zagon, zato posodobitve ne more načrtovati. Enkrat ročno prilepi namestitveni ukaz – potem deluje.' => 'The NOC script on the router has no reboot permission, so it cannot schedule the update. Paste the install command once manually – then it works.',
+    'Namestitveni ukaz' => 'Install command',
 ];

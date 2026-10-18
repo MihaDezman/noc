@@ -195,6 +195,9 @@ $upd = $s['upd'] ?? [];
       <?php if ($isSuper): ?><div class="panel-body actions" style="border-top:1px solid var(--line-2)">
         <?php if ($upg && (in_array($upg['status'], ['approved', 'sent'], true) || ($upg['status'] === 'done' && !$upg['verified_at']))): ?>
           <span class="tag info"><?= icon('clock', 12) ?><?= h($upg['status'] === 'done' ? A('posodobitev na {v} načrtovana ob 03:30', ['v' => $upg['ip']]) : A('posodobitev čaka na router')) ?></span>
+        <?php elseif (($s['rbt'] ?? null) === 0): ?>
+          <span class="small" style="color:var(--warn)"><?= icon('alert', 14) ?> <?= h(A('Skripta NOC na routerju nima pravice za ponovni zagon, zato posodobitve ne more načrtovati. Enkrat ročno prilepi namestitveni ukaz – potem deluje.')) ?></span>
+          <a class="btn sm" href="/devices/<?= $id ?>/install"><?= icon('download', 14) ?><?= h(A('Namestitveni ukaz')) ?></a>
         <?php else: ?>
           <form method="post" action="/devices/<?= $id ?>/upgrade" data-confirm="<?= h(A('Router ob 03:30 namesti RouterOS {v} in se ponovno zažene (približno 2–5 minut brez interneta). Nadaljujem?', ['v' => $rosL])) ?>"><?= Auth::csrf() ?><button class="btn sm"><?= icon('clock', 14) ?><?= h(A('Posodobi ponoči ob 03:30')) ?></button></form>
           <?php if ($upg && $upg['status'] === 'failed'): ?><span class="small" style="color:var(--down)"><?= h(A('Zadnja načrtovana posodobitev ni uspela.')) ?></span><?php endif; ?>
