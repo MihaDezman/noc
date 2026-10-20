@@ -173,7 +173,7 @@ final class Ai
                 if ($um[1] === $attIp) { $r = Actions::create($d, 'block', $attIp, (int)$um[2], 'proposed', mb_substr($a['message'], 0, 250), 'ai', (int)$a['id']); if (is_int($r)) $prop = [$r, (int)$um[2]]; }
             }
             db()->prepare('UPDATE alerts SET ai_note=? WHERE id=?')->execute([$txt ?? '', $a['id']]);   // '' = poskus ni uspel, ne ponavljaj
-            if ($txt) self::tg('🤖 <b>' . htmlspecialchars($d['name']) . '</b> – ' . htmlspecialchars($a['message']) . "\n\n" . htmlspecialchars(mb_substr($txt, 0, 2500))
+            if ($txt && Notify::tgNow((string)$a['severity'])) self::tg('🤖 <b>' . htmlspecialchars($d['name']) . '</b> – ' . htmlspecialchars($a['message']) . "\n\n" . htmlspecialchars(mb_substr($txt, 0, 2500))
                 . ($prop ? "\n\n🚫 " . A('Predlog: blokiraj {ip} za {h} h', ['ip' => $attIp, 'h' => $prop[1]]) : ''), (int)$d['id'], array_merge($prop ? Actions::buttons($prop[0], $attIp) : [], self::fbButtons($logId)));
         }
         return $n ? "alarmi: $n" : '';

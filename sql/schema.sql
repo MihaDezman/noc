@@ -404,7 +404,9 @@ CREATE TABLE IF NOT EXISTS notify_queue (
   msg        VARCHAR(600) NOT NULL DEFAULT '',
   alert_id   INT UNSIGNED NULL,
   sent_at    DATETIME NULL,
-  KEY ix_pending (sent_at, id)
+  tg_digest  TINYINT(1) NOT NULL DEFAULT 0,
+  KEY ix_pending (sent_at, id),
+  KEY ix_digest (tg_digest, id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- AI pomočnik: vsak klic (poraba, dnevna omejitev, samonadzor)

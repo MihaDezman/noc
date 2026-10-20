@@ -5,6 +5,7 @@ declare(strict_types=1);
 require dirname(__DIR__) . '/src/bootstrap.php';
 $lock = fopen(sys_get_temp_dir() . '/noc-notify.lock', 'ce');
 if (!flock($lock, LOCK_EX | LOCK_NB)) exit;   // prejšnje pošiljanje še teče – vrsta počaka na naslednji krog
+try { $dg = Notify::digest(); if ($dg !== '') $sent[] = $dg; } catch (\Throwable $e) { error_log('noc digest: ' . $e->getMessage()); }
 // teče približno 45 s: pošlje, kar čaka, in pobere še obvestila, ki jih v tem času ustvari minutni krog (izpadi, ping)
 $sent = []; $end = time() + 45;
 do {

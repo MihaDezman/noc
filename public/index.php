@@ -866,6 +866,8 @@ if ($path === '/settings') {
             if (isset($_POST[$k]) && is_numeric($_POST[$k])) setting_set($k, (string)(float)$_POST[$k]);
         setting_set('notify_emails', implode(', ', array_filter(array_map('trim', preg_split('/[\s,;]+/', post('notify_emails'))), fn($e) => filter_var($e, FILTER_VALIDATE_EMAIL))));
         foreach (['notify_mail_min', 'notify_tg_min'] as $k) if (in_array(post($k), ['info', 'warning', 'critical', 'off'], true)) setting_set($k, post($k));
+        $dh = array_values(array_unique(array_filter(array_map('trim', explode(',', post('tg_digest_hours'))), fn($x) => ctype_digit($x) && (int)$x <= 23)));
+        setting_set('tg_digest_hours', implode(',', array_map('intval', $dh)));
         setting_set('notify_resolved', post('notify_resolved') ? '1' : '0');
         setting_set('mgmt_ips', implode(', ', array_filter(array_map('trim', preg_split('/[\s,;]+/', post('mgmt_ips'))), fn($x) => preg_match('#^\d{1,3}(\.\d{1,3}){3}(/\d{1,2})?$#', $x))));
         if (post('tg_token') !== '') setting_set('tg_token_enc', enc(post('tg_token')));

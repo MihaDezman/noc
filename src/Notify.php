@@ -32,6 +32,12 @@ final class Notify
         $lvl = fn($r) => Alerts::LEVEL[$r['sev']] ?? 1;
         $tg = array_values(array_filter($rows, fn($r) => $lvl($r) >= (Alerts::LEVEL[setting('notify_tg_min', 'warning')] ?? 2)));
         $ml = array_values(array_filter($rows, fn($r) => $lvl($r) >= (Alerts::LEVEL[setting('notify_mail_min', 'warning')] ?? 2)));
+        // ostalo (manj pomembno) počaka na povzetek ob izbranih urah, če je povzetek vklopljen
+        if (self::digestHours()) {
+            $tgIds = array_flip(array_map(fn($r) => (int)$r['id'], $tg));
+            $later = array_values(array_filter(array_map(fn($r) => (int)$r['id'], $rows), fn($i) => !isset($tgIds[$i])));
+            if ($later) $pdo->exec('UPDATE notify_queue SET tg_digest=1 WHERE id IN (' . implode(',', $later) . ')');
+        }
         $base = rtrim((string)cfg('base_url'), '/');
         $icon = fn($r) => (int)$r['resolved'] ? '✅' : (self::EMOJI[$r['sev']] ?? '');
         $url = fn($r) => $base . '/devices/' . (int)$r['device_id'];
@@ -73,6 +79,61 @@ final class Notify
             }
         }
         return count($rows) . ' (tg ' . count($tg) . ', mail ' . count($ml) . ')';
+    }
+
+    /** Ure povzetka na Telegram (npr. "8,16" -> [8, 16]); prazno = povzetek izklopljen */
+    public static function digestHours(): array
+    {
+        $h = array_map('intval', array_filter(array_map('trim', explode(',', setting('tg_digest_hours', ''))), fn($x) => $x !== '' && ctype_digit($x)));
+        return array_values(array_unique(array_filter($h, fn($x) => $x >= 0 && $x <= 23)));
+    }
+
+    /** Ali gre alarm te resnosti na Telegram takoj (ostalo v povzetek) */
+    public static function tgNow(string $sev): bool
+    {
+        return (Alerts::LEVEL[$sev] ?? 1) >= (Alerts::LEVEL[setting('notify_tg_min', 'warning')] ?? 2);
+    }
+
+    /**
+     * Povzetek manj pomembnih obvestil (opozorila, info) – enkrat ob vsaki izbrani uri. Opozorila po napravah,
+     * pogosti dogodki (skeniranja portov ipd.) samo kot število. Kliče cron/minute.php.
+     */
+    public static function digest(bool $force = false): string
+    {
+        $hours = self::digestHours();
+        if (!$force && (!$hours || !in_array((int)date('G'), $hours, true) || setting('tg_digest_last') === date('Y-m-d H'))) return '';
+        setting_set('tg_digest_last', date('Y-m-d H'));
+        $pdo = db();
+        $rows = $pdo->query('SELECT q.*, a.akey, a.ended_at FROM notify_queue q LEFT JOIN alerts a ON a.id=q.alert_id WHERE q.tg_digest=1 ORDER BY q.id LIMIT 2000')->fetchAll();
+        if (!$rows) return '';
+        $pdo->exec('UPDATE notify_queue SET tg_digest=2 WHERE id IN (' . implode(',', array_map(fn($r) => (int)$r['id'], $rows)) . ')');
+        // pogosti dogodki: samo število po vrsti
+        $kinds = ['fwscan' => A('skeniranja portov z interneta'), 'attack' => A('poskusi prijave na router'), 'geo' => A('nove države pametnih naprav'), 'config' => A('spremembe konfiguracije')];
+        $counts = []; $byDev = [];
+        foreach ($rows as $r) {
+            if ((int)$r['resolved']) continue;   // razrešitev je vidna pri samem alarmu (✅)
+            $k = strtok((string)($r['akey'] ?? ''), ':') ?: '';
+            if (isset($kinds[$k]) || $r['sev'] === 'info') { $label = $kinds[$k] ?? A('drugi dogodki'); $counts[$label][(int)$r['device_id']] = ($counts[$label][(int)$r['device_id']] ?? 0) + 1; continue; }
+            $key = (int)$r['device_id'] . '|' . ($r['alert_id'] ?: $r['msg']);
+            $byDev[(int)$r['device_id']]['name'] = $r['dname'];
+            $byDev[(int)$r['device_id']]['items'][$key] = [$r['msg'], $r['alert_id'] && $r['ended_at'] !== null];
+        }
+        if (!$byDev && !$counts) return '';
+        $base = rtrim((string)cfg('base_url'), '/');
+        $txt = '📋 <b>' . A('Povzetek NOC') . '</b> · ' . date('H:i');
+        foreach ($byDev as $id => $dv) {
+            $line = "\n\n<b>" . htmlspecialchars((string)$dv['name']) . '</b>';
+            foreach (array_slice($dv['items'], 0, 6) as [$m, $ok]) $line .= "\n" . ($ok ? '✅ ' : '🟠 ') . htmlspecialchars(mb_substr($m, 0, 160));
+            if (count($dv['items']) > 6) $line .= "\n" . A('… in še {n}', ['n' => count($dv['items']) - 6]);
+            if (mb_strlen($txt . $line) > 3300) { $txt .= "\n\n" . A('… več v NOC'); break; }
+            $txt .= $line;
+        }
+        if ($counts) {
+            $txt .= "\n\n<i>" . A('Pogosti dogodki') . '</i>';
+            foreach ($counts as $label => $per) $txt .= "\n• " . htmlspecialchars($label) . ': ' . array_sum($per) . ' (' . A('naprav: {n}', ['n' => count($per)]) . ')';
+        }
+        self::telegram($txt . "\n\n<a href=\"$base/alerts\">" . A('Vsi alarmi v NOC') . '</a>');
+        return 'povzetek: ' . count($rows);
     }
 
     /** Zunanji IP napadalca iz ključa alarma (attack:IP, fwscan:IP) ali null */

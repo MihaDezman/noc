@@ -103,7 +103,10 @@ $num = function (string $k, string $label, string $unit, string $hint = '') {
       <label class="f"><?= h(A('Chat ID')) ?><input type="text" name="tg_chat_id" value="<?= h(setting('tg_chat_id')) ?>" class="mono">
         <small><?= h(A('Botu pošlji sporočilo, shrani token, nato klikni "Poišči chat ID".')) ?></small></label>
       <?php if ($chats): ?><div class="note"><?= icon('info', 18) ?><div><?php foreach ($chats as $cid => $cn): ?><div><code><?= h($cid) ?></code> – <?= h($cn) ?> <button type="button" class="btn sm ghost" data-fill="tg_chat_id" data-value="<?= h($cid) ?>"><?= h(A('Uporabi')) ?></button></div><?php endforeach; ?></div></div><?php endif; ?>
-      <label class="f"><?= h(A('Pošlji')) ?><select name="notify_tg_min"><?php foreach ($lv as $k => $l): ?><option value="<?= $k ?>" <?= setting('notify_tg_min', 'warning') === $k ? 'selected' : '' ?>><?= h($l) ?></option><?php endforeach; ?></select></label>
+      <div class="row">
+        <label class="f"><?= h(A('Takoj pošlji')) ?><select name="notify_tg_min"><?php foreach ($lv as $k => $l): ?><option value="<?= $k ?>" <?= setting('notify_tg_min', 'warning') === $k ? 'selected' : '' ?>><?= h($l) ?></option><?php endforeach; ?></select></label>
+        <label class="f"><?= h(A('Ostalo v povzetku ob')) ?><input type="text" name="tg_digest_hours" value="<?= h(setting('tg_digest_hours', '')) ?>" class="mono" placeholder="8,16"><small><?= h(A('Ure, ločene z vejico. Prazno = brez povzetka.')) ?></small></label>
+      </div>
       <?php if ($tgSet): ?><label class="check"><input type="checkbox" name="tg_token_clear" value="1"> <?= h(A('Odstrani token')) ?></label><?php endif; ?>
       <div class="note" style="margin-top:4px"><?= icon('send', 18) ?><div>
         <b><?= h(A('Ukazi v Telegramu')) ?></b> <?= setting('tg_webhook') === '1' ? '<span class="tag up">' . h(A('vklopljeni')) . '</span>' : '<span class="tag">' . h(A('izklopljeni')) . '</span>' ?>
