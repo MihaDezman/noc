@@ -739,6 +739,19 @@ if ($path === '/reports/ai' && $method === 'POST') {   // AI odstavek za naročn
 }
 
 // ---------------------------------------------------------------- posodobitve
+if ($path === '/updates/upgrade-all' && $method === 'POST') {   // načrtovana posodobitev RouterOS za vse, ki jo lahko dobijo
+    Auth::requireSuper();
+    $n = 0; $by = (string)(Auth::$user['email'] ?? 'splet');
+    foreach (Devices::all() as $d) {
+        if (!(int)($d['active'] ?? 1)) continue;
+        [$st, $v] = Actions::upgradeState($d);
+        if ($st !== 'ok') continue;
+        $full = Devices::full((int)$d['id']); if (!$full) continue;
+        if (is_int(Actions::create($full, 'upgrade', $v, 1, 'approved', A('skupna posodobitev v NOC'), 'splet', null, $by))) $n++;
+    }
+    audit('upgrade.all', "naprav: $n");
+    back('/updates', $n ? A('Posodobitev načrtovana na napravah: {n}. Ob naslednjem pushu jo prevzamejo, namestijo ob 03:30.', ['n' => $n]) : A('Ni naprav, ki bi jih bilo mogoče posodobiti.'), $n ? 'ok' : 'err');
+}
 if ($path === '/updates') {
     Auth::requireSuper();
     view('updates', ['devs' => Devices::all(), 'title' => A('Posodobitve'), 'nav' => 'updates']);

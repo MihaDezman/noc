@@ -1551,4 +1551,13 @@ return [
     'spremembe konfiguracije' => 'configuration changes',
     'drugi dogodki' => 'other events',
     '… več v NOC' => '… more in NOC',
+    'skupna posodobitev v NOC' => 'bulk update in NOC',
+    'Posodobitev načrtovana na napravah: {n}. Ob naslednjem pushu jo prevzamejo, namestijo ob 03:30.' => 'Update scheduled on devices: {n}. They pick it up with the next push and install at 03:30.',
+    'Ni naprav, ki bi jih bilo mogoče posodobiti.' => 'No devices can be updated.',
+    'Naprave ({n}) ob 03:30 namestijo novo verzijo RouterOS in se ponovno zaženejo (2–5 minut brez interneta). Nadaljujem?' => 'Devices ({n}) will install the new RouterOS at 03:30 and reboot (2–5 minutes without internet). Continue?',
+    'Posodobi vse ponoči ob 03:30 ({n})' => 'Update all tonight at 03:30 ({n})',
+    'pripravljen' => 'ready',
+    'načrtovano ob 03:30' => 'scheduled at 03:30',
+    'najprej ročna namestitev (pravica reboot)' => 'manual install first (reboot permission)',
+    'ni na zvezi' => 'offline',
 ];

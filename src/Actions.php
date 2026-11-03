@@ -152,6 +152,23 @@ final class Actions
         }
     }
 
+    /**
+     * Ali napravi lahko načrtujemo posodobitev RouterOS: ['ok'|'pending'|'norbt'|'offline'|'current', verzija].
+     * Verzija je zadnja na kanalu routerja (podatek z routerja ob nočnem backupu).
+     */
+    public static function upgradeState(array $d): array
+    {
+        $u = $d['status']['upd'] ?? [];
+        $latest = (string)($u['latest'] ?? ''); $inst = (string)($u['inst'] ?? '');
+        if ($latest === '' || $inst === '' || !version_compare($latest, $inst, '>')) return ['current', $latest];
+        $st = db()->prepare("SELECT 1 FROM noc_actions WHERE device_id=? AND kind='upgrade' AND (status IN ('approved','sent') OR (status='done' AND verified_at IS NULL AND done_at > NOW() - INTERVAL 26 HOUR)) LIMIT 1");
+        $st->execute([$d['id']]);
+        if ($st->fetchColumn()) return ['pending', $latest];
+        if (($d['status']['rbt'] ?? null) !== 1) return ['norbt', $latest];   // skripta brez pravice reboot (enkrat ročna namestitev)
+        if (!$d['last_seen_at'] || strtotime((string)$d['last_seen_at']) < time() - 600) return ['offline', $latest];
+        return ['ok', $latest];
+    }
+
     /** Gumbi za predlog v Telegramu */
     public static function buttons(int $id, string $ip = ''): array
     {
