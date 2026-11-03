@@ -160,7 +160,9 @@ final class MikrotikScript
 :global nocTick
 :global nocLastLog
 :global nocUpd
+:global nocFail
 {$tlsGlobal}:if ([:typeof \$nocTick] != "num") do={ :set nocTick 0 }
+:if ([:typeof \$nocFail] != "num") do={ :set nocFail 0 }
 :if ([:typeof \$nocLastLog] != "num") do={ :set nocLastLog 0 }
 :if ([:typeof \$nocUpd] != "array") do={ :set nocUpd [:toarray ""] }
 :set nocTick (\$nocTick + 1)
@@ -330,6 +332,8 @@ final class MikrotikScript
     {$fetch}
     :if ((\$out->"status") = "finished") do={
         :set nocLastLog \$maxid
+        :if (\$nocFail >= 3) do={ :log info ("noc: push spet deluje (neuspelih zapored: " . \$nocFail . ")") }
+        :set nocFail 0
         # NOC sporoči, da je na voljo nova skripta: posodobitev v ozadju (ta skripta se medtem zamenja)
         :if ([:typeof [:find [:tostr (\$out->"data")] "\"upd\":1"]] = "num") do={
             :log info "noc: na voljo nova skripta - samodejna posodobitev"
@@ -341,7 +345,11 @@ final class MikrotikScript
             }
         }
     }
-} do={ :log warning ("noc: push ni uspel - " . \$e) }
+} do={
+    # kratki izpadi (npr. nočni backup strežnika) ne polnijo loga: zapis šele po 3 zaporednih neuspehih, nato na vsako uro
+    :set nocFail (\$nocFail + 1)
+    :if (\$nocFail = 3 || (\$nocFail > 3 && (\$nocFail % 60) = 0)) do={ :log warning ("noc: push ni uspel " . \$nocFail . "x zapored - " . \$e) }
+}
 ROS;
     }
 
