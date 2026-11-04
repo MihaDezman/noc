@@ -190,6 +190,7 @@ final class Ingest
             foreach ($logs as $l) {
                 if (!is_array($l)) continue;
                 $tp = str_replace(';', ',', mb_substr((string)($l['tp'] ?? ''), 0, 120));
+                if (self::noise((string)($l['m'] ?? ''))) continue;
                 $lines[] = [self::logTime((string)($l['t'] ?? ''), $now), $tp, mb_substr((string)($l['m'] ?? ''), 0, 1000)];
             }
             // obstoječe vrstice z istimi časi preberemo naenkrat (prej ena poizvedba na vrstico)
@@ -252,6 +253,15 @@ final class Ingest
         if ($sfpRows) $safe('sfp', fn() => Alerts::sfp($d, array_filter($sfpRows)));
 
         return ['ok' => true, 'tick' => (int)($b['tick'] ?? 0)];
+    }
+
+    /**
+     * Vrstice loga, ki jih ne shranjujemo (šum): WireGuard ponovni poskusi handshakea, ko odjemalec zamenja omrežje
+     * ali zaspi. Vrstica "... giving up" ostane – pove, kdo in kdaj ni bil dosegljiv.
+     */
+    public static function noise(string $m): bool
+    {
+        return (bool)preg_match('/Handshake for peer did not complete after \d+ seconds, retrying/', $m);
     }
 
     /** Več vrstic v enem INSERT (po $chunk naenkrat) */

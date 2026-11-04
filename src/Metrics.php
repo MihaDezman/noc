@@ -118,6 +118,10 @@ final class Metrics
         self::purge('iface_daily', 'day < CURDATE() - INTERVAL 400 DAY');
         self::purge('host_daily', 'day < CURDATE() - INTERVAL 400 DAY');
         self::purge('logs', 'ts < NOW() - INTERVAL 90 DAY');
+        if (setting('logclean_wg') !== '1') {   // enkratno: že shranjen šum WireGuard (glej Ingest::noise)
+            self::purge('logs', "message LIKE '%Handshake for peer did not complete after % seconds, retrying%'");
+            setting_set('logclean_wg', '1');
+        }
         self::purge('sfp_5m', 'ts < NOW() - INTERVAL 35 DAY');
         self::purge('iface_events', 'ts < NOW() - INTERVAL 365 DAY');
         self::purge('fw_5m', 'ts < NOW() - INTERVAL 7 DAY');
