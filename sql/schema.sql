@@ -594,6 +594,7 @@ CREATE TABLE IF NOT EXISTS host_geo (    -- s katerimi državami komunicira posa
   first_seen DATE NOT NULL,
   last_seen  DATE NOT NULL,
   bytes      BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  peers      VARCHAR(400) NOT NULL DEFAULT '',
   PRIMARY KEY (device_id, ip, cc),
   KEY ix_first (first_seen),
   FOREIGN KEY (device_id) REFERENCES devices(id) ON DELETE CASCADE

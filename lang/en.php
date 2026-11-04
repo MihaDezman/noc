@@ -1560,4 +1560,5 @@ return [
     'načrtovano ob 03:30' => 'scheduled at 03:30',
     'najprej ročna namestitev (pravica reboot)' => 'manual install first (reboot permission)',
     'ni na zvezi' => 'offline',
+    'naslovi' => 'addresses',
 ];

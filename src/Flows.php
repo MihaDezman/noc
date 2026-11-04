@@ -31,7 +31,8 @@ final class Flows
             $last = $base; $done++;
             setting_set('flow_last', $last);   // po vsaki datoteki
         }
-        foreach ($files as $f) if (filemtime($f) < time() - 2 * 86400) @unlink($f);   // surove tokove hranimo 2 dni
+        $keep = max(6, (int)cfg('flow_keep_hours', 48)) * 3600;   // surove tokove hranimo privzeto 2 dni (config: flow_keep_hours)
+        foreach ($files as $f) if (filemtime($f) < time() - $keep) @unlink($f);
         if ($done) {
             self::hostAlerts($devs);
             try {   // profili naprav, nenavaden promet, nove države
@@ -53,6 +54,7 @@ final class Flows
         $netCache = []; $blCache = []; $thrCache = [];
         $geo = [];   // [device_id][cc][asn] = [up, down]
         $hg = [];    // [device_id][ip LAN][cc] = bajti
+        $hgp = [];   // [device_id][ip LAN][cc][zunanji ip(:port)] = bajti – za prikaz pri opozorilu "nova država"
         $thr = [];   // [device_id][ip LAN][zunanji ip:port] = vir (zlonamerni strežniki)
         $geoOn = Geo::ready();
         while (($line = fgets($h)) !== false) {
@@ -66,7 +68,7 @@ final class Flows
             if (!$inD && $xda !== '0.0.0.0' && $xda !== '') { $inD = $netCache[$id][$xda] ??= self::inNets($xda, $d['_nets']); if ($inD) $da = $xda; }
             if ($inS && !$inD) {
                 $agg[$id][$sa][0] = ($agg[$id][$sa][0] ?? 0) + (int)$byt;
-                if ($geoOn) { $cc = Geo::cc($da); $as = Geo::asn($da)[0]; $geo[$id][$cc][$as][0] = ($geo[$id][$cc][$as][0] ?? 0) + (int)$byt; if ($cc !== '') $hg[$id][$sa][$cc] = ($hg[$id][$sa][$cc] ?? 0) + (int)$byt; }
+                if ($geoOn) { $cc = Geo::cc($da); $as = Geo::asn($da)[0]; $geo[$id][$cc][$as][0] = ($geo[$id][$cc][$as][0] ?? 0) + (int)$byt; if ($cc !== '') { $hg[$id][$sa][$cc] = ($hg[$id][$sa][$cc] ?? 0) + (int)$byt; $pk = $da . ((int)($p[7] ?? 0) ? ':' . (int)$p[7] : ''); $hgp[$id][$sa][$cc][$pk] = ($hgp[$id][$sa][$cc][$pk] ?? 0) + (int)$byt; } }
                 $t = $thrCache[$da] ??= (Threat::check($da) ?? '');
                 if ($t !== '' && ($t !== 'Spamhaus DROP' || empty($d['fwlog_enabled']))) { $dp0 = (int)($p[7] ?? 0); $thr[$id][$sa][$da . ($dp0 ? ":$dp0" : '')] = $t; }
                 if (!empty($d['fwlog_enabled'])) {
@@ -82,7 +84,7 @@ final class Flows
             }
             elseif ($inD && !$inS) {
                 $agg[$id][$da][1] = ($agg[$id][$da][1] ?? 0) + (int)$byt;
-                if ($geoOn) { $cc = Geo::cc($sa); $as = Geo::asn($sa)[0]; $geo[$id][$cc][$as][1] = ($geo[$id][$cc][$as][1] ?? 0) + (int)$byt; if ($cc !== '') $hg[$id][$da][$cc] = ($hg[$id][$da][$cc] ?? 0) + (int)$byt; }
+                if ($geoOn) { $cc = Geo::cc($sa); $as = Geo::asn($sa)[0]; $geo[$id][$cc][$as][1] = ($geo[$id][$cc][$as][1] ?? 0) + (int)$byt; if ($cc !== '') { $hg[$id][$da][$cc] = ($hg[$id][$da][$cc] ?? 0) + (int)$byt; $hgp[$id][$da][$cc][$sa] = ($hgp[$id][$da][$cc][$sa] ?? 0) + (int)$byt; } }
             }
         }
         if (($rc = pclose($h)) !== 0) error_log("noc flows: nfdump $f vrnil $rc");
@@ -96,6 +98,19 @@ final class Flows
         foreach ($geo as $id => $ccs) foreach ($ccs as $cc => $asns) foreach ($asns as $as => $v) $gi->execute([$id, $day, $cc, $as, $v[0] ?? 0, $v[1] ?? 0]);
         $hi = db()->prepare('INSERT INTO host_geo (device_id, ip, cc, first_seen, last_seen, bytes) VALUES (?,?,?,?,?,?) ON DUPLICATE KEY UPDATE last_seen=GREATEST(last_seen, VALUES(last_seen)), bytes=bytes+VALUES(bytes)');
         foreach ($hg as $id => $hosts) foreach ($hosts as $ip => $ccs) foreach ($ccs as $cc => $b) $hi->execute([$id, $ip, $cc, $day, $day, $b]);
+        // zunanji naslovi (do 5, po prenosu) samo za nove kombinacije naprava–država: iz njih nastane opozorilo "prvič komunicira z državo"
+        $sel = db()->prepare('SELECT ip, cc, peers FROM host_geo WHERE device_id=? AND first_seen >= CURDATE() - INTERVAL 1 DAY');
+        $upd = db()->prepare('UPDATE host_geo SET peers=? WHERE device_id=? AND ip=? AND cc=?');
+        foreach ($hgp as $id => $hosts) {
+            $sel->execute([$id]);
+            foreach ($sel->fetchAll() as $r) {
+                $new = $hosts[$r['ip']][$r['cc']] ?? null; if (!$new) continue;
+                $all = json_decode((string)$r['peers'], true) ?: [];
+                foreach ($new as $k => $b) $all[$k] = ($all[$k] ?? 0) + $b;
+                arsort($all); $all = array_slice($all, 0, 5, true);
+                $upd->execute([json_encode($all), $id, $r['ip'], $r['cc']]);
+            }
+        }
         // stik z zlonamernim strežnikom (botnet C2 ipd.) – en dogodek na napravo in strežnik na dan
         foreach ($thr as $id => $hosts) {
             $d = Devices::decorate($devById[$id]);

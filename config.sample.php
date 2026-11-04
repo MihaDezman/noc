@@ -17,6 +17,7 @@ return [
     'flow_port' => 2055,
     'flow_dir'  => '/var/lib/noc/nfcapd',     // kamor piše nfcapd
     'nfdump'    => '/usr/bin/nfdump',
+    'flow_keep_hours' => 48,                 // koliko ur hranimo surove tokove (za iskanje ciljnih naslovov z nfdump)
     'data_dir'  => '/var/lib/noc',             // zadnji surovi push vsake naprave (diagnostika)
     'ufw_list'  => '/var/lib/noc/flow-ips.txt', // seznam IP-jev routerjev za ufw (bin/ufw-sync.sh)
     // Varnostna analiza: routerji pošiljajo zapise požarnega zidu (syslog UDP) -> rsyslog (bin/fwlog-setup.sh) -> datoteka

@@ -115,7 +115,10 @@ final class Profile
                              AND NOT EXISTS (SELECT 1 FROM alerts a WHERE a.device_id=g.device_id AND a.akey=CONCAT('geo:', g.ip, ':', g.cc))")->fetchAll();
         foreach ($rows as $r) {
             $d = $devById[(int)$r['device_id']] ?? null; if (!$d) continue;
-            Alerts::event(Devices::decorate($d), 'geo:' . $r['ip'] . ':' . $r['cc'], 'warning', A('{w} prvič komunicira z državo {c} ({b})', ['w' => self::who((int)$r['device_id'], $r['ip']), 'c' => Geo::flag($r['cc']) . ' ' . Geo::name($r['cc']), 'b' => fmt_bytes($r['bytes'])]));
+            $msg = A('{w} prvič komunicira z državo {c} ({b})', ['w' => self::who((int)$r['device_id'], $r['ip']), 'c' => Geo::flag($r['cc']) . ' ' . Geo::name($r['cc']), 'b' => fmt_bytes($r['bytes'])]);
+            $peers = json_decode((string)($r['peers'] ?? ''), true) ?: [];   // največji zunanji naslovi (ip:port) s prenosom
+            if ($peers) $msg .= ' – ' . A('naslovi') . ': ' . implode(', ', array_map(fn($k, $b) => $k . ' (' . fmt_bytes($b) . ')', array_keys(array_slice($peers, 0, 3, true)), array_slice($peers, 0, 3, true)));
+            Alerts::event(Devices::decorate($d), 'geo:' . $r['ip'] . ':' . $r['cc'], 'warning', mb_substr($msg, 0, 480));
         }
     }
 }
