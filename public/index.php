@@ -388,6 +388,12 @@ if (($seg[0] ?? '') === 'devices' && ctype_digit($seg[1] ?? '')) {
         $r = $v !== '' ? Actions::create($d, 'upgrade', $v, 1, 'approved', A('ročno v NOC'), 'splet', null, (string)(Auth::$user['email'] ?? 'splet')) : A('zadnja verzija ni znana');
         back("/devices/$id#ros", is_int($r) ? A('Posodobitev na {v} poslana routerju – ob 03:30 jo namesti. O izidu dobiš obvestilo.', ['v' => $v]) : A('Ni mogoče: {r}', ['r' => $r]), is_int($r) ? 'ok' : 'err');
     }
+    if ($sub === 'ntp' && $method === 'POST') {   // vklop NTP odjemalca (prek pusha)
+        Auth::requireSuper();
+        $r = Actions::create($d, 'ntp', 'on', 1, 'approved', A('vklop NTP'), 'splet', null, (string)(Auth::$user['email'] ?? 'splet'));
+        audit('device.ntp', $d['name']);
+        back("/devices/$id#ntp", is_int($r) ? A('Vklop NTP poslan routerju – izvede ga ob naslednjem pushu (v minuti).') : A('Ni mogoče: {r}', ['r' => $r]), is_int($r) ? 'ok' : 'err');
+    }
     if ($sub === 'hostkind' && $method === 'POST') {   // ročno določena vrsta naprave v LAN
         $k = post('kind');
         if (array_key_exists($k, Profile::kinds())) db()->prepare('UPDATE lan_hosts SET kind=?, kind_manual=? WHERE device_id=? AND mac=?')->execute([$k, $k === '' ? 0 : 1, $id, post('mac')]);
@@ -751,6 +757,16 @@ if ($path === '/updates/upgrade-all' && $method === 'POST') {   // načrtovana p
     }
     audit('upgrade.all', "naprav: $n");
     back('/updates', $n ? A('Posodobitev načrtovana na napravah: {n}. Ob naslednjem pushu jo prevzamejo, namestijo ob 03:30.', ['n' => $n]) : A('Ni naprav, ki bi jih bilo mogoče posodobiti.'), $n ? 'ok' : 'err');
+}
+if ($path === '/updates/ntp-all' && $method === 'POST') {   // vklop NTP na vseh napravah, kjer je izklopljen
+    Auth::requireSuper();
+    $n = 0; $by = (string)(Auth::$user['email'] ?? 'splet');
+    foreach (Devices::all() as $d) {
+        if (!(int)($d['active'] ?? 1) || Actions::ntpState($d) !== 'off') continue;
+        if (is_int(Actions::create($d, 'ntp', 'on', 1, 'approved', A('vklop NTP na vseh'), 'splet', null, $by))) $n++;
+    }
+    audit('ntp.all', "naprav: $n");
+    back('/updates', $n ? A('Vklop NTP poslan napravam: {n}. Izvedejo ga ob naslednjem pushu.', ['n' => $n]) : A('Ni naprav z izklopljenim NTP.'), $n ? 'ok' : 'err');
 }
 if ($path === '/updates') {
     Auth::requireSuper();

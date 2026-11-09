@@ -87,8 +87,8 @@ final class Actions
         foreach ($rows as $r) {
             if ($r['kind'] === 'upgrade') { $s .= Ros::upgradeRsc((int)$r['id'], $base, $key, $chk); continue; }
             if ($r['kind'] === 'speed') { $s .= Speed::rsc($d, (int)$r['id'], (string)$r['ip'], $base, $key, $chk); continue; }
-            if (in_array($r['kind'], ['term', 'wgsrv', 'wgdel'], true)) {   // nastavitve: terminal NOC, WireGuard strežnik
-                $s .= ($r['kind'] === 'term' ? Term::rsc($d) : WgServer::rsc($d, $r))
+            if (in_array($r['kind'], ['term', 'wgsrv', 'wgdel', 'ntp'], true)) {   // nastavitve: terminal NOC, WireGuard strežnik, NTP
+                $s .= ($r['kind'] === 'term' ? Term::rsc($d) : ($r['kind'] === 'ntp' ? self::ntpRsc() : WgServer::rsc($d, $r)))
                     . ":do { /tool fetch url=\"$base/api/action-done/{$r['id']}\"$chk http-header-field=\"X-Api-Key: $key\" output=none } on-error={}\n";
                 continue;
             }
@@ -116,7 +116,7 @@ final class Actions
         $st = db()->prepare("UPDATE noc_actions SET status=?, done_at=NOW() WHERE id=? AND device_id=? AND status='sent'"); $st->execute([$fail ? 'failed' : 'done', $id, $d['id']]);
         if (!$st->rowCount()) return;
         $q = db()->prepare('SELECT kind, ip, hours, data FROM noc_actions WHERE id=?'); $q->execute([$id]); $a = $q->fetch();
-        if ($a && $a['kind'] === 'term') return;   // stanje se pokaže pri napravi (uporabnik noc-term iz pusha)
+        if ($a && in_array($a['kind'], ['term', 'ntp'], true)) return;   // stanje se pokaže pri napravi (iz pusha)
         if ($a && in_array($a['kind'], ['wgsrv', 'wgdel'], true)) {
             if ($fail) return;
             $p = json_decode((string)$a['data'], true) ?: [];
@@ -167,6 +167,33 @@ final class Actions
         if (($d['status']['rbt'] ?? null) !== 1) return ['norbt', $latest];   // skripta brez pravice reboot (enkrat ročna namestitev)
         if (!$d['last_seen_at'] || strtotime((string)$d['last_seen_at']) < time() - 600) return ['offline', $latest];
         return ['ok', $latest];
+    }
+
+    /**
+     * Stanje NTP odjemalca iz pusha: 'ok' | 'off' (izklopljen ali brez strežnikov) | 'nosync' (vklopljen, a ni
+     * sinhroniziran) | 'pending' (vklop čaka na router) | 'unknown' (skripta tega še ne javlja).
+     */
+    public static function ntpState(array $d): string
+    {
+        $s = $d['status'] ?? (json_decode((string)($d['status_json'] ?? ''), true) ?: []);
+        // čaka na router ali izveden po zadnjem pushu (novo stanje pride z naslednjim)
+        $st = db()->prepare("SELECT 1 FROM noc_actions WHERE device_id=? AND kind='ntp' AND (status IN ('approved','sent') OR (status='done' AND done_at > ?)) LIMIT 1");
+        $st->execute([$d['id'], date('Y-m-d H:i:s', strtotime((string)($s['at'] ?? '')) ?: 0)]);
+        if ($st->fetchColumn()) return 'pending';
+        $n = $s['ntp'] ?? null;
+        if (!is_array($n)) return 'unknown';
+        if (empty($n['e']) || (int)($n['n'] ?? 0) === 0) return 'off';
+        // starejši RouterOS stanja ne javlja – vklopljen s strežniki štejemo za v redu
+        if (in_array((string)($n['s'] ?? ''), ['', 'synchronized'], true)) return 'ok';
+        return (int)($n['since'] ?? 0) < time() - 1800 ? 'nosync' : 'ok';   // nesinhronizirana več kot 30 min
+    }
+
+    /** Vklop NTP odjemalca; obstoječih strežnikov ne spreminja (samo če jih ni, doda dva javna) */
+    private static function ntpRsc(): string
+    {
+        return "/system ntp client set enabled=yes\n"
+            . ":do { :if ([:len [/system ntp client servers find]] = 0) do={ /system ntp client servers add address=si.pool.ntp.org; /system ntp client servers add address=europe.pool.ntp.org } } on-error={ :do { :if ([:len [/system ntp client get servers]] = 0) do={ /system ntp client set servers=si.pool.ntp.org,europe.pool.ntp.org } } on-error={} }\n"
+            . ":log info \"noc: NTP odjemalec vklopljen\"\n";
     }
 
     /** Gumbi za predlog v Telegramu */

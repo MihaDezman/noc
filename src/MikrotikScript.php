@@ -311,9 +311,19 @@ final class MikrotikScript
     }
 }
 
+# --- tocen cas (NTP odjemalec): vklopljen, stanje, stevilo streznikov
+:local ntp [:toarray ""]
+:do {
+    :local nn 0
+    :do { :set nn [:len [/system ntp client servers find]] } on-error={ :do { :set nn [:len [/system ntp client get servers]] } on-error={} }
+    :local ns ""
+    :do { :set ns [:tostr [/system ntp client get status]] } on-error={}
+    :set ntp {"e"=[/system ntp client get enabled];"s"=\$ns;"n"=\$nn}
+} on-error={}
+
 :local rbt 0
 :do { :if ([:tostr [/system script get [find name="noc-push"] policy]] ~ "reboot") do={ :set rbt 1 } } on-error={}
-:local data {"v"=1;"rbt"=\$rbt;"sv"=\$scriptVer;"tick"=\$nocTick;"ident"=\$ident;"res"=\$res;"rb"=\$rb;"health"=\$hl;"ifs"=\$ifs;"rates"=\$rates;"ping"=\$ping;"conns"=\$conns;"nLeases"=\$nLeases;"leases"=\$leases;"pools"=\$pools;"flt"=\$flt;"sfp"=\$sfp;"wg"=\$wg;"wgx"=\$wgErr;"wgi"=\$wgi;"usr"=\$usr;"logs"=\$logs;"upd"=\$nocUpd{$tlsData}}
+:local data {"v"=1;"rbt"=\$rbt;"sv"=\$scriptVer;"tick"=\$nocTick;"ident"=\$ident;"res"=\$res;"rb"=\$rb;"health"=\$hl;"ifs"=\$ifs;"rates"=\$rates;"ping"=\$ping;"conns"=\$conns;"nLeases"=\$nLeases;"leases"=\$leases;"pools"=\$pools;"flt"=\$flt;"sfp"=\$sfp;"wg"=\$wg;"wgx"=\$wgErr;"wgi"=\$wgi;"usr"=\$usr;"ntp"=\$ntp;"logs"=\$logs;"upd"=\$nocUpd{$tlsData}}
 :local body [:serialize to=json value=\$data]
 # varovalka: fetch ima omejitev velikosti - prevelik push (npr. ogromne vrstice loga) pošlji brez logov
 :if ([:len \$body] > 48000) do={

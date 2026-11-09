@@ -4,7 +4,7 @@ declare(strict_types=1);
 /**
  * Varnostna ocena routerja (0–100) z razlogi in potjo do popravka.
  * Sestavljena iz: požarni zid in storitve (Firewall::audit), posodobitve RouterOS (varnostni popravki),
- * backup, privzeti uporabnik admin, neaktivni VPN uporabniki, odprte AI ugotovitve, stik z zlonamernimi strežniki, preverjanje certifikata.
+ * backup, privzeti uporabnik admin, neaktivni VPN uporabniki, odprte AI ugotovitve, stik z zlonamernimi strežniki, preverjanje certifikata, NTP.
  */
 final class Score
 {
@@ -51,6 +51,11 @@ final class Score
         if ($n = (int)$st->fetchColumn()) $add('critical', A('Naprave v LAN-u so v zadnjih 7 dneh {n}× komunicirale z zlonamernimi strežniki', ['n' => $n]), "/devices/$id?tab=alerts", 15);
         // 8. preverjanje certifikata NOC
         if (!(int)($d['tls_check'] ?? 0)) $add('info', A('Router ne preverja certifikata NOC'), "/devices/$id?tab=protect#tls", 2);
+
+        // 9. točen čas (NTP)
+        $ntp = Actions::ntpState($d);
+        if ($ntp === 'off') $add('warning', A('NTP odjemalec ni vklopljen – po izpadu elektrike router teče z napačno uro (logi, scheduler, certifikati)'), "/devices/$id#ntp", 4);
+        elseif ($ntp === 'nosync') $add('info', A('NTP je vklopljen, a ura ni sinhronizirana'), "/devices/$id#ntp", 2);
 
         usort($items, fn($a, $b) => $b[3] <=> $a[3]);
         return ['score' => (int)max(0, min(100, round($score))), 'items' => $items];

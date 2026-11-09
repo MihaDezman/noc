@@ -221,6 +221,7 @@ final class Ingest
             'wg' => (array)($b['wg'] ?? []), 'wgi' => (array)($b['wgi'] ?? []), 'usr' => array_key_exists('usr', $b) ? (array)$b['usr'] : ($oldStatus['usr'] ?? null), 'upd' => self::updState((array)($b['upd'] ?? []), (array)($oldStatus['upd'] ?? []), (string)($res['ver'] ?? '')), 'rbt' => isset($b['rbt']) ? (int)$b['rbt'] : ($oldStatus['rbt'] ?? null), 'h' => $h, 'at' => date('c', $now),
             'pools' => $pools ?? ($oldStatus['pools'] ?? []),
             'flt' => is_array($b['flt'] ?? null) && $b['flt'] ? $b['flt'] : ($oldStatus['flt'] ?? null),
+            'ntp' => self::ntp($b['ntp'] ?? null, $oldStatus['ntp'] ?? null, $now),
         ];
         // preverjanje certifikata (samo naprave s stikalom): 1 = push s preverjenim certifikatom, 0 = samo brez
         if ((int)($d['tls_check'] ?? 0) && isset($b['tls']) && in_array((int)$b['tls'], [0, 1], true)
@@ -253,6 +254,15 @@ final class Ingest
         if ($sfpRows) $safe('sfp', fn() => Alerts::sfp($d, array_filter($sfpRows)));
 
         return ['ok' => true, 'tick' => (int)($b['tick'] ?? 0)];
+    }
+
+    /** Stanje NTP iz pusha; 'since' = od kdaj ura ni sinhronizirana (kratek "waiting" po vklopu ali zagonu ni napaka) */
+    private static function ntp(mixed $new, mixed $old, int $now): ?array
+    {
+        if (!is_array($new) || !array_key_exists('e', $new)) return is_array($old) ? $old : null;
+        $n = ['e' => in_array($new['e'], [true, 1, '1', 'true', 'yes'], true), 's' => mb_substr(ros_clean((string)($new['s'] ?? '')), 0, 40), 'n' => (int)($new['n'] ?? 0)];
+        if ($n['e'] && $n['n'] > 0 && !in_array($n['s'], ['', 'synchronized'], true)) $n['since'] = (int)(is_array($old) && !empty($old['since']) ? $old['since'] : $now);
+        return $n;
     }
 
     /**
