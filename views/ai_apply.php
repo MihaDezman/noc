@@ -26,11 +26,12 @@ $lvTag = fn(string $lv) => $lv === 'block' ? 'down' : ($lv === 'warn' ? 'warn' :
 <section class="panel">
   <div class="panel-head"><h2><?= icon('eye', 18) ?><?= h(A('Predogled')) ?></h2><span class="small muted"><?= h(A('ugotovitev: {n}', ['n' => count($plan)])) ?></span></div>
   <div class="panel-body small muted" style="padding-bottom:0"><?= h(A('NOC se z routerjem poveže prek SSH, vklopi Safe Mode in izvede ukaze enega za drugim. Ob prvi napaki, ali če router po spremembah ne doseže več NOC, se seja prekine in router SAM razveljavi vse spremembe. Šele ko je vse v redu, NOC Safe Mode potrdi.')) ?></div>
-  <?php foreach ($plan as [$k, $title, $rows]): ?>
+  <?php $rvF = json_decode((string)$rv['findings'], true) ?: []; foreach ($plan as [$k, $title, $rows]): $ff = $rvF[$k] ?? []; $pr = Ai::prio((string)($ff['prio'] ?? (($ff['severity'] ?? '') === 'critical' ? 'nujno' : ''))); ?>
   <div class="panel-body" style="border-top:1px solid var(--line-2)">
-    <b><?= h($title) ?></b>
+    <span class="tag <?= ['nujno' => 'down', 'priporočeno' => 'warn', 'neobvezno' => ''][$pr] ?>"><?= h(A($pr)) ?></span> <b><?= h($title) ?></b>
+    <?php if (trim((string)($ff['risk'] ?? '')) !== ''): ?><div class="small" style="margin-top:4px;color:var(--warn)"><?= icon('alert', 13) ?> <?= h(A('Lahko vpliva na')) ?>: <?= h($ff['risk']) ?></div><?php endif; ?>
     <div class="apply-lines">
-    <?php foreach ($rows as [$l, $lv, $why]): ?><div class="apply-line"><span class="tag <?= $lvTag($lv) ?>"><?= h(['ok' => A('v redu'), 'warn' => A('tvegano'), 'block' => A('ne izvedem')][$lv]) ?></span><code><?= h($l) ?></code><?php if ($why !== ''): ?><span class="small muted"><?= h($why) ?></span><?php endif; ?></div><?php endforeach; ?>
+    <?php foreach ($rows as $row): [$l, $lv, $why] = $row; $where = (string)($row[3] ?? ''); ?><div class="apply-line"><span class="tag <?= $lvTag($lv) ?>"><?= h(['ok' => A('v redu'), 'warn' => A('tvegano'), 'block' => A('ne izvedem')][$lv]) ?></span><code><?= h($l) ?></code><?php if ($why !== ''): ?><span class="small muted"><?= h($why) ?></span><?php endif; ?><?php if ($where !== ''): ?><span class="small apply-where"><?= icon('chev', 12) ?> <?= h($where) ?></span><?php endif; ?></div><?php endforeach; ?>
     </div>
   </div>
   <?php endforeach; ?>

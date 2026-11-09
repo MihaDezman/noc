@@ -900,11 +900,16 @@ $upd = $s['upd'] ?? [];
   <?php elseif ($rv['status'] === 'pending'): ?><div class="panel-body small muted"><?= h(A('Pregled se izvaja v ozadju – osveži stran čez minuto.')) ?></div>
   <?php elseif (!$rvF): ?><div class="panel-body small"><?= h(A('AI ni našel ničesar, kar bi bilo treba popraviti.')) ?></div>
   <?php else: ?>
-  <ul class="feed review"><?php foreach ($rvF as $k => $f): $stt = $f['state'] ?? 'open'; ?>
+  <?php $prOf = fn(array $f) => Ai::prio((string)($f['prio'] ?? ($f['severity'] === 'critical' ? 'nujno' : '')));
+    $prCnt = ['nujno' => 0, 'priporočeno' => 0, 'neobvezno' => 0]; foreach ($rvF as $f) if (($f['state'] ?? 'open') === 'open') $prCnt[$prOf($f)]++; ?>
+  <div class="panel-body small" style="padding-bottom:0"><?= h(A('Odprto')) ?>: <span class="tag down"><?= h(A('nujno')) ?> <?= $prCnt['nujno'] ?></span> <span class="tag warn"><?= h(A('priporočeno')) ?> <?= $prCnt['priporočeno'] ?></span> <span class="tag"><?= h(A('neobvezno')) ?> <?= $prCnt['neobvezno'] ?></span>
+    <span class="muted"> · <?= h(A('Za uveljavitev so vnaprej izbrane samo nujne – ostale izberi, ko jih pregledaš.')) ?></span></div>
+  <ul class="feed review"><?php foreach ($rvF as $k => $f): $stt = $f['state'] ?? 'open'; $pr = $prOf($f); ?>
     <li class="<?= $stt !== 'open' ? 'faded' : '' ?>"><span class="sev-bar <?= h($f['severity']) ?>"></span>
-      <?php if ($isSuper && $stt === 'open' && trim($f['fix']) !== ''): ?><input type="checkbox" class="apply-pick" name="k[]" value="<?= (int)$k ?>" form="ai-apply-form" checked aria-label="<?= h(A('Uveljavi ta popravek')) ?>"><?php endif; ?>
-      <div class="what"><?= sev_tag($f['severity']) ?> <b><?= h($f['title']) ?></b><?= $stt === 'done' ? ' <span class="tag up">' . h(A('urejeno')) . '</span>' : ($stt === 'dismissed' ? ' <span class="tag">' . h(A('ni pomembno')) . '</span>' : '') ?>
+      <?php if ($isSuper && $stt === 'open' && trim($f['fix']) !== ''): ?><input type="checkbox" class="apply-pick" name="k[]" value="<?= (int)$k ?>" form="ai-apply-form" <?= $pr === 'nujno' ? 'checked' : '' ?> aria-label="<?= h(A('Uveljavi ta popravek')) ?>"><?php endif; ?>
+      <div class="what"><span class="tag <?= ['nujno' => 'down', 'priporočeno' => 'warn', 'neobvezno' => ''][$pr] ?>"><?= h(A($pr)) ?></span> <b><?= h($f['title']) ?></b><?= $stt === 'done' ? ' <span class="tag up">' . h(A('urejeno')) . '</span>' : ($stt === 'dismissed' ? ' <span class="tag">' . h(A('ni pomembno')) . '</span>' : '') ?>
         <div class="small" style="margin-top:4px"><?= h($f['why']) ?></div>
+        <?php if (trim((string)($f['risk'] ?? '')) !== ''): ?><div class="small" style="margin-top:4px;color:var(--warn)"><?= icon('alert', 13) ?> <?= h(A('Lahko vpliva na')) ?>: <?= h($f['risk']) ?></div><?php endif; ?>
         <?php if (trim($f['fix']) !== ''): ?><pre class="raw small" style="margin:6px 0 0"><?= h($f['fix']) ?></pre><?php endif; ?></div>
       <?php if ($isSuper): ?><div class="when nowrap">
         <?php foreach ($stt === 'open' ? ['done' => [A('Urejeno'), 'check'], 'dismissed' => [A('Ni pomembno'), 'x']] : ['open' => [A('Odpri znova'), 'refresh']] as $ns => [$lbl, $ic]): ?>

@@ -218,7 +218,7 @@ final class Ingest
         // --- status naprave (za prikaz)
         $status = [
             'ident' => (string)($b['ident'] ?? ''), 'res' => $res, 'rb' => $rb, 'health' => $healthRaw, 'ping' => $ping,
-            'wg' => (array)($b['wg'] ?? []), 'wgi' => (array)($b['wgi'] ?? []), 'usr' => array_key_exists('usr', $b) ? (array)$b['usr'] : ($oldStatus['usr'] ?? null), 'upd' => (array)($b['upd'] ?? []), 'rbt' => isset($b['rbt']) ? (int)$b['rbt'] : ($oldStatus['rbt'] ?? null), 'h' => $h, 'at' => date('c', $now),
+            'wg' => (array)($b['wg'] ?? []), 'wgi' => (array)($b['wgi'] ?? []), 'usr' => array_key_exists('usr', $b) ? (array)$b['usr'] : ($oldStatus['usr'] ?? null), 'upd' => self::updState((array)($b['upd'] ?? []), (array)($oldStatus['upd'] ?? []), (string)($res['ver'] ?? '')), 'rbt' => isset($b['rbt']) ? (int)$b['rbt'] : ($oldStatus['rbt'] ?? null), 'h' => $h, 'at' => date('c', $now),
             'pools' => $pools ?? ($oldStatus['pools'] ?? []),
             'flt' => is_array($b['flt'] ?? null) && $b['flt'] ? $b['flt'] : ($oldStatus['flt'] ?? null),
         ];
@@ -253,6 +253,20 @@ final class Ingest
         if ($sfpRows) $safe('sfp', fn() => Alerts::sfp($d, array_filter($sfpRows)));
 
         return ['ok' => true, 'tick' => (int)($b['tick'] ?? 0)];
+    }
+
+    /**
+     * Podatek o posodobitvah RouterOS: router ga dobi ob nočnem backupu in ga drži v globalni spremenljivki, ki se ob
+     * ponovnem zagonu (npr. po posodobitvi) izbriše. Takrat obdržimo zadnji znani podatek in mu popravimo nameščeno verzijo.
+     */
+    private static function updState(array $new, array $old, string $ver): array
+    {
+        if (!empty($new['latest']) || !empty($new['inst'])) return $new;
+        if (!$old) return [];
+        $v = Ros::ver($ver);
+        if ($v !== '') $old['inst'] = $v;
+        unset($old['st']);   // besedilo stanja z routerja ni več aktualno
+        return $old;
     }
 
     /**

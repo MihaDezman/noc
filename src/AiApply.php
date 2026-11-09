@@ -72,17 +72,85 @@ final class AiApply
         return ['ok', ''];
     }
 
-    /** Predogled: [[k, naslov, [[vrstica, stopnja, razlog]]]] za izbrane ugotovitve */
-    public static function plan(array $review, array $keys): array
+    /**
+     * Predogled: [[k, naslov, [[vrstica, stopnja, razlog, kam]]]] za izbrane ugotovitve. "kam" pove, kam v verigo
+     * požarnega zidu pristane novo pravilo (po zadnjem backupu); pravilo, ki ne bi imelo učinka, je tvegano.
+     */
+    public static function plan(array $review, array $keys, ?array $d = null): array
     {
         $f = json_decode((string)$review['findings'], true) ?: []; $out = [];
+        $rules = $d ? self::rules((string)(Firewall::source($d)[0] ?? '')) : [];
         foreach ($keys as $k) {
             $k = (int)$k; if (!isset($f[$k]) || trim((string)($f[$k]['fix'] ?? '')) === '') continue;
             $rows = [];
-            foreach (self::lines((string)$f[$k]['fix']) as $l) { [$lv, $why] = self::check($l); $rows[] = [$l, $lv, $why]; }
+            foreach (self::lines((string)$f[$k]['fix']) as $l) {
+                [$lv, $why] = self::check($l); $where = '';
+                if ($d && ($p = self::placement($l, $rules))) {
+                    [$plv, $where] = $p;
+                    if ($plv === 'warn' && $lv === 'ok') { $lv = 'warn'; $why = A('preveri mesto pravila'); }
+                }
+                $rows[] = [$l, $lv, $why, $where];
+            }
             if ($rows) $out[] = [$k, (string)$f[$k]['title'], $rows];
         }
         return $out;
+    }
+
+    /** Pravila iz izvoza po menijih: ['/ip firewall filter' => [[chain, action, comment, disabled, kv]]] v vrstnem redu */
+    public static function rules(string $rsc): array
+    {
+        $out = [];
+        foreach (MikrotikExport::parse($rsc) as [$path, $verb, $kv]) {
+            if ($verb !== 'add' || !preg_match('#^/ip firewall (filter|nat|raw|mangle)$#', $path)) continue;
+            $out[$path][] = [(string)($kv['chain'] ?? ''), (string)($kv['action'] ?? 'accept'), trim((string)($kv['comment'] ?? ''), '"'), ($kv['disabled'] ?? 'no') === 'yes', $kv];
+        }
+        return $out;
+    }
+
+    /** Kam pristane novo pravilo: [ok|warn, opis] ali null, če vrstica ne dodaja pravila požarnega zidu */
+    public static function placement(string $line, array $rules): ?array
+    {
+        $n = self::normalize($line);
+        if (!preg_match('#^/ip firewall (filter|nat|raw|mangle) add\s+(.*)$#i', $n, $m)) return null;
+        $menu = '/ip firewall ' . strtolower($m[1]); $args = $m[2];
+        $chain = preg_match('/(?:^|\s)chain=("?)([\w-]+)\1/', $args, $c) ? $c[2] : '';
+        $action = preg_match('/(?:^|\s)action=([\w-]+)/', $args, $a) ? $a[1] : 'accept';
+        $list = $rules[$menu] ?? [];
+        $inChain = array_values(array_filter($list, fn($r) => $r[0] === $chain));
+        $label = fn(array $r) => '»' . ($r[2] !== '' ? $r[2] : $r[1] . ' ' . self::short($r[4])) . '«';
+        if (preg_match('/(?:^|\s)place-before=(\[[^\]]*\]|\S+)/', $args, $pb)) {
+            $ref = $pb[1];
+            if (ctype_digit($ref)) return ['warn', A('na mesto št. {n} – številka na routerju se lahko razlikuje od izvoza, raje uporabi [find where comment=…]', ['n' => $ref])];
+            if (!preg_match('/comment\s*=\s*"([^"]*)"|comment\s*=\s*(\S+)/', $ref, $cm)) return ['warn', A('mesto pravila ni določeno s komentarjem – preveri ukaz')];
+            $want = $cm[1] !== '' ? $cm[1] : trim($cm[2], '"]');
+            $hits = array_keys(array_filter($list, fn($r) => $r[2] === $want));
+            if (!$hits) return ['warn', A('pravila s komentarjem »{c}« v zadnjem backupu ni – router bo javil napako in vse razveljavil', ['c' => $want])];
+            $r = $list[$hits[0]];
+            $pos = array_search($r, $inChain, true);
+            $txt = A('pred pravilom {p} {r} v verigi {ch}', ['p' => $pos === false ? '' : '#' . ($pos + 1), 'r' => $label($r), 'ch' => $r[0]]);
+            if ($r[0] !== $chain) return ['warn', $txt . ' – ' . A('to je druga veriga kot pri novem pravilu ({ch})', ['ch' => $chain])];
+            if (count($hits) > 1) return ['warn', $txt . ' – ' . A('s tem komentarjem je več pravil, uporabi se prvo')];
+            return ['ok', $txt];
+        }
+        // brez place-before: na konec verige; preverimo, ali je pred njim pravilo, ki zavrže ves preostali promet
+        if (!$inChain) return ['ok', A('prvo pravilo v verigi {ch}', ['ch' => $chain ?: '?'])];
+        $last = end($inChain);
+        $txt = A('na konec verige {ch} (pravil v verigi: {n}, zadnje: {r})', ['ch' => $chain, 'n' => count($inChain), 'r' => $label($last)]);
+        if ($m[1] === 'filter' && !in_array($action, ['drop', 'reject'], true))
+            foreach ($inChain as $r) {
+                if ($r[3] || !in_array($r[1], ['drop', 'reject'], true)) continue;
+                $match = array_diff(array_keys($r[4]), ['chain', 'action', 'comment', 'log', 'log-prefix', 'disabled', 'in-interface-list', 'in-interface', 'connection-nat-state', 'connection-state', 'reject-with']);
+                if (!$match && !isset($r[4]['connection-state'])) return ['warn', $txt . ' – ' . A('pred njim je {r}, ki zavrže preostali promet, zato novo pravilo ne bi imelo učinka; potrebuje place-before', ['r' => $label($r)])];
+            }
+        return ['ok', $txt];
+    }
+
+    /** Kratek opis pravila brez komentarja (za prikaz) */
+    private static function short(array $kv): string
+    {
+        $p = [];
+        foreach (['protocol', 'dst-port', 'src-address', 'dst-address', 'in-interface-list', 'in-interface', 'out-interface-list', 'connection-state'] as $k) if (isset($kv[$k])) $p[] = "$k=" . trim((string)$kv[$k], '"');
+        return mb_strimwidth(implode(' ', $p), 0, 70, '…');
     }
 
     /** Ali je naprava pripravljena (terminal) – vrne razlog ali '' */
@@ -99,7 +167,7 @@ final class AiApply
     public static function start(array $d, array $review, array $keys, bool $warnOk, int $userId): int|string
     {
         if (($b = self::blocker($d)) !== '') return $b;
-        $plan = self::plan($review, $keys); if (!$plan) return A('Izbrane ugotovitve nimajo ukazov.');
+        $plan = self::plan($review, $keys, $d); if (!$plan) return A('Izbrane ugotovitve nimajo ukazov.');
         $script = []; $used = [];
         foreach ($plan as [$k, $title, $rows]) {
             foreach ($rows as [$l, $lv]) { if ($lv === 'block') return A('Ugotovitev "{t}" vsebuje ukaz, ki ga NOC ne izvede samodejno.', ['t' => $title]); if ($lv === 'warn' && !$warnOk) return A('Potrdi tvegane ukaze (kljukica pod predogledom).'); }

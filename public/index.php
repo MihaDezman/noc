@@ -482,7 +482,7 @@ if (($seg[0] ?? '') === 'devices' && ctype_digit($seg[1] ?? '')) {
             if (!is_int($r)) back("/devices/$id/ai-apply?rid=$rid&" . http_build_query(['k' => $keys]), A('Ni mogoče: {r}', ['r' => $r]), 'err');
             redirect("/devices/$id/ai-apply/$r");
         }
-        view('ai_apply', ['d' => $d, 'rv' => $rv, 'keys' => $keys, 'plan' => AiApply::plan($rv, $keys), 'blocker' => AiApply::blocker($d), 'title' => A('AI popravki') . ' · ' . $d['name'], 'nav' => 'devices']);
+        view('ai_apply', ['d' => $d, 'rv' => $rv, 'keys' => $keys, 'plan' => AiApply::plan($rv, $keys, $d), 'blocker' => AiApply::blocker($d), 'title' => A('AI popravki') . ' · ' . $d['name'], 'nav' => 'devices']);
     }
     if ($sub === 'ai-review' && $method === 'POST') {   // AI pregled konfiguracije: zahteva ali stanje ugotovitve
         if (post('op') === 'state') {

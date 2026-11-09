@@ -610,7 +610,11 @@ final class Ai
         $sys = 'Si izkušen inženir za MikroTik RouterOS 7. Pregledaš celotno konfiguracijo routerja stranke (/export terse; skrivnosti so zamenjane z ***) in poiščeš konkretne težave: '
             . 'varnost (dostop z interneta, storitve, uporabniki, požarni zid, DNS, UPnP), zastarele ali nesmiselne nastavitve, napake pri VLAN-ih in bridgih, manjkajoče varovalke (NTP, ura, backup), zmogljivost (fasttrack, nepotrebna pravila). '
             . 'Pravila in skripte z oznako noc so od nadzornega sistema – teh ne komentiraj. Upoštevaj zapiske serviserja. '
-            . 'Odgovori SAMO z JSON seznamom (največ 12, najpomembnejše najprej): [{"title":"kratek naslov","severity":"critical|warning|info","why":"zakaj je to težava, 1-2 stavka","fix":"ukazi RouterOS za popravek ali prazno"}]. Slovenščina. Brez splošnih nasvetov, samo kar velja za to konfiguracijo.';
+            . 'Za vsako ugotovitev oceni prioriteto: "nujno" (dejanska luknja ali napaka, ki jo je treba popraviti), "priporočeno" (smiselna izboljšava), "neobvezno" (lepše, a brez prave koristi za to lokacijo). Ne pretiravaj – večina utrjevanj je priporočenih ali neobveznih. '
+            . 'V "risk" napiši, kaj bi popravek lahko pokvaril ali odrezal (npr. dostop do kamer, VPN uporabnike, goste, port forward), ali prazno, če je varen. '
+            . 'Ukazi: vsak popravek samostojen in brez podvajanja obstoječih pravil. Novo pravilo v /ip firewall filter|nat|raw|mangle MORA imeti place-before=[find where comment="..."] z natančnim komentarjem OBSTOJEČEGA pravila iz te konfiguracije, pred katerim mora stati (npr. pred pravilom, ki zavrže promet). '
+            . 'Brez place-before pravilo pristane na koncu verige – to uporabi samo, kadar je konec res pravo mesto. Vsako novo pravilo naj ima comment, ki opiše namen. '
+            . 'Odgovori SAMO z JSON seznamom (največ 12, najpomembnejše najprej): [{"title":"kratek naslov","severity":"critical|warning|info","prio":"nujno|priporočeno|neobvezno","why":"zakaj je to težava, 1-2 stavka","risk":"kaj lahko popravek pokvari ali prazno","fix":"ukazi RouterOS za popravek ali prazno"}]. Slovenščina. Brez splošnih nasvetov, samo kar velja za to konfiguracijo.';
         $user = "NAPRAVA: {$d['name']} · {$d['model']} · RouterOS {$d['os_version']} · WAN {$d['wan_iface']} · LAN {$d['lan_networks']}\n" . self::notes((int)$d['id']) . "KONFIGURACIJA:\n" . $cfg;
         $txt = self::ask('review', (int)$r['id'], $sys, $user, 5000);
         $list = $txt ? json_decode((string)preg_replace('/^```(?:json)?|```$/m', '', trim($txt)), true) : null;
@@ -619,8 +623,12 @@ final class Ai
         foreach (array_slice($list, 0, 12) as $f) {
             if (!is_array($f) || trim((string)($f['title'] ?? '')) === '') continue;
             $out[] = ['title' => mb_substr((string)$f['title'], 0, 200), 'severity' => in_array($f['severity'] ?? '', ['critical', 'warning', 'info'], true) ? $f['severity'] : 'info',
-                      'why' => mb_substr((string)($f['why'] ?? ''), 0, 800), 'fix' => mb_substr((string)($f['fix'] ?? ''), 0, 2000), 'state' => 'open'];
+                      'prio' => self::prio((string)($f['prio'] ?? '')), 'why' => mb_substr((string)($f['why'] ?? ''), 0, 800), 'risk' => mb_substr((string)($f['risk'] ?? ''), 0, 400),
+                      'fix' => mb_substr((string)($f['fix'] ?? ''), 0, 2000), 'state' => 'open'];
         }
+        // najprej nujno, nato priporočeno, na koncu neobvezno (znotraj enake prioritete po resnosti)
+        $po = ['nujno' => 0, 'priporočeno' => 1, 'neobvezno' => 2]; $so = ['critical' => 0, 'warning' => 1, 'info' => 2];
+        usort($out, fn($a, $b) => [$po[$a['prio']], $so[$a['severity']]] <=> [$po[$b['prio']], $so[$b['severity']]]);
         // ugotovitve, ki si jih serviser pri prejšnjem pregledu označil kot nepomembne/urejene, ostanejo označene
         $pv = db()->prepare("SELECT findings FROM ai_reviews WHERE device_id=? AND status='done' AND id<>? ORDER BY id DESC LIMIT 1"); $pv->execute([$d['id'], $r['id']]);
         $prev = [];
@@ -633,17 +641,27 @@ final class Ai
         return 'pregled: ' . $d['name'];
     }
 
+    /** Prioriteta ugotovitve AI pregleda: nujno | priporočeno | neobvezno */
+    public static function prio(string $p): string
+    {
+        $p = mb_strtolower(trim($p));
+        if (str_starts_with($p, 'nujn')) return 'nujno';
+        if (str_starts_with($p, 'neobv')) return 'neobvezno';
+        return 'priporočeno';
+    }
+
     /** Telegram sporočilo s povzetkom pregleda ene naprave */
     private static function reviewMsg(array $d, array $out): string
     {
         $ico = ['critical' => '🔴', 'warning' => '🟠', 'info' => '🔵'];
         $open = array_values(array_filter($out, fn($f) => $f['state'] === 'open'));
-        $imp = array_values(array_filter($open, fn($f) => $f['severity'] !== 'info'));
-        $cnt = fn(string $s) => count(array_filter($open, fn($f) => $f['severity'] === $s));
+        $pr = fn(array $f) => self::prio((string)($f['prio'] ?? ($f['severity'] === 'critical' ? 'nujno' : '')));
+        $imp = array_values(array_filter($open, fn($f) => $pr($f) === 'nujno'));
+        $cnt = fn(string $p) => count(array_filter($open, fn($f) => $pr($f) === $p));
         $m = '🔍 <b>' . A('AI pregled konfiguracije') . ' – ' . htmlspecialchars($d['name']) . '</b>' . "\n";
-        if (!$imp) $m .= '✅ ' . A('Brez pomembnih težav.') . ($cnt('info') ? ' ' . A('Manjši predlogi: {n}.', ['n' => $cnt('info')]) : '') . "\n";
+        $m .= A('nujno: {a} · priporočeno: {b} · neobvezno: {c}', ['a' => $cnt('nujno'), 'b' => $cnt('priporočeno'), 'c' => $cnt('neobvezno')]) . "\n";
+        if (!$imp) $m .= '✅ ' . A('Nič nujnega.') . "\n";
         else {
-            $m .= "🔴 {$cnt('critical')} · 🟠 {$cnt('warning')} · 🔵 {$cnt('info')}\n";
             foreach (array_slice($imp, 0, 6) as $f) $m .= $ico[$f['severity']] . ' ' . htmlspecialchars(mb_strimwidth($f['title'], 0, 90, '…')) . "\n";
             if (count($imp) > 6) $m .= '… ' . A('in še {n}', ['n' => count($imp) - 6]) . "\n";
         }
