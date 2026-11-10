@@ -4,7 +4,7 @@ declare(strict_types=1);
 require dirname(__DIR__) . '/src/bootstrap.php';
 // vsak korak posebej: napaka v enem ne prepreči ostalih (in mesečnih poročil)
 $step = function (string $k, callable $fn) { try { return (string)($fn() ?? ''); } catch (\Throwable $e) { error_log("noc daily $k: " . $e->getMessage()); return "$k: napaka"; } };
-$step('rollup', fn() => Metrics::rollup());
+$roll = $step('rollup', fn() => Metrics::rollup());   // napaka mora biti vidna na strani Sistem (do v1.36 je bila skrita)
 $step('enroll', fn() => Enroll::cleanup());
 $bk = $step('keys', fn() => Ingest::stripKeysOnce());
 $drop = $step('drop', fn() => Filter::updateDropList());
@@ -13,4 +13,4 @@ foreach (['threat' => fn() => Threat::update(), 'geo' => fn() => Geo::update(), 
     try { $r = $job(); if ($r !== '') $out[] = $r; } catch (\Throwable $e) { error_log("noc daily $k: " . $e->getMessage()); $out[] = "$k: napaka"; }
 }
 $info = $step('report', fn() => Report::monthlyCron());   // od 1. do 5. v mesecu: poročila za prejšnji mesec (če še niso poslana)
-cron_mark('daily', trim($info . ' ' . $drop . ' ' . $bk . ' ' . implode(', ', $out)));
+cron_mark('daily', mb_substr(trim($roll . ' · ' . $info . ' ' . $drop . ' ' . $bk . ' ' . implode(', ', $out)), 0, 255));

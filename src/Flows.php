@@ -33,6 +33,8 @@ final class Flows
         }
         $keep = max(6, (int)cfg('flow_keep_hours', 48)) * 3600;   // surove tokove hranimo privzeto 2 dni (config: flow_keep_hours)
         foreach ($files as $f) if (filemtime($f) < time() - $keep) @unlink($f);
+        // ostanki prekinjenih zagonov nfcapd (nfcapd.current.PID); tekoča datoteka se piše sproti, zato je vedno sveža
+        foreach (glob($dir . '/nfcapd.current.*') ?: [] as $f) if (filemtime($f) < time() - $keep) @unlink($f);
         if ($done) {
             self::hostAlerts($devs);
             try {   // profili naprav, nenavaden promet, nove države

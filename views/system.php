@@ -9,7 +9,7 @@ $fwFile = FwLog::file(); $fwStat = @stat($fwFile);
 <div class="grid g3">
   <section class="panel"><div class="panel-head"><h2><?= icon('clock', 18) ?>Cron</h2></div><div class="panel-body"><dl class="kv">
     <?php foreach ($cronDef as $k => [$l, $maxMin]): $r = $crons[$k] ?? null; $late = !$r || strtotime($r['last_at']) < time() - $maxMin * 60; ?>
-      <dt><?= h($l) ?></dt><dd><?= $r ? h(fmt_ago($r['last_at'])) : '–' ?> <?= $late ? '<span class="tag warn">' . h(A('preveri')) . '</span>' : '<span class="tag up">OK</span>' ?><?php if ($r && $r['info']): ?><div class="small faint"><?= h($r['info']) ?></div><?php endif; ?></dd>
+      <dt><?= h($l) ?></dt><dd><?= $r ? h(fmt_ago($r['last_at'])) : '–' ?> <?= $late || ($r && str_contains((string)$r['info'], 'NAPAKA')) ? '<span class="tag warn">' . h(A('preveri')) . '</span>' : '<span class="tag up">OK</span>' ?><?php if ($r && $r['info']): ?><div class="small faint"><?= h($r['info']) ?></div><?php endif; ?></dd>
     <?php endforeach; ?>
   </dl></div></section>
   <section class="panel"><div class="panel-head"><h2><?= icon('waypoints', 18) ?>Traffic-flow</h2></div><div class="panel-body"><dl class="kv">

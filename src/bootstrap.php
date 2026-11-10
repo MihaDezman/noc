@@ -2,7 +2,7 @@
 declare(strict_types=1);
 
 define('APP_ROOT', dirname(__DIR__));
-define('APP_VERSION', '1.35');
+define('APP_VERSION', '1.36');
 
 $config = require APP_ROOT . '/config.php';
 date_default_timezone_set($config['timezone'] ?? 'Europe/Ljubljana');
@@ -21,6 +21,9 @@ function db(): PDO {
             PDO::ATTR_EMULATE_PREPARES => false,
         ]);
         $pdo->exec("SET time_zone = '" . date('P') . "'");
+        // MariaDB 11.8+: innodb_snapshot_isolation je privzeto ON in vrača napako 1020 ("Record has changed since last read")
+        // tam, kjer starejše verzije počakajo na zaklep – NOC je narejen za staro vedenje (ne obstaja na MySQL/starejši MariaDB)
+        try { $pdo->exec('SET SESSION innodb_snapshot_isolation=OFF'); } catch (\Throwable $e) {}
     }
     return $pdo;
 }
@@ -72,7 +75,7 @@ function audit(string $action, string $detail = ''): void {
 }
 
 function cron_mark(string $name, string $info = ''): void {
-    db()->prepare('INSERT INTO cron_runs (name, last_at, info) VALUES (?, NOW(), ?) ON DUPLICATE KEY UPDATE last_at=NOW(), info=VALUES(info)')->execute([$name, $info]);
+    db()->prepare('INSERT INTO cron_runs (name, last_at, info) VALUES (?, NOW(), ?) ON DUPLICATE KEY UPDATE last_at=NOW(), info=VALUES(info)')->execute([$name, mb_substr($info, 0, 255)]);   // stolpec VARCHAR(255), strict način bi daljše zavrnil
 }
 
 // ---------------------------------------------------------------- i18n (SL je osnova, EN prevod v lang/en.php)

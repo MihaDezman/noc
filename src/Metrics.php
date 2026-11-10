@@ -74,9 +74,23 @@ final class Metrics
     }
 
     /** Brisanje v kosih po 5000 vrstic (kratki zaklepi; pushi med brisanjem tečejo naprej) */
-    private static function purge(string $table, string $where): void
+    private static function purge(string $table, string $where): int
     {
-        do { $n = db()->exec("DELETE FROM $table WHERE $where LIMIT 5000"); if ($n === 5000) usleep(50000); } while ($n === 5000);
+        $all = 0;
+        do { $n = (int)self::retry(fn() => db()->exec("DELETE FROM $table WHERE $where LIMIT 5000")); $all += $n; if ($n === 5000) usleep(50000); } while ($n === 5000);
+        return $all;
+    }
+
+    /** Ponovi ukaz ob začasni napaki baze (1020 snapshot, 1205 lock wait, 1213 deadlock) */
+    private static function retry(callable $fn): mixed
+    {
+        for ($i = 1; ; $i++) {
+            try { return $fn(); }
+            catch (\PDOException $e) {
+                if ($i >= 3 || !in_array((int)($e->errorInfo[1] ?? 0), [1020, 1205, 1213], true)) throw $e;
+                sleep(2 * $i);
+            }
+        }
     }
 
     /** Vsako noč: dnevni povzetki in brisanje starih podatkov */
@@ -93,65 +107,69 @@ final class Metrics
         if ($n || $m) error_log("noc: ura je šla nazaj (premik časa) – odstranjenih minutnih zapisov iz prihodnosti: $n, popravljenih naprav: $m");
     }
 
-    public static function rollup(): void
+    public static function rollup(): string
     {
         $pdo = db();
         // brez zaklepanja obsegov: nočno brisanje ne sme ustaviti pushov z routerjev
         $pdo->exec('SET SESSION TRANSACTION ISOLATION LEVEL READ COMMITTED');
-        $pdo->exec('INSERT INTO iface_daily (device_id, iface, day, rx_bytes, tx_bytes, rx_peak, tx_peak)
+        // vsak korak posebej: napaka v enem (npr. povzetku) ne sme ustaviti brisanja – tako je hramba od 13. 10. 2026 (MariaDB 11.8) obstala
+        $err = []; $del = 0;
+        $run = function (string $k, callable $fn) use (&$err) { try { return self::retry($fn); } catch (\Throwable $e) { $err[] = "$k: " . $e->getMessage(); error_log("noc rollup $k: " . $e->getMessage()); return 0; } };
+        $run('iface_daily', fn() => $pdo->exec('INSERT INTO iface_daily (device_id, iface, day, rx_bytes, tx_bytes, rx_peak, tx_peak)
                     SELECT device_id, iface, DATE(ts), SUM(rx_bytes), SUM(tx_bytes), MAX(rx_peak), MAX(tx_peak) FROM iface_5m
                     WHERE ts >= CURDATE() - INTERVAL 3 DAY AND ts < CURDATE() GROUP BY device_id, iface, DATE(ts)
-                    ON DUPLICATE KEY UPDATE rx_bytes=VALUES(rx_bytes), tx_bytes=VALUES(tx_bytes), rx_peak=VALUES(rx_peak), tx_peak=VALUES(tx_peak)');
-        $pdo->exec('INSERT INTO host_daily (device_id, ip, day, up_bytes, down_bytes)
+                    ON DUPLICATE KEY UPDATE rx_bytes=VALUES(rx_bytes), tx_bytes=VALUES(tx_bytes), rx_peak=VALUES(rx_peak), tx_peak=VALUES(tx_peak)'));
+        $run('host_daily', fn() => $pdo->exec('INSERT INTO host_daily (device_id, ip, day, up_bytes, down_bytes)
                     SELECT device_id, ip, DATE(ts), SUM(up_bytes), SUM(down_bytes) FROM host_5m
                     WHERE ts >= CURDATE() - INTERVAL 3 DAY AND ts < CURDATE() GROUP BY device_id, ip, DATE(ts)
-                    ON DUPLICATE KEY UPDATE up_bytes=VALUES(up_bytes), down_bytes=VALUES(down_bytes)');
-        $pdo->exec('INSERT INTO fw_daily (device_id, day, kind, hits, sources, ports)
+                    ON DUPLICATE KEY UPDATE up_bytes=VALUES(up_bytes), down_bytes=VALUES(down_bytes)'));
+        $run('fw_daily', fn() => $pdo->exec('INSERT INTO fw_daily (device_id, day, kind, hits, sources, ports)
                     SELECT device_id, DATE(ts), kind, SUM(hits), COUNT(DISTINCT src), COUNT(DISTINCT port) FROM fw_5m
                     WHERE ts >= CURDATE() - INTERVAL 3 DAY AND ts < CURDATE() GROUP BY device_id, DATE(ts), kind
-                    ON DUPLICATE KEY UPDATE hits=VALUES(hits), sources=VALUES(sources), ports=VALUES(ports)');
-        self::purge('iface_1m', 'ts < NOW() - INTERVAL 48 HOUR');
-        self::purge('health_1m', 'ts < NOW() - INTERVAL 48 HOUR');
-        self::purge('iface_5m', 'ts < NOW() - INTERVAL 35 DAY');
-        self::purge('health_5m', 'ts < NOW() - INTERVAL 35 DAY');
-        self::purge('host_5m', 'ts < NOW() - INTERVAL 8 DAY');
-        self::purge('iface_daily', 'day < CURDATE() - INTERVAL 400 DAY');
-        self::purge('host_daily', 'day < CURDATE() - INTERVAL 400 DAY');
-        self::purge('logs', 'ts < NOW() - INTERVAL 90 DAY');
+                    ON DUPLICATE KEY UPDATE hits=VALUES(hits), sources=VALUES(sources), ports=VALUES(ports)'));
+        $del += (int)$run('iface_1m', fn() => self::purge('iface_1m', 'ts < NOW() - INTERVAL 48 HOUR'));
+        $del += (int)$run('health_1m', fn() => self::purge('health_1m', 'ts < NOW() - INTERVAL 48 HOUR'));
+        $del += (int)$run('iface_5m', fn() => self::purge('iface_5m', 'ts < NOW() - INTERVAL 35 DAY'));
+        $del += (int)$run('health_5m', fn() => self::purge('health_5m', 'ts < NOW() - INTERVAL 35 DAY'));
+        $del += (int)$run('host_5m', fn() => self::purge('host_5m', 'ts < NOW() - INTERVAL 8 DAY'));
+        $del += (int)$run('iface_daily', fn() => self::purge('iface_daily', 'day < CURDATE() - INTERVAL 400 DAY'));
+        $del += (int)$run('host_daily', fn() => self::purge('host_daily', 'day < CURDATE() - INTERVAL 400 DAY'));
+        $del += (int)$run('logs', fn() => self::purge('logs', 'ts < NOW() - INTERVAL 90 DAY'));
         if (setting('logclean_wg') !== '1') {   // enkratno: že shranjen šum WireGuard (glej Ingest::noise)
-            self::purge('logs', "message LIKE '%Handshake for peer did not complete after % seconds, retrying%'");
+            $del += (int)$run('logs', fn() => self::purge('logs', "message LIKE '%Handshake for peer did not complete after % seconds, retrying%'"));
             setting_set('logclean_wg', '1');
         }
-        self::purge('sfp_5m', 'ts < NOW() - INTERVAL 35 DAY');
-        self::purge('iface_events', 'ts < NOW() - INTERVAL 365 DAY');
-        self::purge('fw_5m', 'ts < NOW() - INTERVAL 7 DAY');
-        self::purge('out_5m', 'ts < NOW() - INTERVAL 7 DAY');
-        self::purge('fw_daily', 'day < CURDATE() - INTERVAL 400 DAY');
-        self::purge('geo_daily', 'day < CURDATE() - INTERVAL 400 DAY');
-        self::purge('host_geo', 'last_seen < CURDATE() - INTERVAL 180 DAY');
-        self::purge('wg_daily', 'day < CURDATE() - INTERVAL 400 DAY');
-        self::purge('speed_tests', 'at < NOW() - INTERVAL 730 DAY');
-        self::purge('alerts', 'ended_at < NOW() - INTERVAL 365 DAY');
+        $del += (int)$run('sfp_5m', fn() => self::purge('sfp_5m', 'ts < NOW() - INTERVAL 35 DAY'));
+        $del += (int)$run('iface_events', fn() => self::purge('iface_events', 'ts < NOW() - INTERVAL 365 DAY'));
+        $del += (int)$run('fw_5m', fn() => self::purge('fw_5m', 'ts < NOW() - INTERVAL 7 DAY'));
+        $del += (int)$run('out_5m', fn() => self::purge('out_5m', 'ts < NOW() - INTERVAL 7 DAY'));
+        $del += (int)$run('fw_daily', fn() => self::purge('fw_daily', 'day < CURDATE() - INTERVAL 400 DAY'));
+        $del += (int)$run('geo_daily', fn() => self::purge('geo_daily', 'day < CURDATE() - INTERVAL 400 DAY'));
+        $del += (int)$run('host_geo', fn() => self::purge('host_geo', 'last_seen < CURDATE() - INTERVAL 180 DAY'));
+        $del += (int)$run('wg_daily', fn() => self::purge('wg_daily', 'day < CURDATE() - INTERVAL 400 DAY'));
+        $del += (int)$run('speed_tests', fn() => self::purge('speed_tests', 'at < NOW() - INTERVAL 730 DAY'));
+        $del += (int)$run('alerts', fn() => self::purge('alerts', 'ended_at < NOW() - INTERVAL 365 DAY'));
         // varnostni dogodki (skeniranja, sumljiv odhodni promet) so pogosti – zavihek Varnost kaže 30 dni
-        self::purge('alerts', "ended_at < NOW() - INTERVAL 90 DAY AND (akey LIKE 'fwscan:%' OR akey = 'fwspike' OR akey LIKE 'outbl:%' OR akey LIKE 'outscan:%' OR akey LIKE 'outsmtp:%')");
-        self::purge('audit', 'at < NOW() - INTERVAL 730 DAY');
-        self::purge('notify_queue', 'sent_at < NOW() - INTERVAL 7 DAY');
-        self::purge('ai_log', 'at < NOW() - INTERVAL 180 DAY');
-        self::purge('noc_actions', "created_at < NOW() - INTERVAL 365 DAY AND status IN ('done','rejected','failed','cancelled','proposed','sent')");
-        self::purge('incidents', 'ended_at < NOW() - INTERVAL 730 DAY');
-        self::purge('term_sessions', "created_at < NOW() - INTERVAL 365 DAY AND status <> 'open'");
-        self::purge('ai_applies', "created_at < NOW() - INTERVAL 365 DAY AND status NOT IN ('queued','running')");
+        $del += (int)$run('alerts', fn() => self::purge('alerts', "ended_at < NOW() - INTERVAL 90 DAY AND (akey LIKE 'fwscan:%' OR akey = 'fwspike' OR akey LIKE 'outbl:%' OR akey LIKE 'outscan:%' OR akey LIKE 'outsmtp:%')"));
+        $del += (int)$run('audit', fn() => self::purge('audit', 'at < NOW() - INTERVAL 730 DAY'));
+        $del += (int)$run('notify_queue', fn() => self::purge('notify_queue', 'sent_at < NOW() - INTERVAL 7 DAY'));
+        $del += (int)$run('ai_log', fn() => self::purge('ai_log', 'at < NOW() - INTERVAL 180 DAY'));
+        $del += (int)$run('noc_actions', fn() => self::purge('noc_actions', "created_at < NOW() - INTERVAL 365 DAY AND status IN ('done','rejected','failed','cancelled','proposed','sent')"));
+        $del += (int)$run('incidents', fn() => self::purge('incidents', 'ended_at < NOW() - INTERVAL 730 DAY'));
+        $del += (int)$run('term_sessions', fn() => self::purge('term_sessions', "created_at < NOW() - INTERVAL 365 DAY AND status <> 'open'"));
+        $del += (int)$run('ai_applies', fn() => self::purge('ai_applies', "created_at < NOW() - INTERVAL 365 DAY AND status NOT IN ('queued','running')"));
         // AI pregledi: zadnjih 10 na napravo (ugotovitve starejših niso več aktualne)
-        foreach ($pdo->query('SELECT DISTINCT device_id FROM ai_reviews')->fetchAll(PDO::FETCH_COLUMN) as $id)
-            $pdo->exec('DELETE FROM ai_reviews WHERE device_id=' . (int)$id . ' AND id NOT IN (SELECT id FROM (SELECT id FROM ai_reviews WHERE device_id=' . (int)$id . ' ORDER BY id DESC LIMIT 10) x) AND id NOT IN (SELECT review_id FROM ai_applies)');
+        $run('ai_reviews', function () use ($pdo) { foreach ($pdo->query('SELECT DISTINCT device_id FROM ai_reviews')->fetchAll(PDO::FETCH_COLUMN) as $id)
+            $pdo->exec('DELETE FROM ai_reviews WHERE device_id=' . (int)$id . ' AND id NOT IN (SELECT id FROM (SELECT id FROM ai_reviews WHERE device_id=' . (int)$id . ' ORDER BY id DESC LIMIT 10) x) AND id NOT IN (SELECT review_id FROM ai_applies)'); });
         // nastavitve izbrisanih naprav (verzija skripte, števec dvojnikov logov)
-        $pdo->exec("DELETE FROM settings WHERE (k LIKE 'sv:%' OR k LIKE 'logdup:%') AND CAST(SUBSTRING_INDEX(k, ':', -1) AS UNSIGNED) NOT IN (SELECT id FROM devices)");
-        self::purge('lan_hosts', 'last_seen < NOW() - INTERVAL 180 DAY');
-        self::purge('login_attempts', 'at < NOW() - INTERVAL 7 DAY');
-        self::purge('backup_parts', 'at < NOW() - INTERVAL 1 DAY');
+        $run('settings', fn() => $pdo->exec("DELETE FROM settings WHERE (k LIKE 'sv:%' OR k LIKE 'logdup:%') AND CAST(SUBSTRING_INDEX(k, ':', -1) AS UNSIGNED) NOT IN (SELECT id FROM devices)"));
+        $del += (int)$run('lan_hosts', fn() => self::purge('lan_hosts', 'last_seen < NOW() - INTERVAL 180 DAY'));
+        $del += (int)$run('login_attempts', fn() => self::purge('login_attempts', 'at < NOW() - INTERVAL 7 DAY'));
+        $del += (int)$run('backup_parts', fn() => self::purge('backup_parts', 'at < NOW() - INTERVAL 1 DAY'));
         // backupi: zadnjih 60 sprememb na napravo
-        foreach ($pdo->query('SELECT DISTINCT device_id FROM config_backups')->fetchAll(PDO::FETCH_COLUMN) as $id) {
+        $run('config_backups', function () use ($pdo) { foreach ($pdo->query('SELECT DISTINCT device_id FROM config_backups')->fetchAll(PDO::FETCH_COLUMN) as $id) {
             $pdo->exec('DELETE FROM config_backups WHERE device_id=' . (int)$id . ' AND id NOT IN (SELECT id FROM (SELECT id FROM config_backups WHERE device_id=' . (int)$id . ' ORDER BY created_at DESC LIMIT 60) x)');
-        }
+        } });
+        return 'počiščeno: ' . number_format($del, 0, ',', '.') . ' vrstic' . ($err ? ' – NAPAKA: ' . implode('; ', array_map(fn($x) => mb_strimwidth($x, 0, 120, '…'), $err)) : '');
     }
 }

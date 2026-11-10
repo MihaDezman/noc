@@ -6,7 +6,8 @@ After=network.target
 [Service]
 User=www-data
 Group=www-data
-ExecStart=/usr/bin/nfcapd -w /var/lib/noc/nfcapd -p 2055 -t 300
+# -z=lz4: stisnjene datoteke (3-5x manjše), nfdump jih bere brez sprememb
+ExecStart=/usr/bin/nfcapd -w /var/lib/noc/nfcapd -p 2055 -t 300 -z=lz4
 Restart=always
 
 [Install]
