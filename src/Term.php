@@ -95,7 +95,8 @@ final class Term
         $base = rtrim((string)cfg('base_url'), '/'); $key = dec($d['api_key_enc'] ?? null);
         $chk = (int)($d['tls_check'] ?? 0) ? ' check-certificate=yes-without-crl' : '';
         $u = self::USER; $port = self::sshPort($d);
-        $s = "# --- terminal NOC: SSH s streznika NOC ($noc), uporabnik $u samo s kljucem\n"
+        $sw = Devices::isSwitch($d);
+        $s = ($sw ? "# --- terminal NOC: SSH prek routerja stranke, uporabnik $u samo s kljucem\n" : "# --- terminal NOC: SSH s streznika NOC ($noc), uporabnik $u samo s kljucem\n")
             . ":do { /tool fetch url=\"$base/api/term-key?t=ed\"$chk http-header-field=\"X-Api-Key: $key\" dst-path=noc-term-ed.pub } on-error={}\n"
             . ":do { /tool fetch url=\"$base/api/term-key?t=rsa\"$chk http-header-field=\"X-Api-Key: $key\" dst-path=noc-term-rsa.pub } on-error={}\n"
             . ":delay 2s\n"
@@ -104,8 +105,22 @@ final class Term
             . "  :if ([:len [/user find name=\"$u\"]] = 0) do={ /user add name=$u group=full password=\$nocPw comment=\"noc: terminal iz NOC (samo SSH kljuc)\" } else={ /user set [find name=\"$u\"] group=full disabled=no password=\$nocPw } }\n"
             . ":do { /user ssh-keys remove [find user=\"$u\"] } on-error={}\n"
             . ":do { /user ssh-keys import public-key-file=noc-term-ed.pub user=$u } on-error={ :do { /user ssh-keys import public-key-file=noc-term-rsa.pub user=$u } on-error={ :log warning \"noc: kljuca za terminal ni bilo mogoce uvoziti\" } }\n"
-            . ":do { /file remove [find name~\"noc-term-\"] } on-error={}\n"
-            . "/ip firewall filter remove [find comment~\"^noc-term\"]\n"
+            . ":do { /file remove [find name~\"noc-term-\"] } on-error={}\n";
+        if ($sw) {   // stikalo: SSH pride z routerja stranke (skok), ne z interneta – brez pravila v požarnem zidu
+            $s .= "/ip service set ssh disabled=no\n";
+            $a = Firewall::audit($d); $svc = $a['conf']['services']['ssh'] ?? null;
+            $net = self::mgmtNet($d);
+            if ($svc !== null && ($svc['address'] ?? '') !== '' && $net !== '') {
+                $list = array_values(array_filter(array_map('trim', explode(',', (string)$svc['address']))));
+                $ip0 = explode('/', $net)[0];
+                if (!array_filter($list, fn($n) => !str_contains($n, ':') && ip_in_cidr($ip0, str_contains($n, '/') ? $n : "$n/32")))
+                    $s .= "/ip service set ssh " . Firewall::svcAddrKey($d) . "=" . implode(',', array_map(fn($n) => preg_replace('/[^0-9a-fA-F.:\/]/', '', $n), $list)) . ",$net\n";
+            }
+            return $s . ":log info \"noc: terminal NOC nastavljen (prek routerja)\"\n\n";
+        }
+        // router s stikali: SSH skok do stikal (samo lokalno posredovanje, nič se ne odpre navzven)
+        if (Devices::children((int)$d['id']) || self::hasSwitches((int)$d['id'])) $s .= "/ip ssh set forwarding-enabled=local\n";
+        $s .= "/ip firewall filter remove [find comment~\"^noc-term\"]\n"
             . Firewall::top('/ip firewall filter', "chain=input src-address=$noc protocol=tcp dst-port=$port action=accept comment=\"noc-term: SSH s streznika NOC\"");
         // storitev ssh: vklopljena; če je omejena na naslove, dodamo naslov NOC (iz zadnjega backupa)
         $a = Firewall::audit($d); $svc = $a['conf']['services']['ssh'] ?? null;
@@ -118,6 +133,25 @@ final class Term
             if (!$has) $s .= $set(implode(',', array_map(fn($n) => preg_replace('/[^0-9a-fA-F.:\/]/', '', $n), $list)) . ",$noc/32");
         }
         return $s . ":log info \"noc: terminal NOC nastavljen\"\n\n";
+    }
+
+    /** Ali ima router v NOC kakšno stikalo (ne glede na pravice uporabnika) */
+    public static function hasSwitches(int $routerId): bool
+    {
+        $st = db()->prepare("SELECT 1 FROM devices WHERE parent_id=? AND kind='switch' AND active=1 LIMIT 1"); $st->execute([$routerId]);
+        return (bool)$st->fetchColumn();
+    }
+
+    /** Omrežje upravljalnega naslova stikala (npr. 192.168.99.0/24) iz izvoza; prazno, če ni znano */
+    public static function mgmtNet(array $d): string
+    {
+        $an = json_decode((string)($d['analysis_json'] ?? ''), true) ?: [];
+        foreach ((array)($an['addresses'] ?? []) as $a) {
+            [$ip, $bits] = array_pad(explode('/', (string)($a['address'] ?? '')), 2, '32');
+            if ($ip !== (string)$d['mgmt_ip'] || !filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) continue;
+            return long2ip(ip2long($ip) & ((-1 << (32 - (int)$bits)) & 0xFFFFFFFF)) . '/' . (int)$bits;
+        }
+        return '';
     }
 
     // ------------------------------------------------------------------ seje
@@ -143,14 +177,23 @@ final class Term
         if ($s['role'] !== 'superadmin' || !(int)$s['u_active']) return ['error' => A('Terminal je na voljo samo skrbniku.')];
         $q = db()->prepare('SELECT * FROM devices WHERE id=? AND active=1'); $q->execute([$s['device_id']]); $d = $q->fetch();
         if (!$d || !(int)$d['term_enabled']) return ['error' => A('Terminal pri tej napravi ni vklopljen.')];
-        $host = (string)$d['public_ip'];
+        $jump = null;
+        if (Devices::isSwitch($d)) {   // stikalo: skok prek routerja stranke na upravljalni naslov v LAN-u
+            $q = db()->prepare('SELECT * FROM devices WHERE id=? AND active=1'); $q->execute([(int)$d['parent_id']]); $r = $q->fetch();
+            if (!$r || !(int)$r['term_enabled'] || !filter_var((string)$r['public_ip'], FILTER_VALIDATE_IP, FILTER_FLAG_IPV4))
+                return ['error' => A('Terminal stikala potrebuje router z javnim IP in vklopljenim terminalom.')];
+            if (!filter_var((string)$d['mgmt_ip'], FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) return ['error' => A('Stikalo nima znanega upravljalnega naslova.')];
+            $jump = ['host' => (string)$r['public_ip'], 'port' => self::sshPort($r), 'user' => self::USER];
+        }
+        $host = $jump ? (string)$d['mgmt_ip'] : (string)$d['public_ip'];
         if (!filter_var($host, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) return ['error' => A('Naprava nima znanega javnega IP-ja.')];
         if (!self::hasKeys()) return ['error' => A('Ključi NOC še niso ustvarjeni.')];
         $up = db()->prepare("UPDATE term_sessions SET status='open', started_at=NOW() WHERE id=? AND status='new'"); $up->execute([$s['id']]);
         if (!$up->rowCount()) return ['error' => A('Žeton je že porabljen.')];
         db()->prepare('INSERT INTO audit (user_id, action, detail, ip) VALUES (?, ?, ?, ?)')->execute([$s['user_id'], 'device.terminal', mb_substr("#{$s['id']} {$d['name']} ($host)", 0, 500), $ip ?: $s['client_ip']]);
         if (!is_dir(self::dir('term'))) @mkdir(self::dir('term'), 0750, true);
-        return ['id' => (int)$s['id'], 'host' => $host, 'port' => self::sshPort($d), 'user' => self::USER, 'name' => (string)$d['name'],
+        return ['id' => (int)$s['id'], 'host' => $host, 'port' => self::sshPort($d), 'user' => self::USER, 'name' => (string)$d['name'], 'jump' => $jump,
+                'alias' => $jump ? 'noc-sw-' . (int)$d['id'] : null,   // zasebni naslovi stikal se pri strankah ponavljajo – ključ gostitelja po napravi
                 'keys' => [self::keyFile('ed'), self::keyFile('rsa')], 'known_hosts' => self::knownHosts(), 'log' => self::logFile((int)$s['id'])];
     }
 

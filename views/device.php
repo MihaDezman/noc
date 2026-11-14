@@ -3,7 +3,12 @@ $id = (int)$d['id']; $s = $d['status']; $hh = $s['h'] ?? []; $res = $s['res'] ??
 $isSuper = Auth::isSuper();
 $ports = face_ports($ifaces, $d['wan_iface'], 40);
 $wanRow = null; foreach ($ifaces as $i) if ($i['name'] === $d['wan_iface']) $wanRow = $i;
-$tabs = ['overview' => ['dashboard', A('Pregled')], 'ifaces' => ['ethernet', A('Vmesniki')], 'clients' => ['laptop', A('Naprave v LAN')], 'sla' => ['gauge', A('Razpoložljivost')], 'security' => ['shield', A('Varnost')], 'logs' => ['scroll', A('Logi')], 'alerts' => ['bell', A('Alarmi')]];
+$isSw = Devices::isSwitch($d); $parent = $isSw ? Devices::parent($d) : null;
+$tabs = $isSw   // stikalo: porti so na plošči (klik odpre panel porta); LAN, varnost in traffic-flow so pri routerju
+    ? ['overview' => ['dashboard', A('Pregled')], 'sla' => ['gauge', A('Razpoložljivost')], 'logs' => ['scroll', A('Logi')], 'alerts' => ['bell', A('Alarmi')]]
+    : ['overview' => ['dashboard', A('Pregled')], 'ifaces' => ['ethernet', A('Vmesniki')], 'clients' => ['laptop', A('Naprave v LAN')], 'sla' => ['gauge', A('Razpoložljivost')], 'security' => ['shield', A('Varnost')], 'logs' => ['scroll', A('Logi')], 'alerts' => ['bell', A('Alarmi')]];
+if (!isset($tabs[$tab]) && !in_array($tab, ['backups', 'settings', 'protect', 'wg'], true)) $tab = 'overview';
+if ($isSw && $tab === 'wg') $tab = 'overview';
 $manage = in_array($tab, ['backups', 'settings', 'protect', 'wg'], true);   // upravljanje: odpre se z gumbom v glavi, ne kot zavihek
 $upd = $s['upd'] ?? [];
 ?>
@@ -18,6 +23,7 @@ $upd = $s['upd'] ?? [];
         <span><?= icon('box', 14) ?><?= h($d['model'] ?: 'MikroTik') ?></span>
         <span><?= icon('tag', 14) ?>RouterOS <?= h($d['os_version'] ?: '?') ?></span>
         <?php if ($d['public_ip']): ?><span class="mono"><?= icon('globe', 14) ?><?= h($d['public_ip']) ?></span><?php endif; ?>
+        <?php if ($isSw): ?><span><?= icon('router', 14) ?><?= $parent ? h(A('za routerjem')) . ' <a href="/devices/' . (int)$parent['id'] . '">' . h($parent['name']) . '</a>' : h(A('router ni izbran')) ?></span><?php if ($d['mgmt_ip']): ?><span class="mono"><?= icon('net', 14) ?><?= h($d['mgmt_ip']) ?></span><?php endif; ?><?php endif; ?>
         <span><?= icon('clock', 14) ?><?= h(A('uptime {u}', ['u' => fmt_uptime($d['last_uptime'] !== null ? (int)$d['last_uptime'] : null)])) ?></span>
         <span><?= icon('refresh', 14) ?><?= h(fmt_ago($d['last_seen_at'])) ?></span>
       </div>
@@ -35,8 +41,9 @@ $upd = $s['upd'] ?? [];
       <?php endif; ?>
     </form>
     <a class="btn sm <?= $tab === 'backups' ? 'on' : '' ?>" href="/devices/<?= $id ?>?tab=backups"><?= icon('archive', 15) ?><?= h(A('Konfiguracija')) ?></a>
+    <?php if ($isSw): ?><a class="btn sm <?= $tab === 'protect' ? 'on' : '' ?>" href="/devices/<?= $id ?>?tab=protect"><?= icon('zap', 15) ?><?= h(A('AI pregled')) ?></a><?php else: ?>
     <a class="btn sm <?= $tab === 'protect' ? 'on' : '' ?>" href="/devices/<?= $id ?>?tab=protect"><?= icon('shield', 15) ?><?= h(A('Zaščita')) ?><?php if (($d['filter_profile'] ?? 'off') !== 'off'): ?> <span class="dot up" style="margin-left:2px"></span><?php endif; ?></a>
-    <a class="btn sm <?= $tab === 'wg' ? 'on' : '' ?>" href="/devices/<?= $id ?>?tab=wg"><?= icon('lock', 15) ?>WireGuard</a>
+    <a class="btn sm <?= $tab === 'wg' ? 'on' : '' ?>" href="/devices/<?= $id ?>?tab=wg"><?= icon('lock', 15) ?>WireGuard</a><?php endif; ?>
     <a class="btn sm <?= $tab === 'settings' ? 'on' : '' ?>" href="/devices/<?= $id ?>?tab=settings"><?= icon('settings', 15) ?><?= h(A('Nastavitve')) ?></a>
     <?php if ((int)$d['term_enabled']): ?><a class="btn sm" href="/devices/<?= $id ?>/terminal" target="_blank" rel="noopener"><?= icon('terminal', 15) ?><?= h(A('Terminal')) ?></a><?php endif; ?>
     <a class="btn sm" href="/devices/<?= $id ?>/install"><?= icon('download', 15) ?><?= h(A('Paket')) ?></a>
@@ -44,7 +51,9 @@ $upd = $s['upd'] ?? [];
   <?php endif; ?>
 </div>
 
-<?php if ($ports): ?>
+<?php if ($isSw): ?>
+<div class="sw-wrap"><?= switch_panel($d) ?></div>
+<?php elseif ($ports): ?>
 <div class="faceplate" aria-label="<?= h(A('Vrata naprave')) ?>">
   <div class="ident"><?= h($d['name']) ?><small><?= h($d['model'] ?: 'MikroTik') ?></small></div>
   <?php
@@ -63,7 +72,7 @@ $upd = $s['upd'] ?? [];
 <?php else: ?><div style="height:18px"></div><?php endif; ?>
 
 <?php if ($manage): ?>
-<?php $mt = ['backups' => ['archive', A('Konfiguracija')], 'settings' => ['settings', A('Nastavitve')], 'protect' => ['shield', A('Zaščita omrežja')], 'wg' => ['lock', 'WireGuard']][$tab]; ?>
+<?php $mt = ['backups' => ['archive', A('Konfiguracija')], 'settings' => ['settings', A('Nastavitve')], 'protect' => $isSw ? ['zap', A('AI pregled')] : ['shield', A('Zaščita omrežja')], 'wg' => ['lock', 'WireGuard']][$tab]; ?>
 <div class="manage-head"><a href="/devices/<?= $id ?>" class="small"><?= icon('chev', 14, 'flip') ?><?= h(A('Nazaj na pregled naprave')) ?></a><h2><?= icon($mt[0], 18) ?><?= h($mt[1]) ?></h2></div>
 <?php else: ?>
 <nav class="tabs">
@@ -72,11 +81,18 @@ $upd = $s['upd'] ?? [];
 <?php endif; ?>
 
 <?php if ($tab === 'overview'): ?>
+<?php if (!$isSw && ($kids = Devices::children($id))): ?>
+<section class="panel sw-list" id="switches">
+  <div class="panel-head"><h2><?= icon('switch', 18) ?><?= h(A('Stikala')) ?></h2><span class="small muted"><?= h(A('za tem routerjem')) ?></span></div>
+  <div class="panel-body"><?php foreach ($kids as $k): ?><div class="sw-item"><?= switch_panel($k, true) ?></div><?php endforeach; ?></div>
+</section>
+<?php endif; ?>
 <?php if (!$d['last_seen_at']): ?>
   <div class="panel"><div class="empty"><?= icon('clock', 34) ?><h2><?= h(A('Naprava še ni poslala podatkov')) ?></h2><p><?= h(A('Naloži paket na router – podatki pridejo v minuti.')) ?></p><?php if ($isSuper): ?><a class="btn primary" href="/devices/<?= $id ?>/install"><?= icon('download', 16) ?><?= h(A('Navodila za namestitev')) ?></a><?php endif; ?></div></div>
 <?php else: ?>
 <div class="grid g-main">
   <div>
+    <?php if ($isSw): include __DIR__ . '/_switch_ports.php'; else: ?>
     <section class="panel">
       <div class="panel-head">
         <h2><?= icon('activity', 18) ?><?= h(A('Promet WAN')) ?> <span class="faint mono small"><?= h($d['wan_iface']) ?></span></h2>
@@ -103,6 +119,7 @@ $upd = $s['upd'] ?? [];
         <div class="legend" style="margin-top:8px"><span><i style="background:var(--violet)"></i><?= h(A('Prehod')) ?> <span class="mono"><?= h($s['ping']['gw'] ?? '') ?></span></span><span><i style="background:var(--aqua)"></i><?= h(A('Internet')) ?> <span class="mono"><?= h($d['ping_target']) ?></span></span><span><i style="background:var(--down)"></i><?= h(A('izguba paketov')) ?></span></div>
       </div>
     </section>
+    <?php endif; ?>
     <section class="panel">
       <div class="panel-head"><h2><?= icon('cpu', 18) ?><?= h(A('CPU in pomnilnik')) ?></h2><?= range_seg(['6h' => '6 h', '24h' => '24 h', '7d' => '7 d', '30d' => '30 d'], '24h', 'cpu') ?></div>
       <div class="panel-body"><div id="cpu" data-chart-group><?= chart($id, 'cpu', '24h', '', 180) ?></div>
@@ -129,16 +146,23 @@ $upd = $s['upd'] ?? [];
         <dt>Firmware</dt><dd><?= h($d['firmware'] ?: '–') ?><?php $fwUp = $s['rb']['fwUp'] ?? ''; if ($fwUp && $fwUp !== $d['firmware']): ?> <span class="tag info">→ <?= h($fwUp) ?></span><?php endif; ?></dd>
         <dt><?= h(A('Arhitektura')) ?></dt><dd><?= h($d['arch'] ?: '–') ?> · <?= (int)($res['cpus'] ?? 0) ?> CPU</dd>
         <dt><?= h(A('Pomnilnik')) ?></dt><dd><?= isset($res['memT']) ? h(fmt_bytes((int)$res['memT'] - (int)$res['memF'])) . ' / ' . h(fmt_bytes((int)$res['memT'])) : '–' ?></dd>
+        <?php if ($isSw): ?>
+        <dt><?= h(A('Za routerjem')) ?></dt><dd><?= $parent ? '<a href="/devices/' . (int)$parent['id'] . '">' . h($parent['name']) . '</a>' : '–' ?></dd>
+        <dt><?= h(A('Upravljalni naslov')) ?></dt><dd class="mono"><?= h($d['mgmt_ip'] ?: '–') ?></dd>
+        <dt>VLAN filtering</dt><dd><?= SwitchIngest::vlanFiltering($d) ? '<span class="tag up">' . h(A('vklopljen')) . '</span>' : '<span class="tag warn">' . h(A('izklopljen')) . '</span>' ?></dd>
+        <dt>Uplink</dt><dd class="mono"><?= h(SwitchIngest::uplink($d) ?? '–') ?></dd>
+        <?php else: ?>
         <dt><?= h(A('Prehod WAN')) ?></dt><dd class="mono"><?= h(($s['ping']['gw'] ?? '') ?: '–') ?></dd>
         <dt><?= h(A('Povezave (conntrack)')) ?></dt><dd><?= isset($hh['conns']) && $hh['conns'] !== null ? number_format((int)$hh['conns'], 0, ',', '.') : '–' ?></dd>
         <dt><?= h(A('DHCP najemi')) ?></dt><dd><?= $hh['leases'] ?? '–' ?></dd>
+        <?php endif; ?>
         <?php if (Auth::isSuper()): [$scCls, $scTxt] = MikrotikScript::scriptState($d); ?><dt><?= h(A('Skripta NOC')) ?></dt><dd><span class="tag <?= $scCls ?>" title="<?= h($d['script_ver'] ?? '') ?>"><?= h($scTxt) ?></span></dd><?php endif; ?>
-        <dt><?= h(A('Zaščita')) ?></dt><dd><?php [$fok, $fmsg] = Filter::routerState($d); ?><span class="tag <?= ($d['filter_profile'] ?? 'off') === 'off' ? '' : ($fok ? 'up' : 'warn') ?>"><?= h(Filter::label($d['filter_profile'] ?? 'off')) ?></span></dd>
+        <?php if (!$isSw): ?><dt><?= h(A('Zaščita')) ?></dt><dd><?php [$fok, $fmsg] = Filter::routerState($d); ?><span class="tag <?= ($d['filter_profile'] ?? 'off') === 'off' ? '' : ($fok ? 'up' : 'warn') ?>"><?= h(Filter::label($d['filter_profile'] ?? 'off')) ?></span></dd><?php endif; ?>
         <dt><?= h(A('Razpoložljivost 30 d')) ?></dt><dd><a href="?tab=sla"><span class="tag <?= Sla::cls($sla30['pct']) ?>"><?= h(Sla::fmt($sla30['pct'])) ?></span></a></dd>
         <?php foreach ($s['health'] ?? [] as $k => $v): if (str_contains((string)$k, 'temperature') || $k === 'cpu-temperature') continue; ?>
         <dt><?= h($k) ?></dt><dd><?= h($v) ?></dd>
         <?php endforeach; ?>
-        <dt><?= h(A('Ping s strežnika')) ?></dt><dd><?= $d['tiger_ping_at'] ? ($d['tiger_ping_ok'] ? h(($d['tiger_ping_ms'] ?? '?') . ' ms') : '<span class="tag down">' . h(A('ne odgovarja')) . '</span>') . ' <span class="faint small">' . h(fmt_ago($d['tiger_ping_at'])) . '</span>' : '–' ?></dd>
+        <?php if (!$isSw): ?><dt><?= h(A('Ping s strežnika')) ?></dt><dd><?= $d['tiger_ping_at'] ? ($d['tiger_ping_ok'] ? h(($d['tiger_ping_ms'] ?? '?') . ' ms') : '<span class="tag down">' . h(A('ne odgovarja')) . '</span>') . ' <span class="faint small">' . h(fmt_ago($d['tiger_ping_at'])) . '</span>' : '–' ?></dd><?php endif; ?>
       </dl></div>
     </section>
     <?php if (!empty($s['pools'])): ?>
@@ -151,7 +175,7 @@ $upd = $s['upd'] ?? [];
       </div>
     </section>
     <?php endif; ?>
-    <?php $spd = Speed::history($id, 6); $spdLast = $spd[0] ?? null;
+    <?php if (!$isSw): $spd = Speed::history($id, 6); $spdLast = $spd[0] ?? null;
       $st = db()->prepare("SELECT status FROM noc_actions WHERE device_id=? AND kind='speed' AND status IN ('approved','sent') ORDER BY id DESC LIMIT 1"); $st->execute([$id]); $spdPending = $st->fetchColumn();
       $hasBtest = (bool)Speed::btest(); ?>
     <section class="panel" id="speed">
@@ -179,6 +203,7 @@ $upd = $s['upd'] ?? [];
           <label class="check small"><input type="checkbox" <?= (int)$d['speed_auto'] ? 'checked' : '' ?> data-autosubmit> <?= h(A('Meri vsako noč')) ?></label></form>
       </div><?php endif; ?>
     </section>
+    <?php endif; ?>
     <?php $sec = Score::compute($d); if ($sec['score'] !== (int)($d['sec_score'] ?? -1)) db()->prepare('UPDATE devices SET sec_score=?, sec_at=NOW() WHERE id=?')->execute([$sec['score'], $id]); ?>
     <section class="panel" id="sec">
       <div class="panel-head"><h2><?= icon('shield', 18) ?><?= h(A('Varnostna ocena')) ?></h2><span class="score-badge <?= Score::cls($sec['score']) ?>"><?= (int)$sec['score'] ?><small>/100</small></span></div>
@@ -766,6 +791,7 @@ $upd = $s['upd'] ?? [];
   $lan = Devices::list((string)$d['lan_networks']); $sel = Devices::list((string)($d['filter_networks'] ?? '')) ?: $lan;
   $routerDns = $s['flt']['dns'] ?? null;
 ?>
+<?php if (!$isSw): /* stikalo: samo preverjanje certifikata in AI pregled (Zaščita in požarni zid sta pri routerju) */ ?>
 <div class="grid g-main">
   <form class="form" method="post" action="/devices/<?= $id ?>/filter">
     <?= Auth::csrf() ?>
@@ -878,7 +904,8 @@ $upd = $s['upd'] ?? [];
 </section>
 
 <?php [$tsCls, $tsTxt] = MikrotikScript::tlsState($d); $tlsOn = (int)($d['tls_check'] ?? 0); ?>
-<section class="panel" id="tls" style="margin-top:20px">
+<?php endif; ?>
+<section class="panel" id="tls"<?= $isSw ? '' : ' style="margin-top:20px"' ?>>
   <div class="panel-head"><h2><?= icon('lock', 18) ?><?= h(A('Preverjanje certifikata NOC')) ?></h2><span class="tag <?= $tsCls ?>"><?= h($tsTxt) ?></span></div>
   <div class="panel-body fwlog-body">
     <div>

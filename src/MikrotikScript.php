@@ -144,7 +144,7 @@ final class MikrotikScript
             . "        :set out [/tool fetch $fetchArgs]\n"
             . "    }"
             : ":local out [/tool fetch $fetchArgs]";
-        return <<<ROS
+        $out = <<<ROS
 # NOC push – {$d['cmt_name']} – generirano {$GLOBALS['__gen']}
 :local url "$base/api/push"
 :local key "$key"
@@ -361,6 +361,100 @@ final class MikrotikScript
     :if (\$nocFail = 3 || (\$nocFail > 3 && (\$nocFail % 60) = 0)) do={ :log warning ("noc: push ni uspel " . \$nocFail . "x zapored - " . \$e) }
 }
 ROS;
+        return Devices::isSwitch($d) ? self::forSwitch($out) : $out;
+    }
+
+    /**
+     * Push za stikalo: iz routerjevega telesa (ki ostane bajtno enako) odstrani dele za router (ping prehoda/interneta,
+     * povezave, DHCP, pooli, Zaščita, WireGuard) in doda L2 podatke stikala ("sw"). Oznake morajo obstajati – sicer napaka.
+     */
+    private static function forSwitch(string $b): string
+    {
+        $cut = function (string $b, string $from, string $to, string $with): string {
+            $i = strpos($b, $from); $j = $i === false ? false : strpos($b, $to, $i);
+            if ($i === false || $j === false) throw new \RuntimeException("push stikala: oznake '$from' ni v skripti");
+            return substr($b, 0, $i) . $with . substr($b, $j);
+        };
+        $b = $cut($b, '# --- ping: privzeti prehod', '# --- uporabniki routerja', self::switchPart());
+        $old = '"ping"=$ping;"conns"=$conns;"nLeases"=$nLeases;"leases"=$leases;"pools"=$pools;"flt"=$flt;"sfp"=$sfp;"wg"=$wg;"wgx"=$wgErr;"wgi"=$wgi;';
+        if (!str_contains($b, $old)) throw new \RuntimeException('push stikala: vrstice data ni v skripti');
+        $b = str_replace($old, '"ping"=$ping;"sw"=$sw;"sfp"=$sfp;', $b);
+        // obrezovanje: najprej MAC tabela stikala, nato logi (DHCP najemov stikalo nima)
+        $b = $cut($b, ':if ([:len $body] > 48000) do={' . "\n" . '    :set ($data->"logs")', ':if ([:len $body] > 48000) do={' . "\n" . '    :set ($data->"leases")',
+            ":if ([:len \$body] > 48000) do={\n    :set (\$sw->\"h\") [:toarray \"\"]\n    :set (\$data->\"sw\") \$sw\n    :set body [:serialize to=json value=\$data]\n    :log warning (\"noc: MAC tabela izpuscena, push bi bil prevelik\")\n}\n"
+            . ":if ([:len \$body] > 48000) do={\n    :set (\$data->\"logs\") [:toarray \"\"]\n    :set body [:serialize to=json value=\$data]\n    :log warning (\"noc: logi izpusceni, push bi bil prevelik\")\n}\n");
+        $b = $cut($b, ':if ([:len $body] > 48000) do={' . "\n" . '    :set ($data->"leases")', '# :onerror zapiše', '');
+        return $b;
+    }
+
+    /** L2 podatki stikala: bridge porti, VLAN-i, PoE (5 min), MAC tabela (5 min, po kosih) */
+    private static function switchPart(): string
+    {
+        return <<<'ROS'
+# --- stikalo: brez pinga prehoda/interneta (to dela router stranke)
+:local ping [:toarray ""]
+:global nocHostOff
+:if ([:typeof $nocHostOff] != "num") do={ :set nocHostOff 0 }
+:local hMax 150
+:local sw {"vf"=false;"mg"="";"bp"=[:toarray ""];"bv"=[:toarray ""]}
+:do { :set ($sw->"vf") [/interface bridge get ([/interface bridge find]->0) vlan-filtering] } on-error={}
+:do { :set ($sw->"mg") [:tostr [/ip address get ([/ip address find where disabled=no]->0) address]] } on-error={}
+# bridge porti: pvid, frame-types, STP vloga
+:local bp [:toarray ""]
+:foreach p in=[/interface bridge port find] do={
+    :do {
+        :local pv [/interface bridge port get $p]
+        :set ($bp->[:len $bp]) {"i"=[:tostr ($pv->"interface")];"b"=[:tostr ($pv->"bridge")];"pv"=($pv->"pvid");"ft"=[:tostr ($pv->"frame-types")];"r"=[:tostr ($pv->"role")];"s"=[:tostr ($pv->"status")];"e"=[:tostr ($pv->"edge-port")];"dis"=($pv->"disabled")}
+    } on-error={}
+}
+:set ($sw->"bp") $bp
+# VLAN tabela bridga (nastavljeno in dejansko)
+:local bv [:toarray ""]
+:foreach v in=[/interface bridge vlan find] do={
+    :do {
+        :local vv [/interface bridge vlan get $v]
+        :set ($bv->[:len $bv]) {"b"=[:tostr ($vv->"bridge")];"id"=[:tostr ($vv->"vlan-ids")];"t"=[:tostr ($vv->"tagged")];"u"=[:tostr ($vv->"untagged")];"ct"=[:tostr ($vv->"current-tagged")];"cu"=[:tostr ($vv->"current-untagged")];"c"=[:tostr ($vv->"comment")];"d"=[:tostr ($vv->"dynamic")]}
+    } on-error={}
+}
+:set ($sw->"bv") $bv
+# PoE (vsakih 5 min)
+:if (($nocTick % 5) = 2) do={
+    :local poe [:toarray ""]
+    :do {
+        :foreach e in=[/interface ethernet poe find] do={
+            :local nm [/interface ethernet poe get $e name]
+            :local po {"i"=$nm;"m"=[:tostr [/interface ethernet poe get $e poe-out]];"st"="";"w"=""}
+            :do { :local mo [/interface ethernet poe monitor $e once as-value]; :set ($po->"st") [:tostr ($mo->"poe-out-status")]; :set ($po->"w") [:tostr ($mo->"poe-out-power")] } on-error={}
+            :set ($poe->[:len $poe]) $po
+        }
+    } on-error={}
+    :set ($sw->"poe") $poe
+}
+# MAC tabela (vsakih 5 min, najvec hMax vnosov na push, naslednjic nadaljuje)
+:if (($nocTick % 5) = 3) do={
+    :local h [:toarray ""]
+    :local all [/interface bridge host find where local=no]
+    :local hn [:len $all]
+    :if ($nocHostOff >= $hn) do={ :set nocHostOff 0 }
+    :local k 0
+    :foreach x in=$all do={
+        :if ($k >= $nocHostOff && [:len $h] < $hMax) do={
+            :do {
+                :local hv [/interface bridge host get $x]
+                :local oi [:tostr ($hv->"on-interface")]
+                :if ([:len $oi] = 0) do={ :set oi [:tostr ($hv->"interface")] }
+                :set ($h->[:len $h]) {"m"=[:tostr ($hv->"mac-address")];"i"=$oi;"v"=[:tostr ($hv->"vid")]}
+            } on-error={}
+        }
+        :set k ($k + 1)
+    }
+    :set ($sw->"h") $h
+    :set ($sw->"ho") $nocHostOff
+    :set ($sw->"hn") $hn
+    :set nocHostOff ($nocHostOff + $hMax)
+}
+
+ROS;
     }
 
     public static function backupBody(array $d, string $key): string
@@ -406,7 +500,10 @@ ROS;
         $noc = (string)cfg('noc_ip'); $port = (int)cfg('flow_port', 2055); $pol = self::POLICY;
         $h = crc32('noc-backup-' . $d['id']); $min = 5 + $h % 51; $hour = 2 + intdiv($h, 51) % 3;   // določljivo: ista naprava = ista ura
         $s = "# NOC – namestitev za \"{$d['cmt_name']}\" (" . (ros_cmt((string)$d['model']) ?: 'MikroTik') . ")\n# Generirano " . date('Y-m-d H:i') . " – noc.dezman.net\n# Uvoz: /import noc-install.rsc\n\n";
-        $s .= "# --- počisti prejšnjo namestitev (načrtovana posodobitev RouterOS in tekoča meritev hitrosti ostaneta)\n/system scheduler remove [find where name~\"^noc-\" and name!=\"noc-upgrade\"]\n/system script remove [find where name~\"^noc-\" and name!=\"noc-speed\"]\n\n";
+        $sw = Devices::isSwitch($d);
+        $s .= $sw   // stikalo: tudi varovalka spremembe porta (noc-sw-rb-*) ostane – sicer bi posodobitev skripte med 5 min čakanja izbrisala povrnitev
+            ? "# --- počisti prejšnjo namestitev (načrtovana posodobitev RouterOS in varovalke sprememb portov ostanejo)\n/system scheduler remove [find where name~\"^noc-\" and name!=\"noc-upgrade\" and !(name~\"^noc-sw-rb\")]\n/system script remove [find where name~\"^noc-\" and !(name~\"^noc-sw-rb\")]\n\n"
+            : "# --- počisti prejšnjo namestitev (načrtovana posodobitev RouterOS in tekoča meritev hitrosti ostaneta)\n/system scheduler remove [find where name~\"^noc-\" and name!=\"noc-upgrade\"]\n/system script remove [find where name~\"^noc-\" and name!=\"noc-speed\"]\n\n";
         $s .= "# --- skripti\n/system script add name=noc-push policy=$pol comment=\"noc.dezman.net\" source=\"" . self::esc(self::pushBody($d, $key)) . "\"\n\n";
         $s .= "/system script add name=noc-backup policy=$pol comment=\"noc.dezman.net\" source=\"" . self::esc(self::backupBody($d, $key)) . "\"\n\n";
         $s .= "# --- urnik: push vsako minuto, backup enkrat dnevno\n";
@@ -418,6 +515,11 @@ ROS;
             . ":do { /system script set [find where name=\"noc-push\" or name=\"noc-backup\"] policy=$pol,reboot } on-error={}\n"
             . ":do { /system scheduler set [find where name=\"noc-push\" or name=\"noc-backup\"] policy=$pol,reboot } on-error={}\n\n";
 
+        if ($sw) {   // stikalo: brez pinga s strežnika, traffic-flow, Zaščite, požarnega zidu in fw loga (to ima router stranke)
+            $s .= self::$auto ? "# --- terminal NOC: nespremenjen (samodejna posodobitev)\n\n" : Term::rsc($d);
+            $s .= "# --- fetch,info ne polni loga\n:foreach r in=[/system logging find] do={ :if ([:tostr [/system logging get \$r topics]] = \"info\") do={ /system logging set \$r topics=info,!fetch } }\n\n";
+            return $s . "# --- prvi zagon\n/system script run noc-push\n:execute script=\"/system script run noc-backup\"\n:log info \"noc: stikalo nameščeno – push vsako minuto, backup zdaj in vsak dan ob " . sprintf('%02d:%02d', $hour, $min) . "\"\n";
+        }
         if (!empty($an['needs_icmp_rule']) && $noc !== '') {
             $s .= "# --- ping s strežnika NOC (input chain na tem routerju zavrže ICMP z interneta)\n";
             $s .= ":if ([:len [/ip firewall filter find comment~\"^noc: ping s\"]] = 0) do={\n"

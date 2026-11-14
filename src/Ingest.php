@@ -50,6 +50,8 @@ final class Ingest
         $rates = is_array($b['rates'] ?? null) ? $b['rates'] : [];
         $monitor = Devices::list((string)$d['monitor_ifaces']);
         if ($d['wan_iface'] !== '' && !in_array($d['wan_iface'], $monitor, true)) $monitor[] = $d['wan_iface'];   // WAN ima zgodovino vedno
+        $isSw = Devices::isSwitch($d); $min1 = null;   // stikalo: 5-min promet za vse porte, minutni samo uplink + porti z obvestilom
+        if ($isSw) { $monitor = array_values(array_filter(array_map(fn($i) => (string)($i['n'] ?? ''), (array)($b['ifs'] ?? [])), [SwitchIngest::class, 'isPort'])); $min1 = SwitchIngest::minutePorts($d); }
         $seen = []; $keepT = []; $events = []; $speedDrops = [];
         $evIfaces = array_values(array_unique(array_merge($monitor, Devices::list((string)$d['down_ifaces']))));   // dogodki za WAN in izbrane vmesnike
         $ifRows = [];   // vsi vmesniki v enem stavku (prej en stavek na vmesnik)
@@ -71,7 +73,7 @@ final class Ingest
                 if ($dt >= 20 && $dt <= 600 && $drx >= 0 && $dtx >= 0) {
                     $rxb = (int)round($drx * 8 / $dt); $txb = (int)round($dtx * 8 / $dt);
                     if (in_array($n, $monitor, true)) {
-                        $ins1->execute([$id, $n, $ts, $rxb, $txb]);
+                        if ($min1 === null || in_array($n, $min1, true)) $ins1->execute([$id, $n, $ts, $rxb, $txb]);
                         $ins5->execute([$id, $n, $slot5, $drx, $dtx, $rxb, $txb, min(300, $dt)]);
                     }
                 }
@@ -102,6 +104,9 @@ final class Ingest
             $insE = $pdo->prepare('INSERT INTO iface_events (device_id, iface, ts, kind, detail) VALUES (?,?,FROM_UNIXTIME(?),?,?)');
             foreach ($events as [$n, $k, $det, $t]) $insE->execute([$id, $n, $t, $k, mb_substr($det, 0, 255)]);
         }
+
+        // --- stikalo: bridge porti, VLAN-i, PoE, MAC tabela
+        if ($isSw && is_array($b['sw'] ?? null)) SwitchIngest::apply($d, $b['sw'], $now);
 
         // --- SFP moduli (vsakih 5 min)
         $sfpRows = [];
@@ -222,6 +227,7 @@ final class Ingest
             'pools' => $pools ?? ($oldStatus['pools'] ?? []),
             'flt' => is_array($b['flt'] ?? null) && $b['flt'] ? $b['flt'] : ($oldStatus['flt'] ?? null),
             'ntp' => self::ntp($b['ntp'] ?? null, $oldStatus['ntp'] ?? null, $now),
+            'sw_vf' => $isSw ? !empty($b['sw']['vf']) && in_array($b['sw']['vf'], [true, 'true', 'yes', 1, '1'], true) : null,
         ];
         // preverjanje certifikata (samo naprave s stikalom): 1 = push s preverjenim certifikatom, 0 = samo brez
         if ((int)($d['tls_check'] ?? 0) && isset($b['tls']) && in_array((int)$b['tls'], [0, 1], true)

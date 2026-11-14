@@ -607,8 +607,12 @@ final class Ai
         $lines = array_filter(explode("\n", Diff::normalize((string)$rsc)), fn($l) => trim($l) !== '' && !Diff::isNocLine($l));
         $cfg = mb_substr(implode("\n", $lines), 0, 60000);
         if (trim($cfg) === '') return $fail(A('ni izvoza konfiguracije'));
-        $sys = 'Si izkušen inženir za MikroTik RouterOS 7. Pregledaš celotno konfiguracijo routerja stranke (/export terse; skrivnosti so zamenjane z ***) in poiščeš konkretne težave: '
-            . 'varnost (dostop z interneta, storitve, uporabniki, požarni zid, DNS, UPnP), zastarele ali nesmiselne nastavitve, napake pri VLAN-ih in bridgih, manjkajoče varovalke (NTP, ura, backup), zmogljivost (fasttrack, nepotrebna pravila). '
+        $sys = (Devices::isSwitch($d)
+            ? 'Si izkušen inženir za MikroTik RouterOS 7. Pregledaš celotno konfiguracijo STIKALA stranke (CRS, za routerjem v LAN-u; /export terse; skrivnosti so zamenjane z ***) in poiščeš konkretne težave: '
+              . 'VLAN-i (bridge vlan-filtering, pvid, frame-types, tagged/untagged, upravljalni VLAN, HW offload), STP/RSTP in zanke, dostop do upravljanja (storitve, uporabniki, MAC server, neighbor discovery), manjkajoče varovalke (NTP, ura, backup). '
+              . 'Stikalo nima NAT in nima javnega naslova: ne predlagaj požarnega zidu za promet skozi stikalo, Zaščite, DHCP strežnika ali traffic-flow. '
+            : 'Si izkušen inženir za MikroTik RouterOS 7. Pregledaš celotno konfiguracijo routerja stranke (/export terse; skrivnosti so zamenjane z ***) in poiščeš konkretne težave: '
+              . 'varnost (dostop z interneta, storitve, uporabniki, požarni zid, DNS, UPnP), zastarele ali nesmiselne nastavitve, napake pri VLAN-ih in bridgih, manjkajoče varovalke (NTP, ura, backup), zmogljivost (fasttrack, nepotrebna pravila). ')
             . 'Pravila in skripte z oznako noc so od nadzornega sistema – teh ne komentiraj. Upoštevaj zapiske serviserja. '
             . 'Za vsako ugotovitev oceni prioriteto: "nujno" (dejanska luknja ali napaka, ki jo je treba popraviti), "priporočeno" (smiselna izboljšava), "neobvezno" (lepše, a brez prave koristi za to lokacijo). Ne pretiravaj – večina utrjevanj je priporočenih ali neobveznih. '
             . 'V "risk" napiši, kaj bi popravek lahko pokvaril ali odrezal (npr. dostop do kamer, VPN uporabnike, goste, port forward), ali prazno, če je varen. '

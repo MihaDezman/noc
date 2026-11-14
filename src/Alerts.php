@@ -118,12 +118,15 @@ final class Alerts
         // vmesniki, ki morajo biti gor
         $watch = Devices::list((string)$d['down_ifaces']);
         if ($watch) {
-            $st = db()->prepare('SELECT name, running, disabled FROM device_ifaces WHERE device_id=?'); $st->execute([$id]);
+            $st = db()->prepare('SELECT name, running, disabled, comment FROM device_ifaces WHERE device_id=?'); $st->execute([$id]);
             $cur = []; foreach ($st as $r) $cur[$r['name']] = $r;
             foreach ($watch as $n) {
                 if (!isset($cur[$n])) { self::clear($d, 'iface:' . $n); continue; }   // router ga ne pošilja = neznano, ne izpad
                 $down = !$cur[$n]['running'] && !$cur[$n]['disabled'];
-                self::set($d, $down, 'iface:' . $n, $n === $d['wan_iface'] ? 'critical' : 'warning', A('Vmesnik {n} ne deluje', ['n' => $n]));
+                $msg = Devices::isSwitch($d)
+                    ? A('Port {p} ne deluje', ['p' => $n . ($cur[$n]['comment'] !== '' ? ' (' . $cur[$n]['comment'] . ')' : '')])
+                    : A('Vmesnik {n} ne deluje', ['n' => $n]);
+                self::set($d, $down, 'iface:' . $n, $n === $d['wan_iface'] ? 'critical' : 'warning', $msg);
             }
         }
 
@@ -137,6 +140,7 @@ final class Alerts
     public static function evaluateCron(): void
     {
         $devs = array_map([Devices::class, 'decorate'], db()->query('SELECT ' . Devices::listCols('d') . ' FROM devices d WHERE d.active=1')->fetchAll());
+        $byId = array_column($devs, null, 'id');
         $minute = (int)date('i');
         // vsi pingi hkrati (zaporedno bi pri 100 napravah trajalo več kot minuto)
         $need = array_filter($devs, fn($d) => filter_var($d['public_ip'], FILTER_VALIDATE_IP) && ($minute % 5 === 0 || !$d['online']));
@@ -152,6 +156,14 @@ final class Alerts
             }
             if (!$d['last_seen_at']) continue;
             $silent = time() - strtotime($d['last_seen_at']);
+            if ($silent > $th['th_offline_min'] * 60 && Devices::isSwitch($d)) {
+                // stikalo: ne more javiti izpada svojega uplinka – tišina je alarm stikala; če je tih tudi router-starš, je vzrok router/internet
+                $pr = $byId[(int)($d['parent_id'] ?? 0)] ?? null;
+                $prSilent = $pr && (!$pr['last_seen_at'] || time() - strtotime($pr['last_seen_at']) > Devices::thresholds($pr)['th_offline_min'] * 60);
+                if ($prSilent) self::clear($d, 'offline');
+                else self::raise($d, 'offline', 'critical', A('{n} ne javlja (uplink ali napajanje) že {m} min', ['n' => $d['name'], 'm' => intdiv($silent, 60)]));
+                continue;
+            }
             if ($silent > $th['th_offline_min'] * 60) {
                 if ($ok === null && filter_var($d['public_ip'], FILTER_VALIDATE_IP)) [$ok] = self::ping($d['public_ip'], 3);
                 if ($ok) { self::clear($d, 'offline'); self::raise($d, 'push', 'warning', A('Router odgovarja na ping, pošiljanje podatkov pa ne deluje že {m} min', ['m' => intdiv($silent, 60)])); }

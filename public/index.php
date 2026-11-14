@@ -246,13 +246,11 @@ if ($path === '/devices/create' && $method === 'POST') {
     $an = MikrotikExport::analyze($rsc);
     $tenantId = (int)post('tenant_id');
     if (post('new_tenant') !== '') { db()->prepare('INSERT INTO tenants (name) VALUES (?)')->execute([post('new_tenant')]); $tenantId = (int)db()->lastInsertId(); }
-    $f = DeviceForm::read();
-    db()->prepare('INSERT INTO devices (tenant_id, driver, kind, name, site, model, serial, os_version, public_ip, wan_iface, wan_gateway, gw_ping, ping_target, lan_networks, monitor_ifaces, down_ifaces, wan_down_mbps, wan_up_mbps, flow_enabled, export_raw, analysis_json, notes)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
-        ->execute([$tenantId ?: null, 'mikrotik', 'router', $f['name'], $f['site'], $an['model'], $an['serial'], $an['ros_version'], $f['public_ip'], $f['wan_iface'], $f['wan_gateway'], $f['gw_ping'], $f['ping_target'],
-            $f['lan_networks'], $f['monitor_ifaces'], $f['down_ifaces'], $f['wan_down_mbps'], $f['wan_up_mbps'], $f['flow_enabled'], $rsc, json_encode($an, JSON_UNESCAPED_UNICODE), $f['notes']]);
-    $id = (int)db()->lastInsertId();
-    Devices::newKey($id);
+    $f = DeviceForm::read(); $f['tenant_id'] = $tenantId ?: null;
+    if ($f['kind'] === 'switch' && !$f['parent_id']) back('/devices/new' . (!empty($_SESSION['pending_enroll']) ? '?enroll=' . (int)$_SESSION['pending_enroll'] : ''), A('Izberi router, za katerim je stikalo.'), 'err');
+    $id = Devices::create($f, $an, $rsc);
+    if ($f['kind'] === 'switch' && $f['parent_id'] && ($pr = Devices::full((int)$f['parent_id'])) && (int)$pr['term_enabled'])   // router dobi SSH posredovanje za terminal stikala
+        Actions::create($pr, 'term', 'on', 1, 'approved', A('terminal stikala prek routerja'), 'splet', null, (string)(Auth::$user['email'] ?? 'splet'));
     if (!empty($_SESSION['pending_enroll'])) Enroll::markUsed((int)$_SESSION['pending_enroll'], $id);
     unset($_SESSION['pending_export'], $_SESSION['pending_enroll']);
     Ufw::write();
@@ -339,6 +337,10 @@ if (($seg[0] ?? '') === 'devices' && ctype_digit($seg[1] ?? '')) {
         db()->prepare('UPDATE devices SET tenant_id=?, name=?, site=?, public_ip=?, wan_iface=?, wan_gateway=?, gw_ping=?, ping_target=?, lan_networks=?, monitor_ifaces=?, down_ifaces=?, wan_down_mbps=?, wan_up_mbps=?, flow_enabled=?, log_include=?, log_exclude=?, thresholds=?, notes=? WHERE id=?')
             ->execute([(int)post('tenant_id') ?: null, $f['name'], $f['site'], $f['public_ip'], $f['wan_iface'], $f['wan_gateway'], $f['gw_ping'], $f['ping_target'], $f['lan_networks'], $f['monitor_ifaces'], $f['down_ifaces'],
                 $f['wan_down_mbps'], $f['wan_up_mbps'], $f['flow_enabled'], $f['log_include'], $f['log_exclude'], $th ? json_encode($th) : null, $f['notes'], $id]);
+        if ($f['kind'] === 'switch' && Devices::isSwitch($d)) {   // stikalo: router in naročnik routerja, upravljalni naslov
+            $pt = $f['parent_id'] ? Devices::full((int)$f['parent_id']) : null;
+            db()->prepare('UPDATE devices SET parent_id=?, tenant_id=?, mgmt_ip=? WHERE id=?')->execute([$pt ? (int)$pt['id'] : null, $pt ? $pt['tenant_id'] : $d['tenant_id'], $f['mgmt_ip'], $id]);
+        }
         db()->prepare('UPDATE devices SET auto_update=? WHERE id=?')->execute([post('auto_update') ? 1 : 0, $id]);
         db()->prepare('UPDATE devices SET newdev_alert=?, newdev_ignore=? WHERE id=?')->execute([post('newdev_alert') ? 1 : 0, implode(',', Devices::list(post('newdev_ignore'))), $id]);
         Alerts::closeOff(['id' => $id, 'thresholds' => $th ? json_encode($th) : null]);   // izklopljeni alarmi se zaprejo takoj
@@ -387,6 +389,42 @@ if (($seg[0] ?? '') === 'devices' && ctype_digit($seg[1] ?? '')) {
         $v = Ros::latest();
         $r = $v !== '' ? Actions::create($d, 'upgrade', $v, 1, 'approved', A('ročno v NOC'), 'splet', null, (string)(Auth::$user['email'] ?? 'splet')) : A('zadnja verzija ni znana');
         back("/devices/$id#ros", is_int($r) ? A('Posodobitev na {v} poslana routerju – ob 03:30 jo namesti. O izidu dobiš obvestilo.', ['v' => $v]) : A('Ni mogoče: {r}', ['r' => $r]), is_int($r) ? 'ok' : 'err');
+    }
+    if ($sub === 'swport' && Devices::isSwitch($d)) {   // panel porta stikala (fragment za stranski panel) in ukrepi na portu
+        $port = (string)($method === 'POST' ? post('p') : q('p'));
+        $st = db()->prepare('SELECT * FROM device_ifaces WHERE device_id=? AND name=?'); $st->execute([$id, $port]); $pif = $st->fetch();
+        if (!$pif || !SwitchIngest::isPort($port)) { http_response_code(404); exit(A('Port ne obstaja.')); }
+        $act = $seg[3] ?? '';
+        if ($act === 'alert' && $method === 'POST') {   // obvestilo ob padcu/vrnitvi porta
+            Auth::requireSuper();
+            $w = Devices::list((string)$d['down_ifaces']);
+            $w = post('on') ? array_values(array_unique(array_merge($w, [$port]))) : array_values(array_diff($w, [$port]));
+            db()->prepare('UPDATE devices SET down_ifaces=? WHERE id=?')->execute([implode(',', $w), $id]);
+            if (!post('on')) Alerts::clear($d, 'iface:' . $port);
+            audit('device.swport-alert', "{$d['name']} $port " . (post('on') ? 'on' : 'off'));
+            json_out(['ok' => true, 'on' => (bool)post('on')]);
+        }
+        if (in_array($act, ['preview', 'save'], true) && $method === 'POST') {   // sprememba porta: predogled ali pošiljanje
+            Auth::requireSuper();
+            $want = ['comment' => post('comment'), 'disabled' => post('disabled') === '1'];
+            if (post('mode') !== '') $want += ['mode' => post('mode'), 'vlan' => (int)post('vlan'), 'native' => (int)post('native'),
+                'tagged' => array_merge(array_map('intval', (array)($_POST['tagged'] ?? [])), array_map('intval', preg_split('/[\s,;]+/', post('tagged_more'), -1, PREG_SPLIT_NO_EMPTY)))];
+            if (post('poe') !== '') $want['poe'] = post('poe');
+            if (post('poe_reset')) $want['poe_reset'] = true;
+            $plan = SwPort::plan($d, $port, $want);
+            if ($act === 'preview' || $plan['err'] !== '') json_out(['cmds' => $plan['cmds'], 'warn' => $plan['warn'], 'err' => $plan['err']]);
+            if (!$plan['want']) json_out(['err' => A('Ni sprememb.')]);
+            if ($plan['warn'] && !post('confirm')) json_out(['err' => A('Potrdi opozorilo.'), 'warn' => $plan['warn']]);
+            $r = Actions::create($d, 'swport', $port, 1, 'approved', A('sprememba porta'), 'splet', null, (string)(Auth::$user['email'] ?? 'splet'), ['want' => $plan['want'], 'summary' => $plan['summary']]);
+            audit('device.swport', "{$d['name']} $port: {$plan['summary']}");
+            json_out(is_int($r) ? ['ok' => true, 'msg' => A('Poslano – stikalo spremembo izvede ob naslednjem pushu (v minuti).')] : ['err' => (string)$r]);
+        }
+        if ($act === '' && $method === 'GET') {
+            require_once APP_ROOT . '/views/_helpers.php';
+            header('Content-Type: text/html; charset=utf-8');
+            $isSuper = Auth::isSuper();
+            require APP_ROOT . '/views/sw_port.php'; exit;
+        }
     }
     if ($sub === 'ntp' && $method === 'POST') {   // vklop NTP odjemalca (prek pusha)
         Auth::requireSuper();

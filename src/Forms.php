@@ -11,7 +11,14 @@ final class DeviceForm
         $csv = fn($v) => implode(',', array_unique(array_filter(array_map('trim', preg_split('/[,;\r\n]+/', (string)$v)))));
         $nets = implode(',', array_filter(array_map('trim', preg_split('/[\s,;]+/', post('lan_networks'))), fn($n) => preg_match('#^\d+\.\d+\.\d+\.\d+/\d{1,2}$#', $n)));
         $rx = fn($v) => preg_replace('/[^a-zA-Z0-9|,.;_\-]/', '', (string)$v);
-        return [
+        $kind = post('kind') === 'switch' ? 'switch' : 'router';
+        $parent = null;
+        if ($kind === 'switch' && (int)post('parent_id')) {
+            $st = db()->prepare("SELECT id FROM devices WHERE id=? AND kind='router'"); $st->execute([(int)post('parent_id')]);
+            $parent = ($x = $st->fetchColumn()) ? (int)$x : null;
+        }
+        $f = [
+            'kind' => $kind, 'parent_id' => $parent,
             'name' => mb_substr(ros_clean(post('name')) ?: 'MikroTik', 0, 120), 'site' => mb_substr(ros_clean(post('site')), 0, 160),
             'public_ip' => $ip(post('public_ip')), 'wan_iface' => mb_substr(trim(ros_clean(post('wan_iface'))), 0, 64), 'wan_gateway' => $ip(post('wan_gateway')),
             'gw_ping' => in_array(post('gw_ping'), ['auto', 'fixed', 'off'], true) ? post('gw_ping') : 'auto',
@@ -22,6 +29,17 @@ final class DeviceForm
             'log_include' => $rx(post('log_include', 'critical|error|warning|system|account|interface|wireguard|health|script')),
             'log_exclude' => $rx(post('log_exclude', 'debug|packet|dhcp.info|hotspot.info')),
         ];
+        // stikalo: brez WAN, prehoda, LAN omrežij in traffic-flow (to ima router stranke)
+        if ($kind === 'switch') $f = array_merge($f, ['public_ip' => '', 'wan_iface' => '', 'wan_gateway' => '', 'gw_ping' => 'off', 'lan_networks' => '', 'monitor_ifaces' => '', 'flow_enabled' => 0, 'wan_down_mbps' => null, 'wan_up_mbps' => null,
+            'down_ifaces' => $csv(post('down_ifaces_sw', post('down_ifaces'))), 'mgmt_ip' => $ip(post('mgmt_ip'))]);
+        return $f;
+    }
+
+    /** Privzete vrednosti (za notranjo rabo in teste) */
+    public static function defaults(): array
+    {
+        return ['site' => '', 'public_ip' => '', 'wan_iface' => '', 'wan_gateway' => '', 'gw_ping' => 'off', 'ping_target' => '1.1.1.1', 'lan_networks' => '', 'monitor_ifaces' => '',
+            'down_ifaces' => '', 'wan_down_mbps' => null, 'wan_up_mbps' => null, 'flow_enabled' => 0, 'notes' => ''];
     }
 }
 

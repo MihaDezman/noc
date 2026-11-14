@@ -7,7 +7,7 @@ Teče kot www-data (systemd: deploy/term/noc-term.service) in posluša samo na 1
 Odjemalec pošilja JSON: {"t":"i","d":"<vnos>"} ali {"t":"r","c":<stolpci>,"r":<vrstice>}; strežnik pošilja surov izpis (binarno).
 Potrebuje: python3-websockets (Debian paket), OpenSSH odjemalec, php-cli.
 """
-import asyncio, fcntl, json, os, pty, signal, struct, sys, termios, time, urllib.parse
+import asyncio, fcntl, json, os, pty, shlex, signal, struct, sys, termios, time, urllib.parse
 
 try:   # websockets 13+ (nova izvedba) ali starejši (10–12)
     from websockets.asyncio.server import serve as ws_serve
@@ -74,6 +74,16 @@ async def handler(ws, *_):
            '-o', 'UserKnownHostsFile=' + info['known_hosts'], '-o', 'LogLevel=ERROR']
     for k in info['keys']:
         cmd += ['-i', k]
+    j = info.get('jump')
+    if j:   # stikalo: skok prek routerja stranke (-J ne prenese -i/known_hosts na prvi skok, zato ProxyCommand)
+        pc = ['ssh', '-F', '/dev/null', '-p', str(int(j['port'])), '-o', 'BatchMode=yes', '-o', 'IdentitiesOnly=yes', '-o', 'ConnectTimeout=10',
+              '-o', 'StrictHostKeyChecking=accept-new', '-o', 'UserKnownHostsFile=' + info['known_hosts'], '-o', 'LogLevel=ERROR']
+        for k in info['keys']:
+            pc += ['-i', k]
+        pc += ['-W', '%h:%p', f"{j['user']}@{j['host']}"]
+        cmd += ['-o', 'ProxyCommand=' + ' '.join(shlex.quote(x) for x in pc)]
+        if info.get('alias'):
+            cmd += ['-o', 'HostKeyAlias=' + str(info['alias'])]
     cmd.append(f"{info['user']}@{info['host']}")
 
     pid, fd = pty.fork()

@@ -40,6 +40,7 @@ CREATE TABLE login_attempts (
 CREATE TABLE devices (
   id             INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   tenant_id      INT UNSIGNED NULL,
+  parent_id      INT UNSIGNED NULL,                    -- stikalo: router stranke, za katerim je
   driver         VARCHAR(20) NOT NULL DEFAULT 'mikrotik',
   kind           ENUM('router','switch','ap','other') NOT NULL DEFAULT 'router',
   name           VARCHAR(120) NOT NULL,
@@ -50,6 +51,7 @@ CREATE TABLE devices (
   firmware       VARCHAR(40)  NOT NULL DEFAULT '',
   arch           VARCHAR(20)  NOT NULL DEFAULT '',
   public_ip      VARCHAR(45)  NOT NULL DEFAULT '',     -- statični javni IP (ping s tigra, traffic-flow, ufw)
+  mgmt_ip        VARCHAR(45)  NOT NULL DEFAULT '',     -- stikalo: naslov v LAN-u (terminal prek routerja)
   wan_iface      VARCHAR(64)  NOT NULL DEFAULT '',
   wan_gateway    VARCHAR(45)  NOT NULL DEFAULT '',     -- rezerva, če skripta prehoda ne najde sama
   gw_ping        ENUM('auto','fixed','off') NOT NULL DEFAULT 'auto',
@@ -102,7 +104,9 @@ CREATE TABLE devices (
   sec_at         DATETIME NULL,
   speed_auto     TINYINT(1) NOT NULL DEFAULT 0,          -- nočna meritev hitrosti (04:00–05:59)
   term_enabled   TINYINT(1) NOT NULL DEFAULT 0,          -- terminal v brskalniku (SSH s strežnika NOC)
-  FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE SET NULL
+  KEY ix_parent (parent_id),
+  FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE SET NULL,
+  CONSTRAINT fk_dev_parent FOREIGN KEY (parent_id) REFERENCES devices(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Trenutno stanje vmesnikov (zadnji push)
@@ -431,8 +435,8 @@ CREATE TABLE IF NOT EXISTS ai_log (
 CREATE TABLE IF NOT EXISTS noc_actions (
   id          INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   device_id   INT UNSIGNED NOT NULL,
-  kind        ENUM('block','unblock','upgrade','speed','term','wgsrv','wgdel','ntp') NOT NULL,
-  ip          VARCHAR(45) NOT NULL,
+  kind        ENUM('block','unblock','upgrade','speed','term','wgsrv','wgdel','ntp','swport') NOT NULL,
+  ip          VARCHAR(64) NOT NULL,
   hours       SMALLINT UNSIGNED NOT NULL DEFAULT 24,
   status      ENUM('proposed','approved','sent','done','rejected','failed','cancelled') NOT NULL DEFAULT 'proposed',
   tries       TINYINT UNSIGNED NOT NULL DEFAULT 0,      -- kolikokrat poslano routerju (po 3 neuspehih: failed)
@@ -683,3 +687,51 @@ INSERT INTO settings (k, v) VALUES
  ('mgmt_ips', ''), ('th_flap', '3'), ('th_flap_min', '60'),
  ('th_fw_ports', '50'), ('th_fw_hits', '200'), ('th_fw_spike', '5'), ('th_fw_spike_min', '1000'),
  ('th_out_ips', '100'), ('th_out_smtp', '10'), ('th_out_bl', '1');
+
+-- stanje L2 na port (zadnji push stikala)
+CREATE TABLE IF NOT EXISTS sw_ports (
+  device_id   INT UNSIGNED NOT NULL,
+  port        VARCHAR(64) NOT NULL,
+  bridge      VARCHAR(64) NOT NULL DEFAULT '',
+  pvid        SMALLINT UNSIGNED NOT NULL DEFAULT 1,
+  frame_types VARCHAR(40) NOT NULL DEFAULT '',
+  mode        ENUM('access','trunk','none') NOT NULL DEFAULT 'none',
+  untagged    VARCHAR(500) NOT NULL DEFAULT '',
+  tagged      VARCHAR(500) NOT NULL DEFAULT '',
+  poe_mode    VARCHAR(20) NOT NULL DEFAULT '',
+  poe_status  VARCHAR(40) NOT NULL DEFAULT '',
+  poe_w       DECIMAL(5,1) NULL,
+  stp_role    VARCHAR(20) NOT NULL DEFAULT '',
+  stp_state   VARCHAR(20) NOT NULL DEFAULT '',
+  edge        TINYINT(1) NOT NULL DEFAULT 0,
+  hosts_n     SMALLINT UNSIGNED NOT NULL DEFAULT 0,
+  host_mac    VARCHAR(17) NOT NULL DEFAULT '',
+  updated_at  DATETIME NOT NULL,
+  PRIMARY KEY (device_id, port),
+  FOREIGN KEY (device_id) REFERENCES devices(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- /interface bridge vlan stikala
+CREATE TABLE IF NOT EXISTS sw_vlans (
+  device_id   INT UNSIGNED NOT NULL,
+  bridge      VARCHAR(64) NOT NULL,
+  vlan_id     SMALLINT UNSIGNED NOT NULL,
+  comment     VARCHAR(255) NOT NULL DEFAULT '',
+  tagged      VARCHAR(1000) NOT NULL DEFAULT '',
+  untagged    VARCHAR(1000) NOT NULL DEFAULT '',
+  dynamic     TINYINT(1) NOT NULL DEFAULT 0,
+  PRIMARY KEY (device_id, bridge, vlan_id),
+  FOREIGN KEY (device_id) REFERENCES devices(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- MAC tabela stikala (katera naprava je na katerem portu); vnosi starejši od 1 h se brišejo
+CREATE TABLE IF NOT EXISTS sw_hosts (
+  device_id   INT UNSIGNED NOT NULL,
+  mac         VARCHAR(17) NOT NULL,
+  vid         SMALLINT UNSIGNED NOT NULL DEFAULT 0,
+  port        VARCHAR(64) NOT NULL,
+  seen_at     DATETIME NOT NULL,
+  PRIMARY KEY (device_id, mac, vid),
+  KEY ix_port (device_id, port),
+  FOREIGN KEY (device_id) REFERENCES devices(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

@@ -5,6 +5,13 @@
   var root = document.documentElement;
   var css = function (v) { return getComputedStyle(root).getPropertyValue(v).trim(); };
 
+  // ---- obrazec naprave: polja za router / stikalo
+  document.querySelectorAll('form').forEach(function (fm) {
+    var k = fm.querySelector('[name="kind"]'); if (!k) return;
+    var apply = function () { fm.querySelectorAll('[data-kind]').forEach(function (el) { el.hidden = el.dataset.kind !== k.value; }); };
+    k.addEventListener('change', apply); apply();
+  });
+
   // ---- tema
   document.querySelectorAll('[data-theme-toggle]').forEach(function (b) {
     b.addEventListener('click', function () {
@@ -180,17 +187,92 @@
   var lazyObs = 'IntersectionObserver' in window ? new IntersectionObserver(function (ents) {
     ents.forEach(function (e) { if (e.isIntersecting) { lazyObs.unobserve(e.target); e.target._seen = true; load(e.target); } });
   }, { rootMargin: '300px 0px' }) : null;
-  document.querySelectorAll('[data-chart]').forEach(function (box) {
-    charts.push(box);
-    if (box.hasAttribute('data-lazy') && lazyObs) lazyObs.observe(box); else { box._seen = true; load(box); }
-  });
-  document.querySelectorAll('[data-range-for]').forEach(function (seg) {
-    seg.addEventListener('click', function (e) {
-      var b = e.target.closest('button'); if (!b) return;
-      seg.querySelectorAll('button').forEach(function (x) { x.classList.toggle('on', x === b); });
-      var grp = document.getElementById(seg.dataset.rangeFor); if (!grp) return;
-      grp.querySelectorAll('[data-chart]').forEach(function (box) { box.dataset.r = b.dataset.r; if (box._seen) load(box); });
+  function initCharts(root) {
+    root.querySelectorAll('[data-chart]').forEach(function (box) {
+      charts.push(box);
+      if (box.hasAttribute('data-lazy') && lazyObs) lazyObs.observe(box); else { box._seen = true; load(box); }
     });
-  });
+    root.querySelectorAll('[data-range-for]').forEach(function (seg) {
+      seg.addEventListener('click', function (e) {
+        var b = e.target.closest('button'); if (!b) return;
+        seg.querySelectorAll('button').forEach(function (x) { x.classList.toggle('on', x === b); });
+        var grp = document.getElementById(seg.dataset.rangeFor); if (!grp) return;
+        grp.querySelectorAll('[data-chart]').forEach(function (box) { box.dataset.r = b.dataset.r; if (box._seen) load(box); });
+      });
+    });
+  }
+  initCharts(document);
+  window.NOC = window.NOC || {}; window.NOC.initCharts = initCharts;
+  window.NOC.dropCharts = function (root) { charts = charts.filter(function (b) { return !root.contains(b); }); };
   var rt; window.addEventListener('resize', function () { clearTimeout(rt); rt = setTimeout(redrawAll, 150); });
+
+  // ================================================================ stikalo: stranski panel porta
+  var drw = null, drwPort = null;
+  var csrf = function () { if (window.NOC && NOC.csrf) return NOC.csrf; var i = document.querySelector('input[name="_csrf"]'); return i ? i.value : ''; };
+  function closeDrw() {
+    if (!drw) return;
+    drw.classList.remove('open'); document.body.classList.remove('drw-open'); drwPort = null;
+    document.querySelectorAll('.swp.sel').forEach(function (b) { b.classList.remove('sel'); });
+  }
+  function openDrw(dev, port) {
+    if (!drw) {
+      drw = document.createElement('aside'); drw.className = 'drawer'; drw.setAttribute('aria-label', 'Port'); document.body.appendChild(drw);
+      drw.addEventListener('click', function (e) { if (e.target.closest('[data-drw-close]')) closeDrw(); });
+    }
+    if (tip) tip.style.display = 'none';
+    drwPort = dev + '/' + port;
+    document.querySelectorAll('.swp').forEach(function (b) { b.classList.toggle('sel', b.dataset.dev === String(dev) && b.dataset.swPort === port); });
+    fetch('/devices/' + dev + '/swport?p=' + encodeURIComponent(port), { credentials: 'same-origin' })
+      .then(function (r) { if (!r.ok) throw new Error(r.status); return r.text(); })
+      .then(function (html) {
+        if (drwPort !== dev + '/' + port) return;   // medtem kliknjen drug port
+        if (window.NOC.dropCharts) window.NOC.dropCharts(drw);
+        drw.innerHTML = html; drw.classList.add('open'); document.body.classList.add('drw-open'); drw.scrollTop = 0;
+        initCharts(drw); initSwForm(drw, dev);
+      })
+      .catch(function () { drw.innerHTML = '<div class="drw-head"><h2>⚠</h2><button type="button" class="drw-x" data-drw-close>✕</button></div>'; drw.classList.add('open'); });
+  }
+  document.addEventListener('click', function (e) {
+    var t = e.target.closest('[data-sw-port]');
+    if (t && !e.target.closest('a')) { e.preventDefault(); openDrw(t.dataset.dev, t.dataset.swPort); }
+  });
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') closeDrw();
+    if ((e.key === 'Enter' || e.key === ' ') && e.target.matches && e.target.matches('tr[data-sw-port]')) { e.preventDefault(); openDrw(e.target.dataset.dev, e.target.dataset.swPort); }
+  });
+  function post(url, data) {
+    var fd = data instanceof FormData ? data : new FormData(); if (!(data instanceof FormData)) Object.keys(data).forEach(function (k) { fd.append(k, data[k]); });
+    fd.append('_csrf', csrf());
+    return fetch(url, { method: 'POST', body: fd, credentials: 'same-origin' }).then(function (r) { return r.json(); });
+  }
+  function initSwForm(root, dev) {
+    var body = root.querySelector('.drw-body'); if (!body) return;
+    var port = body.dataset.port;
+    var al = root.querySelector('[data-sw-alert]');
+    if (al) al.addEventListener('change', function () { post('/devices/' + dev + '/swport/alert', { p: port, on: al.checked ? '1' : '' }).catch(function () { al.checked = !al.checked; }); });
+    var f = root.querySelector('[data-sw-form]'); if (!f) return;
+    var mode = f.querySelector('[data-sw-mode]');
+    var showMode = function () { var m = mode ? mode.value : ''; f.querySelectorAll('[data-sw-show]').forEach(function (el) { el.hidden = el.dataset.swShow !== m; }); };
+    if (mode) { mode.addEventListener('change', showMode); showMode(); }
+    var out = f.querySelector('[data-sw-out]');
+    var render = function (j, sent) {
+      out.hidden = false; out.innerHTML = '';
+      var add = function (tag, cls, txt) { var x = document.createElement(tag); if (cls) x.className = cls; x.textContent = txt; out.appendChild(x); return x; };
+      if (j.err) { add('div', 'note warn', j.err); return; }
+      if (sent) { add('div', 'note', j.msg || ''); return; }
+      if (!j.cmds || !j.cmds.length) { add('div', 'small muted', T.swNoChange || 'Ni sprememb.'); return; }
+      add('div', 'small muted', T.swPreview || 'Ukazi za stikalo:');
+      add('pre', 'mono sw-cmds', j.cmds.join('\n'));
+      (j.warn || []).forEach(function (w) { add('div', 'note warn', w); });
+      add('div', 'small muted', T.swSafety || '');
+      var b = add('button', 'btn primary', (j.warn && j.warn.length) ? (T.swSendAnyway || 'Razumem, pošlji') : (T.swSend || 'Pošlji na stikalo'));
+      b.type = 'button';
+      b.addEventListener('click', function () {
+        b.disabled = true;
+        var fd = new FormData(f); if (j.warn && j.warn.length) fd.append('confirm', '1');
+        post('/devices/' + dev + '/swport/save', fd).then(function (r) { render(r, !r.err); if (!r.err) setTimeout(function () { openDrw(dev, port); }, 1500); }).catch(function () { b.disabled = false; });
+      });
+    };
+    f.querySelector('[data-sw-preview]').addEventListener('click', function () { post('/devices/' + dev + '/swport/preview', new FormData(f)).then(function (j) { render(j, false); }); });
+  }
 })();

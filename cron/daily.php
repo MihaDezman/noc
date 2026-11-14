@@ -1,5 +1,5 @@
 <?php
-// 15 3 * * *  – dnevni povzetki, brisanje starih podatkov, osvežitev varnostnih podatkov
+// 15 2 * * *  – dnevni povzetki, brisanje starih podatkov, osvežitev varnostnih podatkov
 declare(strict_types=1);
 require dirname(__DIR__) . '/src/bootstrap.php';
 // vsak korak posebej: napaka v enem ne prepreči ostalih (in mesečnih poročil)

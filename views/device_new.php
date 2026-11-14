@@ -40,6 +40,7 @@
   $f = ['name' => $an['identity'] ?: 'MikroTik', 'site' => '', 'tenant_id' => 0, 'wan_iface' => $an['wan_iface'], 'public_ip' => $an['public_ip'], 'wan_gateway' => $an['gateway'],
         'gw_ping' => 'auto', 'ping_target' => '1.1.1.1', 'wan_down_mbps' => '', 'wan_up_mbps' => '', 'lan_networks' => implode(',', $an['lan_networks']), 'monitor_ifaces' => implode(',', $an['monitor_ifaces']),
         'down_ifaces' => $an['wan_iface'], 'flow_enabled' => $an['lan_networks'] ? 1 : 0, 'notes' => '', 'log_include' => '', 'log_exclude' => ''];
+  if (!empty($an['switch']['likely'])) $f = array_merge($f, ['kind' => 'switch', 'down_ifaces' => '', 'mgmt_ip' => $an['switch']['mgmt_ip']]);   // videti je kot stikalo
 ?>
 <div class="grid g-main">
   <section class="panel">

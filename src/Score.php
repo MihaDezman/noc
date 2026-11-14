@@ -14,9 +14,11 @@ final class Score
         $id = (int)$d['id']; $items = []; $score = 100.0;
         $add = function (string $sev, string $txt, string $link, float $pts) use (&$items, &$score) { $items[] = [$sev, $txt, $link, $pts]; $score -= $pts; };
 
+        $sw = Devices::isSwitch($d);   // stikalo: brez točk za požarni zid, WireGuard in promet LAN-a (to je pri routerju)
         // 1. požarni zid in storitve: do 40 točk
-        $fw = Firewall::audit($d);
-        if ($fw['score'] === null) $add('info', A('Ni izvoza konfiguracije – požarnega zidu ni mogoče oceniti'), "/devices/$id?tab=backups", 10);
+        $fw = $sw ? ['score' => 100] : Firewall::audit($d);
+        if ($sw) { /* stikalo za routerjem: požarni zid ocenjuje router */ }
+        elseif ($fw['score'] === null) $add('info', A('Ni izvoza konfiguracije – požarnega zidu ni mogoče oceniti'), "/devices/$id?tab=backups", 10);
         else {
             $crit = count(array_filter($fw['findings'], fn($f) => $f['sev'] === 'critical')); $warn = count(array_filter($fw['findings'], fn($f) => $f['sev'] === 'warning'));
             if ($crit || $warn) $add($crit ? 'critical' : 'warning', A('Požarni zid in storitve: {c} kritičnih, {w} opozoril', ['c' => $crit, 'w' => $warn]), "/devices/$id?tab=protect", min(40, $crit * 12 + $warn * 3));

@@ -240,3 +240,4 @@ function ai_note(?string $note, bool $open = false, string $risk = ''): string
     if ($note === null || trim($note) === '') return '';
     return '<details class="ai-note' . ($risk === 'warn' ? ' warn' : '') . '"' . ($open ? ' open' : '') . '><summary>' . icon('zap', 13) . h(A('AI analiza')) . '</summary><div>' . nl2br(h(trim($note))) . '</div></details>';
 }
+require_once __DIR__ . '/_switch_panel.php';

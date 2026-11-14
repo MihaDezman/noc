@@ -35,6 +35,12 @@ final class Actions
         if ($kind === 'block' && ($why = self::refuse($d, $ip)) !== '') return $why;
         if ($kind === 'unblock' && !filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) return A('ni veljaven IPv4 naslov');
         $hours = max(1, min(720, $hours)); $by = mb_substr($by, 0, 60);
+        if ($kind === 'swport') {   // nova sprememba istega porta nadomesti prejšnjo, ki je stikalo še ni prevzelo (nikoli se ne podvaja ali ponavlja)
+            db()->prepare("UPDATE noc_actions SET status='cancelled' WHERE device_id=? AND kind='swport' AND ip=? AND status IN ('proposed','approved')")->execute([$d['id'], $ip]);
+            db()->prepare('INSERT INTO noc_actions (device_id, kind, ip, hours, status, reason, source, decided_at, decided_by, data) VALUES (?,?,?,?,?,?,?,?,?,?)')
+                ->execute([$d['id'], 'swport', mb_substr($ip, 0, 64), 1, $status, mb_substr($reason, 0, 300), $source, $status === 'approved' ? date('Y-m-d H:i:s') : null, $status === 'approved' ? $by : '', json_encode($data, JSON_UNESCAPED_UNICODE)]);
+            return (int)db()->lastInsertId();
+        }
         // isti predlog za isti IP na isti napravi, ki še čaka, se ne podvaja; potrditev obstoječi predlog potrdi
         $st = db()->prepare("SELECT id, status FROM noc_actions WHERE device_id=? AND kind=? AND ip=? AND status IN ('proposed','approved','sent') LIMIT 1"); $st->execute([$d['id'], $kind, $ip]);
         if ($old = $st->fetch()) { if ($old['status'] === 'proposed' && $status === 'approved') self::decide((int)$old['id'], true, $by); return (int)$old['id']; }
@@ -64,7 +70,7 @@ final class Actions
     public static function pending(int $deviceId): bool
     {
         // meritev hitrosti brez rezultata v 10 min ne ponavljamo (obremeni linijo) – neuspešna
-        db()->prepare("UPDATE noc_actions SET status='failed' WHERE device_id=? AND kind='speed' AND status='sent' AND sent_at < NOW() - INTERVAL 10 MINUTE")->execute([$deviceId]);
+        db()->prepare("UPDATE noc_actions SET status='failed' WHERE device_id=? AND kind IN ('speed','swport') AND status='sent' AND sent_at < NOW() - INTERVAL 10 MINUTE")->execute([$deviceId]);   // sprememba porta se nikoli ne ponovi (varovalka jo je morda že povrnila)
         // "sent" brez potrditve 10 min = ponovi (uvoz je idempotenten), po 3 poskusih neuspešno
         db()->prepare("UPDATE noc_actions SET status='failed' WHERE device_id=? AND status='sent' AND tries >= 3 AND sent_at < NOW() - INTERVAL 10 MINUTE")->execute([$deviceId]);
         $st = db()->prepare("SELECT 1 FROM noc_actions WHERE device_id=? AND (status='approved' OR (status='sent' AND sent_at < NOW() - INTERVAL 10 MINUTE)) LIMIT 1"); $st->execute([$deviceId]);
@@ -74,8 +80,17 @@ final class Actions
     /** .rsc s potrjenimi ukrepi za router (/api/action) */
     public static function rsc(array $d): string
     {
-        $st = db()->prepare("SELECT * FROM noc_actions WHERE device_id=? AND (status='approved' OR (status='sent' AND sent_at < NOW() - INTERVAL 10 MINUTE)) ORDER BY id"); $st->execute([$d['id']]);
+        db()->prepare("UPDATE noc_actions SET status='failed' WHERE device_id=? AND kind='swport' AND status='sent' AND sent_at < NOW() - INTERVAL 10 MINUTE")->execute([$d['id']]);
+        $st = db()->prepare("SELECT * FROM noc_actions WHERE device_id=? AND (status='approved' OR (status='sent' AND kind<>'swport' AND sent_at < NOW() - INTERVAL 10 MINUTE)) ORDER BY id"); $st->execute([$d['id']]);
         $rows = $st->fetchAll();
+        // sprememba porta: največ ena na uvoz in nobena, dokler prejšnja čaka na potrditev (varovalki se ne smeta prekrivati)
+        $q = db()->prepare("SELECT 1 FROM noc_actions WHERE device_id=? AND kind='swport' AND status='sent' LIMIT 1"); $q->execute([$d['id']]);
+        $swBusy = (bool)$q->fetchColumn(); $swOne = false;
+        $rows = array_values(array_filter($rows, function ($r) use (&$swBusy, &$swOne) {
+            if ($r['kind'] !== 'swport') return true;
+            if ($swBusy || $swOne) return false;
+            return $swOne = true;
+        }));
         $base = rtrim((string)cfg('base_url'), '/'); $key = dec($d['api_key_enc'] ?? null);
         $chk = (int)($d['tls_check'] ?? 0) ? ' check-certificate=yes-without-crl' : '';
         $s = "# NOC ukrepi za " . ros_cmt((string)$d['name']) . "\n";
@@ -87,6 +102,7 @@ final class Actions
         foreach ($rows as $r) {
             if ($r['kind'] === 'upgrade') { $s .= Ros::upgradeRsc((int)$r['id'], $base, $key, $chk); continue; }
             if ($r['kind'] === 'speed') { $s .= Speed::rsc($d, (int)$r['id'], (string)$r['ip'], $base, $key, $chk); continue; }
+            if ($r['kind'] === 'swport') { $s .= SwPort::rsc($d, $r, $base, $key, $chk); continue; }   // ima svojo potrditev (action-done) in varovalko
             if (in_array($r['kind'], ['term', 'wgsrv', 'wgdel', 'ntp'], true)) {   // nastavitve: terminal NOC, WireGuard strežnik, NTP
                 $s .= ($r['kind'] === 'term' ? Term::rsc($d) : ($r['kind'] === 'ntp' ? self::ntpRsc() : WgServer::rsc($d, $r)))
                     . ":do { /tool fetch url=\"$base/api/action-done/{$r['id']}\"$chk http-header-field=\"X-Api-Key: $key\" output=none } on-error={}\n";
@@ -116,7 +132,8 @@ final class Actions
         $st = db()->prepare("UPDATE noc_actions SET status=?, done_at=NOW() WHERE id=? AND device_id=? AND status='sent'"); $st->execute([$fail ? 'failed' : 'done', $id, $d['id']]);
         if (!$st->rowCount()) return;
         $q = db()->prepare('SELECT kind, ip, hours, data FROM noc_actions WHERE id=?'); $q->execute([$id]); $a = $q->fetch();
-        if ($a && in_array($a['kind'], ['term', 'ntp'], true)) return;   // stanje se pokaže pri napravi (iz pusha)
+        if ($a && $a['kind'] === 'swport' && !$fail) db()->prepare('UPDATE noc_actions SET verified_at=NOW() WHERE id=?')->execute([$id]);
+        if ($a && in_array($a['kind'], ['term', 'ntp', 'swport'], true)) return;   // stanje se pokaže pri napravi (iz pusha)
         if ($a && in_array($a['kind'], ['wgsrv', 'wgdel'], true)) {
             if ($fail) return;
             $p = json_decode((string)$a['data'], true) ?: [];

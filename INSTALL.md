@@ -162,6 +162,18 @@ Na strežniku `bin/update.sh` sam pokliče `bin/fwlog-setup.sh` (rsyslog -> `/va
 Odhodni promet (skeniranje interneta, SMTP mimo strežnika, varnostna lista) se analizira iz traffic-flow (cron/flows.php).
 Rezultati: zavihek **Varnost** pri napravi. Hramba: povzetki 5 min 7 dni, dnevni 400 dni.
 
+## Stikala za routerjem (v1.37)
+
+Stikala MikroTik z RouterOS 7 (CRS3xx/5xx, netPower z ROS) so v NOC naprave vrste **Stikalo**, vezane na router stranke.
+
+- **Dodajanje:** Naprave → Dodaj napravo → enkratni ukaz prilepiš v terminal stikala (Winbox). NOC iz konfiguracije prepozna stikalo; izberi **Za routerjem**. Stikalo mora prek routerja doseči noc.dezman.net (privzeta pot in DNS).
+- **Pregled:** sprednja plošča (lebdenje = povzetek porta, klik = panel porta s stanjem, grafom, nastavitvami in dogodki). Pri routerju so njegova stikala prikazana eno pod drugim.
+- **Urejanje porta:** ime, vklop/izklop, VLAN (access) ali trunk (netagiran + tagirani VLAN-i), PoE. Samo z vklopljenim **bridge VLAN filtering**. Pred pošiljanjem predogled; sprememba gre ob naslednjem pushu.
+- **Varovalka:** stikalo pred spremembo shrani prejšnje stanje v skripto `noc-sw-rb-<id>`; če po spremembi ne doseže NOC, se čez 5 minut samo povrne. Sprememba se nikoli ne pošlje dvakrat.
+- **Obvestila:** kljukica »Obvesti, ko port pade« pri portu (polje Porti z obvestilom). Izpad uplinka = alarm »stikalo ne javlja«; če ne javlja tudi router, pride samo alarm routerja.
+- **Grafi:** 5-min promet za vse porte (porti brez obvestila 7 dni), minutni samo za uplink in porte z obvestilom, dnevni 400 dni.
+- **Terminal:** prek routerja stranke (SSH skok). Router mora imeti vklopljen terminal in javni IP; namestitev terminala na routerju doda `/ip ssh set forwarding-enabled=local`.
+
 ## fail2ban (priporočeno)
 
 NOC v Apache error log piše `noc-login-fail ip=…` (napačna prijava) in `noc-api-badkey ip=…` (neveljaven API ključ).

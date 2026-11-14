@@ -10,19 +10,32 @@ final class Metrics
     public static function traffic(int $id, string $iface, string $range): array
     {
         $h = self::RANGES[$range] ?? 24; $pdo = db();
-        if ($h <= 48) {
+        $has = function (string $sql) use ($pdo, $id, $iface): bool { $q = $pdo->prepare($sql); $q->execute([$id, $iface]); return (bool)$q->fetchColumn(); };
+        // porti stikal: brez minutnih podatkov (≤ 48 h) beri 5-min; brez 5-min starejših od 8 dni (30 d) beri dnevne
+        $src = $h <= 48 ? '1m' : ($h <= 720 ? '5m' : 'daily');
+        if ($src === '1m' && !$has("SELECT 1 FROM iface_1m WHERE device_id=? AND iface=? AND ts > NOW() - INTERVAL $h HOUR LIMIT 1")) $src = '5m';
+        if ($h > 168 && $h <= 720 && !$has('SELECT 1 FROM iface_5m WHERE device_id=? AND iface=? AND ts < NOW() - INTERVAL 8 DAY LIMIT 1')
+            && $has('SELECT 1 FROM iface_daily WHERE device_id=? AND iface=? LIMIT 1') && Devices::isSwitch(Devices::full($id) ?? [])) return self::trafficDaily($pdo, $id, $iface, $h);
+        if ($src === '1m') {
             $st = $pdo->prepare('SELECT UNIX_TIMESTAMP(ts) t, rx_bps r, tx_bps x FROM iface_1m WHERE device_id=? AND iface=? AND ts > NOW() - INTERVAL ? HOUR ORDER BY ts');
             $st->execute([$id, $iface, $h]);
-        } elseif ($h <= 168) {
+        } elseif ($src === '5m' && $h <= 168) {
             $st = $pdo->prepare('SELECT UNIX_TIMESTAMP(ts) t, ROUND(rx_bytes*8/GREATEST(secs,60)) r, ROUND(tx_bytes*8/GREATEST(secs,60)) x FROM iface_5m WHERE device_id=? AND iface=? AND ts > NOW() - INTERVAL ? HOUR ORDER BY ts');
             $st->execute([$id, $iface, $h]);
-        } elseif ($h <= 720) {
+        } elseif ($src === '5m') {
             $st = $pdo->prepare('SELECT UNIX_TIMESTAMP(DATE_FORMAT(ts, "%Y-%m-%d %H:00:00")) t, ROUND(SUM(rx_bytes)*8/GREATEST(SUM(secs),300)) r, ROUND(SUM(tx_bytes)*8/GREATEST(SUM(secs),300)) x FROM iface_5m WHERE device_id=? AND iface=? AND ts > NOW() - INTERVAL ? HOUR GROUP BY t ORDER BY t');
             $st->execute([$id, $iface, $h]);
         } else {
             $st = $pdo->prepare('SELECT UNIX_TIMESTAMP(day) t, ROUND(rx_bytes*8/86400) r, ROUND(tx_bytes*8/86400) x FROM iface_daily WHERE device_id=? AND iface=? AND day > CURDATE() - INTERVAL 366 DAY ORDER BY day');
             $st->execute([$id, $iface]);
         }
+        return self::cols($st->fetchAll(PDO::FETCH_NUM), 3);
+    }
+
+    private static function trafficDaily(PDO $pdo, int $id, string $iface, int $h): array
+    {
+        $st = $pdo->prepare('SELECT UNIX_TIMESTAMP(day) t, ROUND(rx_bytes*8/86400) r, ROUND(tx_bytes*8/86400) x FROM iface_daily WHERE device_id=? AND iface=? AND day > CURDATE() - INTERVAL ? DAY ORDER BY day');
+        $st->execute([$id, $iface, intdiv($h, 24) + 1]);
         return self::cols($st->fetchAll(PDO::FETCH_NUM), 3);
     }
 
@@ -131,6 +144,16 @@ final class Metrics
         $del += (int)$run('health_1m', fn() => self::purge('health_1m', 'ts < NOW() - INTERVAL 48 HOUR'));
         $del += (int)$run('iface_5m', fn() => self::purge('iface_5m', 'ts < NOW() - INTERVAL 35 DAY'));
         $del += (int)$run('health_5m', fn() => self::purge('health_5m', 'ts < NOW() - INTERVAL 35 DAY'));
+        // porti stikal brez obvestila: 5-min promet 7 dni (za 30 d graf ostane dnevni); uplink in porti z obvestilom kot ostali vmesniki
+        $del += (int)$run('sw_iface_5m', function () use ($pdo) {
+            $n = 0;
+            foreach ($pdo->query("SELECT " . Devices::listCols('d') . " FROM devices d WHERE d.kind='switch'")->fetchAll() as $sw) {
+                $keep = SwitchIngest::minutePorts($sw);
+                $w = 'device_id=' . (int)$sw['id'] . ' AND ts < NOW() - INTERVAL 7 DAY' . ($keep ? ' AND iface NOT IN (' . implode(',', array_map([$pdo, 'quote'], $keep)) . ')' : '');
+                $n += self::purge('iface_5m', $w);
+            }
+            return $n;
+        });
         $del += (int)$run('host_5m', fn() => self::purge('host_5m', 'ts < NOW() - INTERVAL 8 DAY'));
         $del += (int)$run('iface_daily', fn() => self::purge('iface_daily', 'day < CURDATE() - INTERVAL 400 DAY'));
         $del += (int)$run('host_daily', fn() => self::purge('host_daily', 'day < CURDATE() - INTERVAL 400 DAY'));

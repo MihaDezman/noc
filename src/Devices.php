@@ -32,7 +32,21 @@ final class Devices
                 FROM devices d LEFT JOIN tenants t ON t.id=d.tenant_id WHERE d.active=1 AND $w";
         if ($tenantId) { $sql .= ' AND d.tenant_id=?'; $p[] = $tenantId; }
         $st = db()->prepare($sql . ' ORDER BY t.name, d.name'); $st->execute($p);
-        return array_map([self::class, 'decorate'], $st->fetchAll());
+        return self::nest(array_map([self::class, 'decorate'], $st->fetchAll()));
+    }
+
+    /** Stikala takoj za svojim routerjem (oznaka _child); stikala brez routerja na seznamu ostanejo na svojem mestu */
+    public static function nest(array $devs): array
+    {
+        $ids = array_flip(array_map(fn($d) => (int)$d['id'], $devs)); $kids = [];
+        foreach ($devs as $d) if (self::isSwitch($d) && !empty($d['parent_id']) && isset($ids[(int)$d['parent_id']])) $kids[(int)$d['parent_id']][] = $d + ['_child' => true];
+        $out = [];
+        foreach ($devs as $d) {
+            if (self::isSwitch($d) && !empty($d['parent_id']) && isset($ids[(int)$d['parent_id']])) continue;
+            $out[] = $d;
+            foreach ($kids[(int)$d['id']] ?? [] as $k) $out[] = $k;
+        }
+        return $out;
     }
 
     /** Ena naprava ali 404 */
@@ -61,6 +75,44 @@ final class Devices
         $d['state'] = $age === null ? 'new' : (!$d['online'] || $outage ? 'down' : ($lvl >= 2 ? 'warn' : 'up'));
         $d['muted'] = $d['mute_until'] && strtotime($d['mute_until']) > time();
         return $d;
+    }
+
+    /**
+     * Nova naprava iz obrazca ($f = DeviceForm::read) in analize /export; vrne id.
+     * Stikalo podeduje naročnika routerja in dobi upravljalni naslov iz exporta.
+     */
+    public static function create(array $f, array $an, string $rsc): int
+    {
+        $sw = ($f['kind'] ?? 'router') === 'switch';
+        $tenant = $f['tenant_id'] ?? null;
+        if ($sw && !empty($f['parent_id'])) { $p = self::full((int)$f['parent_id']); if ($p) $tenant = $p['tenant_id']; }
+        db()->prepare('INSERT INTO devices (tenant_id, parent_id, driver, kind, name, site, model, serial, os_version, public_ip, mgmt_ip, wan_iface, wan_gateway, gw_ping, ping_target, lan_networks, monitor_ifaces, down_ifaces, wan_down_mbps, wan_up_mbps, flow_enabled, export_raw, analysis_json, notes)
+                       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
+            ->execute([$tenant ?: null, $sw ? ($f['parent_id'] ?? null) : null, 'mikrotik', $sw ? 'switch' : 'router', $f['name'], $f['site'] ?? '', $an['model'] ?? '', $an['serial'] ?? '', $an['ros_version'] ?? '',
+                $f['public_ip'] ?? '', $sw ? (string)($an['switch']['mgmt_ip'] ?? '') : '', $f['wan_iface'] ?? '', $f['wan_gateway'] ?? '', $f['gw_ping'] ?? 'auto', $f['ping_target'] ?? '1.1.1.1',
+                $f['lan_networks'] ?? '', $f['monitor_ifaces'] ?? '', $f['down_ifaces'] ?? '', $f['wan_down_mbps'] ?? null, $f['wan_up_mbps'] ?? null, (int)($f['flow_enabled'] ?? 0), $rsc, json_encode($an, JSON_UNESCAPED_UNICODE), $f['notes'] ?? '']);
+        $id = (int)db()->lastInsertId();
+        self::newKey($id);
+        return $id;
+    }
+
+    public static function isSwitch(array $d): bool { return ($d['kind'] ?? '') === 'switch'; }
+
+    /** Stikala za routerjem (vidna uporabniku), po imenu */
+    public static function children(int $routerId): array
+    {
+        [$w, $p] = Auth::deviceScope('d');
+        $st = db()->prepare("SELECT " . self::listCols('d') . ", t.name tenant_name,
+                  (SELECT MAX(FIELD(a.severity,'info','warning','critical')) FROM alerts a WHERE a.device_id=d.id AND a.ended_at IS NULL) alert_level
+                FROM devices d LEFT JOIN tenants t ON t.id=d.tenant_id WHERE d.parent_id=? AND d.kind='switch' AND d.active=1 AND $w ORDER BY d.name");
+        $st->execute(array_merge([$routerId], $p));
+        return array_map([self::class, 'decorate'], $st->fetchAll());
+    }
+
+    /** Router, za katerim je stikalo (polna vrstica), ali null */
+    public static function parent(array $d): ?array
+    {
+        return !empty($d['parent_id']) ? self::full((int)$d['parent_id']) : null;
     }
 
     public const OUTAGE_KEYS = ['offline', 'wan_down', 'ext_down'];

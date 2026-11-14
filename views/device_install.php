@@ -1,6 +1,6 @@
 <div class="page-head">
   <div><div class="crumbs"><a href="/devices"><?= h(A('Naprave')) ?></a><?= icon('chev', 14) ?><a href="/devices/<?= (int)$d['id'] ?>"><?= h($d['name']) ?></a><?= icon('chev', 14) ?></div>
-  <h1><?= h(A('Namestitev na router')) ?></h1><p><?= h($d['model'] ?: 'MikroTik') ?> · RouterOS <?= h($d['os_version'] ?: '?') ?></p></div>
+  <h1><?= h(Devices::isSwitch($d) ? A('Namestitev na stikalo') : A('Namestitev na router')) ?></h1><p><?= h($d['model'] ?: 'MikroTik') ?> · RouterOS <?= h($d['os_version'] ?: '?') ?></p></div>
   <div class="actions">
     <a class="btn primary" href="/devices/<?= (int)$d['id'] ?>/package"><?= icon('download', 16) ?><?= h(A('Prenesi paket (.zip)')) ?></a>
     <form method="post" action="/devices/<?= (int)$d['id'] ?>/key" data-confirm="<?= h(A('Ustvarim nov API ključ? Stari bo takoj prenehal delovati.')) ?>"><?= Auth::csrf() ?><button class="btn"><?= icon('key', 16) ?><?= h(A('Nov ključ')) ?></button></form>
@@ -8,6 +8,7 @@
 </div>
 
 <?php if ($d['last_seen_at']): ?><div class="note" style="margin-bottom:20px"><?= icon('check', 18) ?><span><?= h(A('Naprava že pošilja podatke (zadnjič {t}). Paket prenesi znova samo, če si spremenil nastavitve.', ['t' => fmt_ago($d['last_seen_at'])])) ?></span></div><?php endif; ?>
+<?php if (Devices::isSwitch($d)): ?><div class="note" style="margin-bottom:10px"><?= icon('info', 18) ?><span><?= h(A('Stikalo mora prek routerja doseči noc.dezman.net (privzeta pot in DNS). Preveri v terminalu stikala: /tool fetch url=https://noc.dezman.net output=none')) ?></span></div><?php endif; ?>
 <?php foreach ($an['warnings'] ?? [] as $wn): ?><div class="note warn" style="margin-bottom:10px"><?= icon('alert', 18) ?><span><?= h(A($wn)) ?></span></div><?php endforeach; ?>
 
 <div class="grid g-main" style="margin-top:10px">
@@ -50,11 +51,17 @@
     <section class="panel" style="margin-top:20px">
       <div class="panel-head"><h2><?= icon('activity', 18) ?><?= h(A('Kaj bo router pošiljal')) ?></h2></div>
       <div class="panel-body"><dl class="kv">
+        <?php if (Devices::isSwitch($d)): ?>
+        <dt><?= h(A('Vsako minuto')) ?></dt><dd><?= h(A('stanje, porti, VLAN-i, logi')) ?></dd>
+        <dt><?= h(A('Vsakih 5 min')) ?></dt><dd><?= h(A('PoE, MAC tabela, SFP')) ?></dd>
+        <dt><?= h(A('Enkrat dnevno')) ?></dt><dd><?= h(A('/export, posodobitve')) ?></dd>
+        <?php else: ?>
         <dt><?= h(A('Vsako minuto')) ?></dt><dd><?= h(A('stanje, vmesniki, ping, logi')) ?></dd>
         <dt><?= h(A('Vsakih 5 min')) ?></dt><dd><?= h(A('DHCP najemi')) ?></dd>
         <dt><?= h(A('Enkrat dnevno')) ?></dt><dd><?= h(A('/export, posodobitve')) ?></dd>
         <dt><?= h(A('Neprekinjeno')) ?></dt><dd><?= (int)$d['flow_enabled'] ? h(A('traffic-flow na UDP {p}', ['p' => cfg('flow_port', 2055)])) : h(A('traffic-flow izklopljen')) ?></dd>
         <dt><?= h(A('Ping s strežnika')) ?></dt><dd class="mono"><?= h($d['public_ip'] ?: '–') ?></dd>
+        <?php endif; ?>
       </dl></div>
     </section>
   </aside>

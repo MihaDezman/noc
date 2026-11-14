@@ -43,7 +43,9 @@ final class MikrotikExport
         $r = ['model' => '', 'serial' => '', 'ros_version' => '', 'identity' => '', 'ifaces' => [], 'bridges' => [], 'vlans' => [],
               'addresses' => [], 'dhcp_clients' => [], 'pppoe' => [], 'gateway' => '', 'wan_iface' => '', 'public_ip' => '', 'lan_networks' => [],
               'lists' => [], 'wg' => [], 'needs_icmp_rule' => false, 'flow_existing' => false, 'flow_targets' => [], 'has_noc' => false,
-              'dhcp_servers' => [], 'warnings' => [], 'facts' => [], 'dns' => ['servers' => '', 'remote' => 'no']];
+              'dhcp_servers' => [], 'warnings' => [], 'facts' => [], 'dns' => ['servers' => '', 'remote' => 'no'],
+              'switch' => ['likely' => false, 'vlan_filtering' => false, 'bridge' => '', 'mgmt_ip' => '']];
+        $vf = []; $hasNat = false;
 
         if (preg_match('/by RouterOS\s+([0-9.]+[a-z0-9]*)/i', $rsc, $m)) $r['ros_version'] = $m[1];
         if (preg_match('/^#\s*model\s*=\s*(.+)$/mi', $rsc, $m)) $r['model'] = trim($m[1]);
@@ -56,7 +58,11 @@ final class MikrotikExport
                 case '/interface ethernet':
                     if ($verb === 'set' && isset($kv['@find.default-name'])) { $def = $kv['@find.default-name']; $nm = $kv['name'] ?? $def; $renamed[$def] = $nm; $r['ifaces'][$nm] = ['type' => 'ether', 'default' => $def, 'comment' => $kv['comment'] ?? '']; }
                     break;
-                case '/interface bridge': if ($verb === 'add' && isset($kv['name'])) $r['bridges'][] = $kv['name']; break;
+                case '/interface bridge':
+                    if ($verb === 'add' && isset($kv['name'])) { $r['bridges'][] = $kv['name']; $vf[$kv['name']] = ($kv['vlan-filtering'] ?? 'no') === 'yes'; }
+                    if ($verb === 'set' && isset($kv['@find.name'], $kv['vlan-filtering'])) $vf[$kv['@find.name']] = $kv['vlan-filtering'] === 'yes';
+                    break;
+                case '/ip firewall nat': if ($verb === 'add' && in_array($kv['action'] ?? '', ['masquerade', 'src-nat'], true) && ($kv['disabled'] ?? 'no') !== 'yes') $hasNat = true; break;
                 case '/interface vlan': if ($verb === 'add' && isset($kv['name'])) $r['vlans'][$kv['name']] = ['id' => $kv['vlan-id'] ?? '', 'on' => $kv['interface'] ?? '']; break;
                 case '/interface wireguard': if ($verb === 'add' && isset($kv['name'])) $r['wg'][] = $kv['name']; break;
                 case '/interface pppoe-client': if ($verb === 'add') $r['pppoe'][] = $kv['name'] ?? 'pppoe-out1'; break;
@@ -131,6 +137,14 @@ final class MikrotikExport
         $r['monitor_ifaces'] = array_values(array_filter($mon));
         $r['lan_networks'] = array_keys($r['lan_networks']);
 
+        // --- stikalo: model CRS/netPower ali naprava brez DHCP strežnika, NAT in PPPoE (samo L2 + upravljalni naslov)
+        $sw = &$r['switch'];
+        $sw['bridge'] = $r['bridges'][0] ?? '';
+        $sw['vlan_filtering'] = $sw['bridge'] !== '' && !empty($vf[$sw['bridge']]);
+        foreach ($r['addresses'] as $a) if (!$a['disabled'] && !in_array($a['iface'], $r['wg'], true)) { $sw['mgmt_ip'] = explode('/', $a['address'])[0]; break; }
+        $sw['likely'] = (bool)preg_match('/^(CRS|netPower)/i', $r['model']) || (!$r['dhcp_servers'] && !$hasNat && !$r['pppoe'] && $r['bridges']);
+        unset($sw);
+
         // --- povzetek za prikaz
         $r['facts'] = array_filter([
             'Model' => $r['model'], 'Serijska' => $r['serial'], 'RouterOS' => $r['ros_version'], 'Ime' => $r['identity'],
@@ -141,6 +155,12 @@ final class MikrotikExport
             'Ping s strežnika' => $r['needs_icmp_rule'] ? 'doda se pravilo v input' : 'že dovoljen',
             'DNS' => ($r['dns']['servers'] !== '' ? $r['dns']['servers'] : 'od ponudnika') . ($r['dns']['remote'] === 'yes' ? ' · za LAN' : ''),
         ]);
+        if ($r['switch']['likely']) {   // stikalo: WAN, javni IP, LAN omrežja in ping s strežnika niso pomembni
+            $r['warnings'] = array_values(array_filter($r['warnings'], fn($w) => !preg_match('/^(Javnega IP|V konfiguraciji ni zasebnih LAN|WAN vmesnika ni)/u', $w)));
+            unset($r['facts']['WAN'], $r['facts']['Javni IP'], $r['facts']['Ping s strežnika'], $r['facts']['LAN omrežja']);
+            $r['facts']['Upravljalni naslov'] = $r['switch']['mgmt_ip'];
+            $r['facts']['VLAN filtering'] = $r['switch']['vlan_filtering'] ? 'da' : 'ne – urejanje VLAN-ov iz NOC ne bo mogoče';
+        }
         return $r;
     }
 }
