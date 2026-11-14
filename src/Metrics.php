@@ -82,7 +82,21 @@ final class Metrics
     private static function cols(array $rows, int $n): array
     {
         $out = array_fill(0, $n, []);
-        foreach ($rows as $r) for ($i = 0; $i < $n; $i++) $out[$i][] = ($r[$i] ?? null) === null ? null : +$r[$i];
+        // izpad (naprava ni pošiljala): razmik večji od 2,5 × običajnega koraka -> prazna točka, graf se tam prekine
+        $step = 0;
+        if (count($rows) >= 3) {
+            $d = []; for ($i = 1, $c = count($rows); $i < $c; $i++) $d[] = (int)$rows[$i][0] - (int)$rows[$i - 1][0];
+            sort($d); $step = $d[intdiv(count($d), 2)];
+        }
+        $prev = null;
+        foreach ($rows as $r) {
+            $t = (int)$r[0];
+            if ($step > 0 && $prev !== null && $t - $prev > 2.5 * $step) {
+                $out[0][] = $prev + $step; for ($i = 1; $i < $n; $i++) $out[$i][] = null;
+            }
+            for ($i = 0; $i < $n; $i++) $out[$i][] = ($r[$i] ?? null) === null ? null : +$r[$i];
+            $prev = $t;
+        }
         return $out;
     }
 

@@ -607,5 +607,19 @@ pre.raw { margin: 0; padding: 16px 20px; font-family: var(--mono); font-size: .8
 .chk-row { display: flex; flex-wrap: wrap; gap: 4px 16px; margin-top: 6px; }
 .sw-preview { margin-top: 12px; display: grid; gap: 8px; }
 .sw-cmds { background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; font-size: .78rem; white-space: pre-wrap; word-break: break-all; margin: 0; max-height: 260px; overflow: auto; }
+.swi-rows { display: grid; gap: 8px; margin: 16px 0 8px; }
+.swi-head, .swi-row { display: grid; grid-template-columns: minmax(0, 2fr) minmax(70px, 1fr) minmax(0, 2fr) 34px; gap: 10px; align-items: center; }
+.swi-head { padding: 0 2px; }
+.swi-row input { width: 100%; }
+.sw-init-note { align-items: center; flex-wrap: wrap; }
+.sw-init-note > span { flex: 1 1 240px; }
+.sw-hint { position: relative; display: block; }
+.sw-hint button { position: absolute; top: 8px; right: 8px; }
+.sw-hint .sw-cmds { max-height: none; padding-right: 44px; }
+@media (max-width: 640px) {
+  .swi-head { display: none; }
+  .swi-row { grid-template-columns: minmax(0, 1fr) 80px 34px; padding-bottom: 8px; border-bottom: 1px solid var(--line-2); }
+  .swi-row input[name="name[]"] { grid-column: 1 / 3; grid-row: 2; }
+}
 .feed.compact li { padding-top: 6px; padding-bottom: 6px; }
 @media (min-width: 1200px) { body.drw-open .main { margin-right: 560px; } }

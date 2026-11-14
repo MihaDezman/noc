@@ -275,4 +275,36 @@
     };
     f.querySelector('[data-sw-preview]').addEventListener('click', function () { post('/devices/' + dev + '/swport/preview', new FormData(f)).then(function (j) { render(j, false); }); });
   }
+  // prva konfiguracija praznega stikala: vrstice portov, predogled, pošiljanje
+  var si = document.querySelector('[data-sw-init]');
+  if (si) {
+    var sdev = si.dataset.swInit, rows = si.querySelector('[data-swi-rows]'), sout = si.querySelector('[data-sw-out]');
+    si.querySelector('[data-swi-add]').addEventListener('click', function () {
+      var all = rows.querySelectorAll('[data-swi-row]'), c = all[all.length - 1].cloneNode(true);
+      c.querySelectorAll('input').forEach(function (i) { i.value = ''; }); rows.appendChild(c); c.querySelector('input').focus();
+    });
+    rows.addEventListener('click', function (e) {
+      var d = e.target.closest('[data-swi-del]'); if (!d) return;
+      var r = d.closest('[data-swi-row]');
+      if (rows.querySelectorAll('[data-swi-row]').length > 1) r.remove(); else r.querySelectorAll('input').forEach(function (i) { i.value = ''; });
+    });
+    si.addEventListener('input', function () { sout.hidden = true; });
+    var srender = function (j, sent) {
+      sout.hidden = false; sout.innerHTML = '';
+      var add = function (tag, cls, txt) { var x = document.createElement(tag); if (cls) x.className = cls; x.textContent = txt; sout.appendChild(x); return x; };
+      if (j.err) { add('div', 'note warn', j.err); return; }
+      if (sent) { add('div', 'note', j.msg || ''); if (j.go) setTimeout(function () { location.href = j.go; }, 1500); return; }
+      add('div', 'small muted', T.swPreview || '');
+      add('pre', 'mono sw-cmds', (j.cmds || []).join('\n'));
+      (j.warn || []).forEach(function (w) { add('div', 'note warn', w); });
+      add('div', 'small muted', T.swSafety || '');
+      var b = add('button', 'btn primary', T.swSendAnyway || 'Razumem, pošlji'); b.type = 'button';
+      b.addEventListener('click', function () {
+        b.disabled = true;
+        var fd = new FormData(si); fd.append('confirm', '1');
+        post('/devices/' + sdev + '/swinit/save', fd).then(function (r) { srender(r, !r.err); if (r.err) b.disabled = false; }).catch(function () { b.disabled = false; srender({ err: T.swErr || 'Napaka – osveži stran.' }, false); });
+      });
+    };
+    si.querySelector('[data-swi-preview]').addEventListener('click', function () { post('/devices/' + sdev + '/swinit/preview', new FormData(si)).then(function (j) { srender(j, false); }).catch(function () { srender({ err: T.swErr || 'Napaka – osveži stran.' }, false); }); });
+  }
 })();

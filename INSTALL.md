@@ -173,6 +173,8 @@ Stikala MikroTik z RouterOS 7 (CRS3xx/5xx, netPower z ROS) so v NOC naprave vrst
 - **Obvestila:** kljukica »Obvesti, ko port pade« pri portu (polje Porti z obvestilom). Izpad uplinka = alarm »stikalo ne javlja«; če ne javlja tudi router, pride samo alarm routerja.
 - **Grafi:** 5-min promet za vse porte (porti brez obvestila 7 dni), minutni samo za uplink in porte z obvestilom, dnevni 400 dni.
 - **Terminal:** prek routerja stranke (SSH skok). Router mora imeti vklopljen terminal in javni IP; namestitev terminala na routerju doda `/ip ssh set forwarding-enabled=local`.
+- **Prva konfiguracija (v1.38):** pri praznem stikalu (brez VLAN filteringa in brez VLAN-ov) je na strani stikala gumb **Prva konfiguracija**. Izbereš uplink in vrstice »porti → VLAN« (`1-5`, `1,3,7-9`, `S1`). Uplink postane trunk (vsi VLAN-i tagirani), upravljanje ostane netagirano v VLAN 1, VLAN filtering se vklopi zadnji. Enaka varovalka kot pri portu. Nato NOC pokaže predlogo ukazov za router (VLAN vmesniki proti stikalu) – router nastaviš sam.
+- **Luknje v grafih (v1.38):** ko naprava ne javlja, se črta v grafu prekine (prej je povezala točki čez izpad).
 
 ## fail2ban (priporočeno)
 

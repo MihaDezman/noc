@@ -52,6 +52,17 @@ $upd = $s['upd'] ?? [];
 </div>
 
 <?php if ($isSw): ?>
+<?php if ($isSuper):
+  $siq = db()->prepare("SELECT status, created_at FROM noc_actions WHERE device_id=? AND kind='swinit' AND created_at > NOW() - INTERVAL 7 DAY ORDER BY id DESC LIMIT 1"); $siq->execute([$id]); $siLast = $siq->fetch() ?: null;
+  $siBlank = SwInit::isBlank($d); $siSt = $siLast['status'] ?? '';
+  $siMsg = in_array($siSt, ['approved', 'sent'], true) ? A('Prva konfiguracija čaka na stikalo (v minuti).')
+    : ($siBlank ? ($siSt === 'done' ? A('Prva konfiguracija je bila izvedena, a stikalo je spet prazno (povrnjeno).') : ($siSt === 'failed' ? A('Prva konfiguracija ni uspela – stikalo je povrnjeno. Lahko poskusiš znova.') : A('Stikalo je prazno (brez VLAN-ov) – nastaviš ga lahko z enim obrazcem.')))
+    : ($siSt === 'done' ? A('Prva konfiguracija je izvedena – nastavi še VLAN-e na routerju.') : ($siSt === 'failed' ? A('Prva konfiguracija ni uspela.') : '')));
+  $siGo = $siBlank && !in_array($siSt, ['approved', 'sent'], true);
+  if ($siMsg !== ''): ?>
+<div class="note sw-init-note" style="margin-bottom:14px"><?= icon('sliders', 18) ?><span><?= h($siMsg) ?></span>
+  <a class="btn sm<?= $siGo ? ' primary' : '' ?>" href="/devices/<?= $id ?>/swinit"><?= h($siGo ? A('Prva konfiguracija') : A('Podrobnosti in predloga za router')) ?></a></div>
+<?php endif; endif; ?>
 <div class="sw-wrap"><?= switch_panel($d) ?></div>
 <?php elseif ($ports): ?>
 <div class="faceplate" aria-label="<?= h(A('Vrata naprave')) ?>">

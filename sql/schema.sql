@@ -435,7 +435,7 @@ CREATE TABLE IF NOT EXISTS ai_log (
 CREATE TABLE IF NOT EXISTS noc_actions (
   id          INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   device_id   INT UNSIGNED NOT NULL,
-  kind        ENUM('block','unblock','upgrade','speed','term','wgsrv','wgdel','ntp','swport') NOT NULL,
+  kind        ENUM('block','unblock','upgrade','speed','term','wgsrv','wgdel','ntp','swport','swinit') NOT NULL,
   ip          VARCHAR(64) NOT NULL,
   hours       SMALLINT UNSIGNED NOT NULL DEFAULT 24,
   status      ENUM('proposed','approved','sent','done','rejected','failed','cancelled') NOT NULL DEFAULT 'proposed',

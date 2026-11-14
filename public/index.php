@@ -390,6 +390,29 @@ if (($seg[0] ?? '') === 'devices' && ctype_digit($seg[1] ?? '')) {
         $r = $v !== '' ? Actions::create($d, 'upgrade', $v, 1, 'approved', A('ročno v NOC'), 'splet', null, (string)(Auth::$user['email'] ?? 'splet')) : A('zadnja verzija ni znana');
         back("/devices/$id#ros", is_int($r) ? A('Posodobitev na {v} poslana routerju – ob 03:30 jo namesti. O izidu dobiš obvestilo.', ['v' => $v]) : A('Ni mogoče: {r}', ['r' => $r]), is_int($r) ? 'ok' : 'err');
     }
+    if ($sub === 'swinit' && Devices::isSwitch($d)) {   // prva konfiguracija praznega stikala (en obrazec, ena akcija)
+        Auth::requireSuper();
+        $act = $seg[3] ?? '';
+        if (in_array($act, ['preview', 'save'], true) && $method === 'POST') {
+            $rows = []; $pp = (array)($_POST['ports'] ?? []); $vv = (array)($_POST['vlan'] ?? []); $nn = (array)($_POST['name'] ?? []);
+            foreach ($pp as $i => $p) $rows[] = ['ports' => trim((string)$p), 'vlan' => (int)($vv[$i] ?? 0), 'name' => trim((string)($nn[$i] ?? ''))];
+            $plan = SwInit::plan($d, post('uplink'), $rows, post('extra'));
+            if ($act === 'preview' || $plan['err'] !== '') json_out(['cmds' => $plan['cmds'], 'warn' => $plan['warn'], 'err' => $plan['err']]);
+            if (!post('confirm')) json_out(['err' => A('Potrdi opozorilo.'), 'warn' => $plan['warn']]);
+            $st = db()->prepare("SELECT 1 FROM noc_actions WHERE device_id=? AND kind='swinit' AND status IN ('approved','sent') LIMIT 1"); $st->execute([$id]);
+            if ($st->fetchColumn()) json_out(['err' => A('Prva konfiguracija že čaka na stikalo.')]);
+            $sum = implode(', ', array_map(fn($v) => 'VLAN ' . $v['id'] . ($v['ports'] ? ' (' . count($v['ports']) . ')' : ''), $plan['want']['vlans'])) . ' · uplink ' . $plan['want']['uplink'];
+            $r = Actions::create($d, 'swinit', 'init', 1, 'approved', A('prva konfiguracija'), 'splet', null, (string)(Auth::$user['email'] ?? 'splet'), ['want' => $plan['want'], 'summary' => $sum]);
+            audit('device.swinit', "{$d['name']}: $sum");
+            json_out(is_int($r) ? ['ok' => true, 'msg' => A('Poslano – stikalo konfiguracijo izvede ob naslednjem pushu (v minuti). Nato nastavi VLAN-e na routerju (predloga spodaj).'), 'go' => "/devices/$id/swinit"] : ['err' => (string)$r]);
+        }
+        if ($act === '' && $method === 'GET') {
+            $st = db()->prepare('SELECT port FROM sw_ports WHERE device_id=? ORDER BY port'); $st->execute([$id]); $ports = $st->fetchAll();
+            usort($ports, fn($a, $b) => strnatcmp(SwLayout::label($a['port']), SwLayout::label($b['port'])));
+            $st = db()->prepare("SELECT * FROM noc_actions WHERE device_id=? AND kind='swinit' ORDER BY id DESC LIMIT 1"); $st->execute([$id]);
+            view('sw_init', ['d' => $d, 'blank' => SwInit::isBlank($d), 'ports' => $ports, 'uplink' => SwitchIngest::uplink($d), 'last' => $st->fetch() ?: null, 'title' => $d['name'], 'nav' => 'devices']);
+        }
+    }
     if ($sub === 'swport' && Devices::isSwitch($d)) {   // panel porta stikala (fragment za stranski panel) in ukrepi na portu
         $port = (string)($method === 'POST' ? post('p') : q('p'));
         $st = db()->prepare('SELECT * FROM device_ifaces WHERE device_id=? AND name=?'); $st->execute([$id, $port]); $pif = $st->fetch();

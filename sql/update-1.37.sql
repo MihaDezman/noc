@@ -53,5 +53,5 @@ CREATE TABLE IF NOT EXISTS sw_hosts (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- sprememba porta stikala (ukrep 'swport'); ime porta je lahko daljše od IP naslova
-ALTER TABLE noc_actions MODIFY kind ENUM('block','unblock','upgrade','speed','term','wgsrv','wgdel','ntp','swport') NOT NULL;
+ALTER TABLE noc_actions MODIFY kind ENUM('block','unblock','upgrade','speed','term','wgsrv','wgdel','ntp','swport','swinit') NOT NULL;
 ALTER TABLE noc_actions MODIFY ip VARCHAR(64) NOT NULL;

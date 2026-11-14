@@ -16,8 +16,8 @@ final class SwLayout
     public static function label(string $port): string
     {
         if (preg_match('/^ether(\d+)$/', $port, $m)) return $m[1];
-        if (preg_match('/^qsfp\D*(\d+)/', $port, $m)) return 'Q' . $m[1];
-        if (preg_match('/^sfp\D*(\d+)$/', $port, $m)) return 'S' . $m[1];
+        if (preg_match('/^qsfp(?:plus|28|56)?-?(\d+)/', $port, $m)) return 'Q' . $m[1];   // qsfpplus1-1, qsfp28-2-1 -> Q1, Q2
+        if (preg_match('/^sfp(?:-sfpplus|plus|28-|-)?(\d+)$/', $port, $m)) return 'S' . $m[1];   // sfp-sfpplus1, sfp28-3, sfp1 -> S1, S3, S1
         if (preg_match('/^combo(\d+)$/', $port, $m)) return 'C' . $m[1];
         return $port;
     }

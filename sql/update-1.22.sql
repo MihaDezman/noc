@@ -1,5 +1,5 @@
 -- NOC 1.22: nastavitve prek ukaznega kanala (terminal, WireGuard strežnik), AI popravki v Safe Mode
-ALTER TABLE noc_actions MODIFY kind ENUM('block','unblock','upgrade','speed','term','wgsrv','wgdel','ntp','swport') NOT NULL;
+ALTER TABLE noc_actions MODIFY kind ENUM('block','unblock','upgrade','speed','term','wgsrv','wgdel','ntp','swport','swinit') NOT NULL;
 ALTER TABLE noc_actions ADD COLUMN IF NOT EXISTS data TEXT NULL;   -- parametri ukaza (JSON), npr. WireGuard strežnik
 CREATE TABLE IF NOT EXISTS ai_applies (
   id          INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
