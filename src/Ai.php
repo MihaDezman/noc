@@ -15,6 +15,8 @@ final class Ai
     private const API = 'https://api.anthropic.com/v1/messages';
     /** id zadnjega zapisa v ai_log (za gumba 👍/👎) */
     public static ?int $lastId = null;
+    /** Napaka zadnjega klica ask() (HTTP koda + sporočilo API) – za prikaz pri neuspelem pregledu */
+    public static string $lastErr = '';
 
     public static function key(): string { return dec(setting('ai_key_enc', '')); }
     public static function model(): string { $m = setting('ai_model', 'claude-sonnet-5-5'); return isset(self::MODELS[$m]) ? $m : 'claude-sonnet-5-5'; }
@@ -50,7 +52,8 @@ final class Ai
         // in nastavimo nižji napor (krajše razmišljanje = hitreje in ceneje; za kratke diagnoze zadošča)
         $body = ['model' => self::model(), 'max_tokens' => $maxTokens + 4000, 'output_config' => ['effort' => $kind === 'test' ? 'low' : 'medium'],
                  'system' => $system, 'messages' => [['role' => 'user', 'content' => self::redact($user)]]];
-        [$code, $res] = self::post($key, $body);
+        // pregled celotne konfiguracije je velik klic (razmišljanje + do 12 ugotovitev z ukazi) in lahko traja več minut
+        [$code, $res] = self::post($key, $body, $kind === 'review' ? 300 : 90);
         $j = json_decode((string)$res, true);
         $text = '';
         foreach ((array)($j['content'] ?? []) as $c) if (($c['type'] ?? '') === 'text') $text .= $c['text'];
@@ -58,13 +61,13 @@ final class Ai
         $err = $ok ? '' : mb_substr('HTTP ' . $code . ' ' . (string)($j['error']['message'] ?? ($code === 200 ? 'odgovor brez besedila (stop_reason: ' . ($j['stop_reason'] ?? '?') . ')' : ($res ?? 'ni odgovora'))), 0, 300);
         db()->prepare('INSERT INTO ai_log (kind, ref_id, sig, model, in_tok, out_tok, ok, err, result) VALUES (?,?,?,?,?,?,?,?,?)')
             ->execute([$kind, $ref, $sig, self::model(), (int)($j['usage']['input_tokens'] ?? 0), (int)($j['usage']['output_tokens'] ?? 0), $ok ? 1 : 0, $err, $ok ? mb_substr($text, 0, 4000) : null]);
-        self::$lastId = (int)db()->lastInsertId();
+        self::$lastId = (int)db()->lastInsertId(); self::$lastErr = $err;
         if (!$ok) error_log('noc ai: ' . $err);
         return $ok ? trim($text) : null;
     }
 
     /** [HTTP koda, telo] – testi lahko podtaknejo odgovor z ai_mock_file v config.php */
-    private static function post(string $key, array $body): array
+    private static function post(string $key, array $body, int $timeout = 60): array
     {
         if ($f = (string)cfg('ai_mock_file', '')) {   // samo za testiranje
             file_put_contents($f . '.req', json_encode($body, JSON_UNESCAPED_UNICODE) . "\n", FILE_APPEND);
@@ -77,7 +80,7 @@ final class Ai
             return [200, json_encode(['content' => [['type' => 'text', 'text' => $mock]], 'usage' => ['input_tokens' => 100, 'output_tokens' => 20]])];
         }
         $ctx = stream_context_create(['http' => [
-            'method' => 'POST', 'timeout' => 60, 'ignore_errors' => true,
+            'method' => 'POST', 'timeout' => $timeout, 'ignore_errors' => true,
             'header' => "x-api-key: $key\r\nanthropic-version: 2023-06-01\r\ncontent-type: application/json\r\n",
             'content' => json_encode($body, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE),
         ]]);
@@ -597,7 +600,7 @@ final class Ai
         if (self::callsToday() >= max(1, (int)setting('ai_daily', '100'))) return '';
         $d = Devices::full((int)$r['device_id']);
         $fail = function (string $why) use ($r, $d): string {
-            db()->prepare("UPDATE ai_reviews SET status='failed', note=? WHERE id=?")->execute([$why, $r['id']]);
+            $why = mb_substr($why, 0, 300); db()->prepare("UPDATE ai_reviews SET status='failed', note=? WHERE id=?")->execute([$why, $r['id']]);
             if ($d && self::inBatch((int)$r['id'])) self::tg('🔍 <b>' . htmlspecialchars($d['name']) . '</b> – ' . A('AI pregled ni uspel: {e}', ['e' => htmlspecialchars($why)]), (int)$d['id']);
             self::batchDone();
             return 'pregled: napaka';
@@ -622,7 +625,7 @@ final class Ai
         $user = "NAPRAVA: {$d['name']} · {$d['model']} · RouterOS {$d['os_version']} · WAN {$d['wan_iface']} · LAN {$d['lan_networks']}\n" . self::notes((int)$d['id']) . "KONFIGURACIJA:\n" . $cfg;
         $txt = self::ask('review', (int)$r['id'], $sys, $user, 5000);
         $list = $txt ? json_decode((string)preg_replace('/^```(?:json)?|```$/m', '', trim($txt)), true) : null;
-        if (!is_array($list)) return $fail($txt ? A('odgovor ni v pričakovani obliki') : A('AI ni odgovoril'));
+        if (!is_array($list)) return $fail($txt ? A('odgovor ni v pričakovani obliki') : A('AI ni odgovoril') . (self::$lastErr !== '' ? ' (' . (str_starts_with(self::$lastErr, 'HTTP 0 ') ? A('ni odziva v 5 minutah ali ni povezave do API') : self::$lastErr) . ')' : ''));
         $out = [];
         foreach (array_slice($list, 0, 12) as $f) {
             if (!is_array($f) || trim((string)($f['title'] ?? '')) === '') continue;

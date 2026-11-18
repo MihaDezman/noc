@@ -1738,4 +1738,5 @@ return [
     'Zaščiten dostop.' => 'Restricted access.',
     'Samo za pooblaščene uporabnike. Prijave se beležijo.' => 'Authorized users only. Sign-ins are logged.',
     'Napačen uporabnik ali geslo.' => 'Wrong user or password.',
+    'ni odziva v 5 minutah ali ni povezave do API' => 'no response within 5 minutes or no connection to the API',
 ];
