@@ -50,10 +50,11 @@ final class Ai
         if ($limit && self::callsToday() >= max(1, (int)setting('ai_daily', '100'))) return null;
         // modeli 5.5 imajo razmišljanje vklopljeno privzeto; žetoni razmišljanja štejejo v max_tokens, zato dodamo prostor
         // in nastavimo nižji napor (krajše razmišljanje = hitreje in ceneje; za kratke diagnoze zadošča)
-        $body = ['model' => self::model(), 'max_tokens' => $maxTokens + 4000, 'output_config' => ['effort' => $kind === 'test' ? 'low' : 'medium'],
+        // pregled celotne konfiguracije: AI pred odgovorom dolgo razmišlja – brez dovolj prostora porabi vse žetone za razmišljanje (stop_reason max_tokens, brez besedila)
+        $body = ['model' => self::model(), 'max_tokens' => $maxTokens + ($kind === 'review' ? 16000 : 4000), 'output_config' => ['effort' => $kind === 'test' ? 'low' : 'medium'],
                  'system' => $system, 'messages' => [['role' => 'user', 'content' => self::redact($user)]]];
         // pregled celotne konfiguracije je velik klic (razmišljanje + do 12 ugotovitev z ukazi) in lahko traja več minut
-        [$code, $res] = self::post($key, $body, $kind === 'review' ? 300 : 90);
+        [$code, $res] = self::post($key, $body, $kind === 'review' ? 600 : 90);
         $j = json_decode((string)$res, true);
         $text = '';
         foreach ((array)($j['content'] ?? []) as $c) if (($c['type'] ?? '') === 'text') $text .= $c['text'];
@@ -625,7 +626,7 @@ final class Ai
         $user = "NAPRAVA: {$d['name']} · {$d['model']} · RouterOS {$d['os_version']} · WAN {$d['wan_iface']} · LAN {$d['lan_networks']}\n" . self::notes((int)$d['id']) . "KONFIGURACIJA:\n" . $cfg;
         $txt = self::ask('review', (int)$r['id'], $sys, $user, 5000);
         $list = $txt ? json_decode((string)preg_replace('/^```(?:json)?|```$/m', '', trim($txt)), true) : null;
-        if (!is_array($list)) return $fail($txt ? A('odgovor ni v pričakovani obliki') : A('AI ni odgovoril') . (self::$lastErr !== '' ? ' (' . (str_starts_with(self::$lastErr, 'HTTP 0 ') ? A('ni odziva v 5 minutah ali ni povezave do API') : self::$lastErr) . ')' : ''));
+        if (!is_array($list)) return $fail($txt ? A('odgovor ni v pričakovani obliki') : A('AI ni odgovoril') . (self::$lastErr !== '' ? ' (' . (str_starts_with(self::$lastErr, 'HTTP 0 ') ? A('ni odziva v 10 minutah ali ni povezave do API') : self::$lastErr) . ')' : ''));
         $out = [];
         foreach (array_slice($list, 0, 12) as $f) {
             if (!is_array($f) || trim((string)($f['title'] ?? '')) === '') continue;
