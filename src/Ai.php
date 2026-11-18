@@ -608,8 +608,13 @@ final class Ai
         };
         if (!$d) return $fail('naprava ne obstaja');
         [$rsc] = Firewall::source($d);
-        $lines = array_filter(explode("\n", Diff::normalize((string)$rsc)), fn($l) => trim($l) !== '' && !Diff::isNocLine($l));
+        $all = array_filter(explode("\n", Diff::normalize((string)$rsc)), fn($l) => trim($l) !== '');
+        $lines = array_filter($all, fn($l) => !Diff::isNocLine($l));
         $cfg = mb_substr(implode("\n", $lines), 0, 60000);
+        // nastavitve NOC na napravi (cilj traffic-flow, SSH terminala, syslog, pravila noc-…) so vidne kot kontekst, da AI ne predlaga
+        // njihovega izklopa; skripte in urniki NOC (vsebujejo ključ API) se ne pošljejo
+        $noc = array_map(fn($l) => mb_substr($l, 0, 300), array_values(array_filter($all, fn($l) => Diff::isNocLine($l) && !preg_match('#^/system (script|scheduler)\b#', ltrim($l)))));
+        $nocCtx = $noc ? "NASTAVITVE NOC (nadzorni sistem; strežnik NOC " . cfg('noc_ip', '?') . "):\n" . implode("\n", array_slice($noc, 0, 60)) . "\n" : '';
         if (trim($cfg) === '') return $fail(A('ni izvoza konfiguracije'));
         $sys = (Devices::isSwitch($d)
             ? 'Si izkušen inženir za MikroTik RouterOS 7. Pregledaš celotno konfiguracijo STIKALA stranke (CRS, za routerjem v LAN-u; /export terse; skrivnosti so zamenjane z ***) in poiščeš konkretne težave: '
@@ -617,13 +622,13 @@ final class Ai
               . 'Stikalo nima NAT in nima javnega naslova: ne predlagaj požarnega zidu za promet skozi stikalo, Zaščite, DHCP strežnika ali traffic-flow. '
             : 'Si izkušen inženir za MikroTik RouterOS 7. Pregledaš celotno konfiguracijo routerja stranke (/export terse; skrivnosti so zamenjane z ***) in poiščeš konkretne težave: '
               . 'varnost (dostop z interneta, storitve, uporabniki, požarni zid, DNS, UPnP), zastarele ali nesmiselne nastavitve, napake pri VLAN-ih in bridgih, manjkajoče varovalke (NTP, ura, backup), zmogljivost (fasttrack, nepotrebna pravila). ')
-            . 'Pravila in skripte z oznako noc so od nadzornega sistema – teh ne komentiraj. Upoštevaj zapiske serviserja. '
+            . 'Pravila in skripte z oznako noc so od nadzornega sistema – teh ne komentiraj. Razdelek NASTAVITVE NOC so nastavitve nadzornega sistema na tej napravi (cilj traffic-flow, SSH dostop s strežnika NOC za terminal, syslog, pravila noc-…): ne komentiraj jih, upoštevaj jih pri presoji (npr. traffic-flow ima cilj, SSH s strežnika NOC je dovoljen) in ne predlagaj sprememb, ki bi jih onemogočile ali odstranile. Upoštevaj zapiske serviserja. '
             . 'Za vsako ugotovitev oceni prioriteto: "nujno" (dejanska luknja ali napaka, ki jo je treba popraviti), "priporočeno" (smiselna izboljšava), "neobvezno" (lepše, a brez prave koristi za to lokacijo). Ne pretiravaj – večina utrjevanj je priporočenih ali neobveznih. '
             . 'V "risk" napiši, kaj bi popravek lahko pokvaril ali odrezal (npr. dostop do kamer, VPN uporabnike, goste, port forward), ali prazno, če je varen. '
             . 'Ukazi: vsak popravek samostojen in brez podvajanja obstoječih pravil. Novo pravilo v /ip firewall filter|nat|raw|mangle MORA imeti place-before=[find where comment="..."] z natančnim komentarjem OBSTOJEČEGA pravila iz te konfiguracije, pred katerim mora stati (npr. pred pravilom, ki zavrže promet). '
             . 'Brez place-before pravilo pristane na koncu verige – to uporabi samo, kadar je konec res pravo mesto. Vsako novo pravilo naj ima comment, ki opiše namen. '
             . 'Odgovori SAMO z JSON seznamom (največ 12, najpomembnejše najprej): [{"title":"kratek naslov","severity":"critical|warning|info","prio":"nujno|priporočeno|neobvezno","why":"zakaj je to težava, 1-2 stavka","risk":"kaj lahko popravek pokvari ali prazno","fix":"ukazi RouterOS za popravek ali prazno"}]. Slovenščina. Brez splošnih nasvetov, samo kar velja za to konfiguracijo.';
-        $user = "NAPRAVA: {$d['name']} · {$d['model']} · RouterOS {$d['os_version']} · WAN {$d['wan_iface']} · LAN {$d['lan_networks']}\n" . self::notes((int)$d['id']) . "KONFIGURACIJA:\n" . $cfg;
+        $user = "NAPRAVA: {$d['name']} · {$d['model']} · RouterOS {$d['os_version']} · WAN {$d['wan_iface']} · LAN {$d['lan_networks']}\n" . self::notes((int)$d['id']) . $nocCtx . "KONFIGURACIJA:\n" . $cfg;
         $txt = self::ask('review', (int)$r['id'], $sys, $user, 5000);
         $list = $txt ? json_decode((string)preg_replace('/^```(?:json)?|```$/m', '', trim($txt)), true) : null;
         if (!is_array($list)) return $fail($txt ? A('odgovor ni v pričakovani obliki') : A('AI ni odgovoril') . (self::$lastErr !== '' ? ' (' . (str_starts_with(self::$lastErr, 'HTTP 0 ') ? A('ni odziva v 10 minutah ali ni povezave do API') : self::$lastErr) . ')' : ''));
