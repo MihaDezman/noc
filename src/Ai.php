@@ -623,6 +623,7 @@ final class Ai
             : 'Si izkušen inženir za MikroTik RouterOS 7. Pregledaš celotno konfiguracijo routerja stranke (/export terse; skrivnosti so zamenjane z ***) in poiščeš konkretne težave: '
               . 'varnost (dostop z interneta, storitve, uporabniki, požarni zid, DNS, UPnP), zastarele ali nesmiselne nastavitve, napake pri VLAN-ih in bridgih, manjkajoče varovalke (NTP, ura, backup), zmogljivost (fasttrack, nepotrebna pravila). ')
             . 'Pravila in skripte z oznako noc so od nadzornega sistema – teh ne komentiraj. Razdelek NASTAVITVE NOC so nastavitve nadzornega sistema na tej napravi (cilj traffic-flow, SSH dostop s strežnika NOC za terminal, syslog, pravila noc-…): ne komentiraj jih, upoštevaj jih pri presoji (npr. traffic-flow ima cilj, SSH s strežnika NOC je dovoljen) in ne predlagaj sprememb, ki bi jih onemogočile ali odstranile. Upoštevaj zapiske serviserja. '
+            . 'Navedi SAMO ugotovitve, pri katerih je potreben ukrep (popravek ali preveritev na lokaciji). Ne navajaj stvari, ki so pravilne, sprejemljive ali brez ukrepa, in ne potrjuj dobrih nastavitev – raje vrni manj točk ali prazen seznam []. '
             . 'Za vsako ugotovitev oceni prioriteto: "nujno" (dejanska luknja ali napaka, ki jo je treba popraviti), "priporočeno" (smiselna izboljšava), "neobvezno" (lepše, a brez prave koristi za to lokacijo). Ne pretiravaj – večina utrjevanj je priporočenih ali neobveznih. '
             . 'V "risk" napiši, kaj bi popravek lahko pokvaril ali odrezal (npr. dostop do kamer, VPN uporabnike, goste, port forward), ali prazno, če je varen. '
             . 'Ukazi: vsak popravek samostojen in brez podvajanja obstoječih pravil. Novo pravilo v /ip firewall filter|nat|raw|mangle MORA imeti place-before=[find where comment="..."] z natančnim komentarjem OBSTOJEČEGA pravila iz te konfiguracije, pred katerim mora stati (npr. pred pravilom, ki zavrže promet). '
@@ -635,6 +636,8 @@ final class Ai
         $out = [];
         foreach (array_slice($list, 0, 12) as $f) {
             if (!is_array($f) || trim((string)($f['title'] ?? '')) === '') continue;
+            // varovalka: AI včasih kljub navodilu navede tudi kaj, kar je v redu ("brez ukrepa", "sprejemljivo") – brez ukaza to ni ugotovitev
+            if (trim((string)($f['fix'] ?? '')) === '' && preg_match('/brez ukrepa|ni (težava|problem|potreb\w*)|je (to )?sprejemljiv\w*|stanje je pravilno|brez praktičnega tveganja/iu', (string)($f['why'] ?? ''))) continue;
             $out[] = ['title' => mb_substr((string)$f['title'], 0, 200), 'severity' => in_array($f['severity'] ?? '', ['critical', 'warning', 'info'], true) ? $f['severity'] : 'info',
                       'prio' => self::prio((string)($f['prio'] ?? '')), 'why' => mb_substr((string)($f['why'] ?? ''), 0, 800), 'risk' => mb_substr((string)($f['risk'] ?? ''), 0, 400),
                       'fix' => mb_substr((string)($f['fix'] ?? ''), 0, 2000), 'state' => 'open'];
