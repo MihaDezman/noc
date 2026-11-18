@@ -1735,4 +1735,7 @@ return [
     'Prva konfiguracija ni uspela – stikalo je povrnjeno. Lahko poskusiš znova.' => 'First configuration failed – the switch was rolled back. You can try again.',
     'Stikalo ni prazno (VLAN filtering je vklopljen, VLAN-i ali VLAN vmesniki že obstajajo). Porte uredi posamično na plošči stikala.' => 'The switch is not blank (VLAN filtering is on, VLANs or VLAN interfaces already exist). Edit ports one by one on the switch panel.',
     'Prva konfiguracija že čaka na stikalo.' => 'A first configuration is already waiting for the switch.',
+    'Zaščiten dostop.' => 'Restricted access.',
+    'Samo za pooblaščene uporabnike. Prijave se beležijo.' => 'Authorized users only. Sign-ins are logged.',
+    'Napačen uporabnik ali geslo.' => 'Wrong user or password.',
 ];
