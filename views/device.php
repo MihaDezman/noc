@@ -914,6 +914,31 @@ $upd = $s['upd'] ?? [];
   </div>
 </section>
 
+<?php $lwOn = (int)($d['lan_watch'] ?? 1); $lwNets = Devices::list((string)$d['lan_networks']); $lwOff = Alerts::isOff($d, 'lan'); ?>
+<section class="panel" id="lanwatch" style="margin-top:20px">
+  <div class="panel-head"><h2><?= icon('activity', 18) ?><?= h(A('Nenormalen promet v LAN')) ?></h2>
+    <span class="tag <?= !$lwOn ? '' : (!$lwNets ? 'warn' : 'up') ?>"><?= h(!$lwOn ? A('izklopljeno') : (!$lwNets ? A('ni LAN omrežij') : ($lwOff ? A('vklopljeno · alarmi izklopljeni') : A('vklopljeno')))) ?></span></div>
+  <div class="panel-body">
+    <p style="margin-top:0"><?= h(A('Router zazna napravo v LAN-u, ki naenkrat odpre veliko DNS povezav, ogromno povezav, skenira porte ali pošilja pošto neposredno na port 25 navzven. NOC te obvesti z imenom naprave, IP-jem in portom.')) ?></p>
+    <ul class="fwlog-list small">
+      <li><b><?= h(A('Meje:')) ?></b> <?= h(A('DNS/TCP > {a} hkratnih povezav · > {b} povezav ene naprave · skeniranje portov · SMTP navzven > {c} povezav', ['a' => LanWatch::DNS, 'b' => LanWatch::CONN, 'c' => LanWatch::SMTP])) ?></li>
+      <li><b><?= h(A('Omejitev:')) ?></b> <?= h(A('samo IPv4 in TCP; promet med napravami v istem omrežju gre mimo routerja – vidno je skeniranje routerja in drugih omrežij/VLAN-ov.')) ?></li>
+    </ul>
+    <form method="post" action="/devices/<?= $id ?>/lanwatch" class="form"><?= Auth::csrf() ?>
+      <div class="row c2">
+        <label class="check"><input type="checkbox" name="on" value="1"<?= $lwOn ? ' checked' : '' ?>> <?= h(A('Zaznavanje vklopljeno')) ?></label>
+        <label class="check"><input type="checkbox" name="smtp_block" value="1"<?= (int)($d['lan_smtp_block'] ?? 0) ? ' checked' : '' ?>> <?= h(A('Samodejna blokada SMTP (port 25, 24 h, samo ta naprava)')) ?></label>
+      </div>
+      <div class="row c2">
+        <label class="f"><?= h(A('Izjeme (IP ali omrežja)')) ?><textarea name="ok" rows="2" class="mono" placeholder="192.168.0.10&#10;192.168.0.20"><?= h(implode("\n", LanWatch::exceptions($d))) ?></textarea>
+          <small><?= h(A('npr. poštni strežnik, NVR, ki išče kamere, strežnik z veliko odjemalci – zanje zaznavanja ni. Poštni strežnik s preusmeritvijo porta 25 je izjema samodejno.')) ?></small></label>
+      </div>
+      <p class="small muted"><?= h(A('Na routerju doda pravila v mangle z oznako "noc-lan" (prometa ne blokirajo) in pri blokadi SMTP eno pravilo v filter. Router dobi spremembo s samodejno posodobitvijo. Alarme te vrste izklopiš pri nastavitvah alarmov naprave.')) ?></p>
+      <div class="actions" style="justify-content:flex-start"><button class="btn primary"><?= icon('check', 16) ?><?= h(A('Shrani')) ?></button></div>
+    </form>
+  </div>
+</section>
+
 <?php [$tsCls, $tsTxt] = MikrotikScript::tlsState($d); $tlsOn = (int)($d['tls_check'] ?? 0); ?>
 <?php endif; ?>
 <section class="panel" id="tls"<?= $isSw ? '' : ' style="margin-top:20px"' ?>>

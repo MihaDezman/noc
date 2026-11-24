@@ -257,6 +257,7 @@ final class Ingest
         if ($newHosts) $safe('hosts', fn() => Alerts::newHosts($d, $newHosts));
         if (!empty($b['logs'])) $safe('attacks', fn() => Alerts::attacks($d));
         $safe('links', fn() => Alerts::links($d, $speedDrops));
+        if (array_key_exists('lw', $b) && !Devices::isSwitch($d)) $safe('lanwatch', fn() => LanWatch::push($d, is_array($b['lw']) ? $b['lw'] : [], (int)($b['lwn'] ?? -1)));   // stara skripta "lw" nima – alarmi ostanejo
         if ($sfpRows) $safe('sfp', fn() => Alerts::sfp($d, array_filter($sfpRows)));
 
         return ['ok' => true, 'tick' => (int)($b['tick'] ?? 0)];

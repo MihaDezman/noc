@@ -261,6 +261,7 @@ final class MikrotikScript
 :local flt [:toarray ""]
 :do { :set flt {"dns"=[:tostr [/ip dns get servers]];"n"=([:len [/ip firewall nat find comment~"^noc-filter"]] + [:len [/ip firewall filter find comment~"^noc-filter"]]);"drop"=[:len [/ip firewall address-list find list=noc-filter-drop]];"fw"=([:len [/ip firewall filter find comment~"^noc-fw"]] + [:len [/ip firewall raw find comment~"^noc-fw"]])} } on-error={}
 
+%%LANWATCH%%
 # --- WireGuard
 :local wg [:toarray ""]
 :local wgErr false
@@ -323,7 +324,7 @@ final class MikrotikScript
 
 :local rbt 0
 :do { :if ([:tostr [/system script get [find name="noc-push"] policy]] ~ "reboot") do={ :set rbt 1 } } on-error={}
-:local data {"v"=1;"rbt"=\$rbt;"sv"=\$scriptVer;"tick"=\$nocTick;"ident"=\$ident;"res"=\$res;"rb"=\$rb;"health"=\$hl;"ifs"=\$ifs;"rates"=\$rates;"ping"=\$ping;"conns"=\$conns;"nLeases"=\$nLeases;"leases"=\$leases;"pools"=\$pools;"flt"=\$flt;"sfp"=\$sfp;"wg"=\$wg;"wgx"=\$wgErr;"wgi"=\$wgi;"usr"=\$usr;"ntp"=\$ntp;"logs"=\$logs;"upd"=\$nocUpd{$tlsData}}
+:local data {"v"=1;"rbt"=\$rbt;"sv"=\$scriptVer;"tick"=\$nocTick;"ident"=\$ident;"res"=\$res;"rb"=\$rb;"health"=\$hl;"ifs"=\$ifs;"rates"=\$rates;"ping"=\$ping;"conns"=\$conns;"nLeases"=\$nLeases;"leases"=\$leases;"pools"=\$pools;"flt"=\$flt;"lw"=\$lw;"lwn"=\$lwn;"sfp"=\$sfp;"wg"=\$wg;"wgx"=\$wgErr;"wgi"=\$wgi;"usr"=\$usr;"ntp"=\$ntp;"logs"=\$logs;"upd"=\$nocUpd{$tlsData}}
 :local body [:serialize to=json value=\$data]
 # varovalka: fetch ima omejitev velikosti - prevelik push (npr. ogromne vrstice loga) pošlji brez logov
 :if ([:len \$body] > 48000) do={
@@ -361,6 +362,7 @@ final class MikrotikScript
     :if (\$nocFail = 3 || (\$nocFail > 3 && (\$nocFail % 60) = 0)) do={ :log warning ("noc: push ni uspel " . \$nocFail . "x zapored - " . \$e) }
 }
 ROS;
+        $out = str_replace("%%LANWATCH%%\n", LanWatch::pushPart(), $out);
         return Devices::isSwitch($d) ? self::forSwitch($out) : $out;
     }
 
@@ -376,7 +378,7 @@ ROS;
             return substr($b, 0, $i) . $with . substr($b, $j);
         };
         $b = $cut($b, '# --- ping: privzeti prehod', '# --- uporabniki routerja', self::switchPart());
-        $old = '"ping"=$ping;"conns"=$conns;"nLeases"=$nLeases;"leases"=$leases;"pools"=$pools;"flt"=$flt;"sfp"=$sfp;"wg"=$wg;"wgx"=$wgErr;"wgi"=$wgi;';
+        $old = '"ping"=$ping;"conns"=$conns;"nLeases"=$nLeases;"leases"=$leases;"pools"=$pools;"flt"=$flt;"lw"=$lw;"lwn"=$lwn;"sfp"=$sfp;"wg"=$wg;"wgx"=$wgErr;"wgi"=$wgi;';
         if (!str_contains($b, $old)) throw new \RuntimeException('push stikala: vrstice data ni v skripti');
         $b = str_replace($old, '"ping"=$ping;"sw"=$sw;"sfp"=$sfp;', $b);
         // obrezovanje: najprej MAC tabela stikala, nato logi (DHCP najemov stikalo nima)
@@ -534,6 +536,7 @@ ROS;
             $s .= ":if ([:len [/ip traffic-flow target find dst-address=$noc]] = 0) do={ /ip traffic-flow target add dst-address=$noc port=$port version=ipfix }\n\n";
         }
         $s .= Filter::rsc($d);
+        $s .= LanWatch::rsc($d);   // nenormalen promet v LAN – tudi pri samodejni posodobitvi
         // požarni zid samo ob ročni namestitvi – samodejna posodobitev obstoječih pravil noc-fw ne spreminja
         $s .= self::$auto ? "# --- pozarni zid: nespremenjen (samodejna posodobitev)\n\n" : Firewall::rsc($d);
         // terminal NOC (uporabnik noc-term, SSH s strežnika) – prav tako samo ob ročni namestitvi
@@ -557,6 +560,7 @@ ROS;
             . "/ip firewall nat remove [find comment~\"^noc-filter\"]\n/ip firewall filter remove [find comment~\"^noc-filter\"]\n"
             . "/ip firewall raw remove [find comment~\"^noc-filter\"]\n/ip firewall address-list remove [find comment~\"^noc-filter\"]\n/ip dns static remove [find comment~\"^noc-filter\"]\n"
             . "/ip firewall raw remove [find comment~\"^noc-block\"]\n/ip firewall address-list remove [find list=noc-block]\n"
+            . LanWatch::removeRsc()
             . Filter::restoreDns($d)
             . Firewall::removeRsc($d)
             . ":do { /user ssh-keys remove [find user=\"" . Term::USER . "\"] } on-error={}\n:do { /user remove [find name=\"" . Term::USER . "\"] } on-error={}\n/ip firewall filter remove [find comment~\"^noc-term\"]\n"

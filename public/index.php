@@ -356,6 +356,16 @@ if (($seg[0] ?? '') === 'devices' && ctype_digit($seg[1] ?? '')) {
         audit('device.fwlog', $d['name'] . ($on ? ' on' : ' off'));
         back("/devices/$id?tab=protect#fwlog", $on ? A('Varnostna analiza vklopljena. Router dobi nastavitve s samodejno posodobitvijo v nekaj minutah (ali takoj z ukazom s strani Paket).') : A('Varnostna analiza izklopljena. Router nastavitve odstrani ob naslednji posodobitvi.'));
     }
+    if ($sub === 'lanwatch' && $method === 'POST' && !Devices::isSwitch($d)) {   // nenormalen promet v LAN (noc-lan)
+        Auth::requireSuper();
+        $okList = LanWatch::nets(post('ok')); $bad = count(array_filter(preg_split('/[\s,;]+/', post('ok')))) - count($okList);
+        while ($okList && strlen(implode(',', $okList)) > 600) array_pop($okList);
+        $ok = implode(',', $okList);
+        db()->prepare('UPDATE devices SET lan_watch=?, lan_smtp_block=?, lan_ok=? WHERE id=?')->execute([post('on') ? 1 : 0, post('smtp_block') ? 1 : 0, $ok, $id]);
+        MikrotikScript::invalidate($id);
+        audit('device.lanwatch', $d['name'] . (post('on') ? ' on' : ' off') . ($ok !== '' ? " izjeme $ok" : ''));
+        back("/devices/$id?tab=protect#lanwatch", A('Shranjeno. Router dobi nastavitve s samodejno posodobitvijo v nekaj minutah (ali takoj z ukazom s strani Paket).') . ($bad > 0 ? ' ' . A('Neveljavne ali podvojene izjeme izpuščene: {n}.', ['n' => $bad]) : ''));
+    }
     if ($sub === 'terminal') {   // terminal routerja v brskalniku (SSH s strežnika NOC)
         if ($method === 'POST') {
             $on = post('on') === '1' ? 1 : 0;

@@ -189,6 +189,7 @@ final class Ai
         $pdo = db(); $id = (int)$d['id']; $st = json_decode((string)($d['status_json'] ?? ''), true) ?: [];
         $o = "NAPRAVA: {$d['name']} · model {$d['model']} · RouterOS {$d['os_version']} · WAN {$d['wan_iface']} · uptime " . fmt_uptime($d['last_uptime'] !== null ? (int)$d['last_uptime'] : null) . "\n";
         $o .= self::notes($id);
+        $o .= LanWatch::protections($d);   // da AI ne predlaga pravil, ki jih je NOC že nastavil
         $fc = Forecast::forDevice($d); if ($fc) $o .= "NAPOVEDI (trend 14 dni):\n" . implode("\n", array_map(fn($f) => '- ' . $f[1], $fc)) . "\n";
         $o .= "ALARM: [{$a['severity']}] {$a['message']} (ključ {$a['akey']}, začetek {$a['started_at']})\n";
         $q = $pdo->prepare('SELECT COUNT(*) FROM alerts WHERE device_id=? AND akey=? AND started_at > NOW() - INTERVAL 30 DAY'); $q->execute([$id, $a['akey']]);

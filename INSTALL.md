@@ -176,6 +176,16 @@ Stikala MikroTik z RouterOS 7 (CRS3xx/5xx, netPower z ROS) so v NOC naprave vrst
 - **Prva konfiguracija (v1.38):** pri praznem stikalu (brez VLAN filteringa in brez VLAN-ov) je na strani stikala gumb **Prva konfiguracija**. Izbereš uplink in vrstice »porti → VLAN« (`1-5`, `1,3,7-9`, `S1`). Uplink postane trunk (vsi VLAN-i tagirani), upravljanje ostane netagirano v VLAN 1, VLAN filtering se vklopi zadnji. Enaka varovalka kot pri portu. Nato NOC pokaže predlogo ukazov za router (VLAN vmesniki proti stikalu) – router nastaviš sam.
 - **Luknje v grafih (v1.38):** ko naprava ne javlja, se črta v grafu prekine (prej je povezala točki čez izpad).
 
+## Nenormalen promet v LAN (v1.44)
+
+- Na vseh routerjih (samodejna posodobitev skripte; stikala ne): mangle pravila z oznako `noc-lan` za nove TCP povezave iz LAN omrežij naprave. Prometa ne blokirajo.
+- Zaznave (naprava gre za 15 min na seznam `noc-lanw-<vrsta>`): DNS izbruh (> 20 hkratnih TCP/53), preveč povezav (> 1000 TCP), skeniranje portov routerja in LAN omrežij (`psd`), SMTP navzven (> 5 hkratnih TCP/25). DNS in SMTP štejeta v svoji verigi (samo te povezave). Samo IPv4 in TCP.
+- Push sporoči vnose (največ 10 + skupno število); NOC odpre alarm `lan:<vrsta>:<ip>` z imenom naprave in portom storitve (pri povezavah/skeniranju 3 najpogostejši ciljni porti), zapre ga, ko vnosa 3 min ni več. Poštni strežnik s preusmeritvijo porta 25 (dst-nat) je samodejno izjema. `noc-remove.rsc` odstrani vse.
+- Blokada SMTP (privzeto **izklopljena** – najprej opazovanje; vklop na napravi): naprava 24 h ne more na TCP/25 navzven (pravilo `noc-lan: blokada SMTP` v filter/forward). Odblokiranje: `/ip firewall address-list remove [find list=noc-lanw-smtp address=IP]`.
+- Naprava → Zaščita → **Nenormalen promet v LAN**: vklop, blokada SMTP, izjeme (IP/omrežja). Alarme vrste »Nenormalen promet v LAN« izklopiš pri nastavitvah alarmov naprave.
+- Omejitev: promet med napravami v istem omrežju gre mimo routerja – vidno je skeniranje routerja in drugih omrežij/VLAN-ov.
+- AI razlaga alarmov dobi vrstico »ZAŠČITE NOC« (filtrirni DNS / DNS ni odprt na WAN, varnostna analiza, zaznavanje LAN, terminal).
+
 ## fail2ban (priporočeno)
 
 NOC v Apache error log piše `noc-login-fail ip=…` (napačna prijava) in `noc-api-badkey ip=…` (neveljaven API ključ).

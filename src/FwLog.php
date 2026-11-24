@@ -228,7 +228,8 @@ final class FwLog
             $who = self::host($id, $ip);
             if ($si >= max(10, (int)$th['th_out_ips']))
                 $n += (int)self::once($d, 'outscan:' . $ip, 'warning', A('Naprava {h} skenira internet: TCP port {p} na {n} različnih naslovov v 5 min – možna okužba', ['h' => $who, 'p' => $sp, 'n' => $si]));
-            if ($smtp >= max(1, (int)$th['th_out_smtp']))
+            $lanSmtp = db()->prepare("SELECT 1 FROM alerts WHERE device_id=? AND akey=? AND ended_at IS NULL"); $lanSmtp->execute([$id, 'lan:smtp:' . $ip]);
+            if ($smtp >= max(1, (int)$th['th_out_smtp']) && !$lanSmtp->fetchColumn())   // router ga je že zaznal (in blokiral) – brez podvojenega alarma
                 $n += (int)self::once($d, 'outsmtp:' . $ip, 'warning', A('Naprava {h} pošilja pošto neposredno na {n} strežnikov (port 25) – možen spam bot', ['h' => $who, 'n' => $smtp]));
             if ($bl >= max(1, (int)$th['th_out_bl']))
                 $n += (int)self::once($d, 'outbl:' . $ip, 'warning', A('Naprava {h} poskuša dostopati do omrežja na varnostni listi ({d}) – možna okužba', ['h' => $who, 'd' => (string)($h['bls'] ?? '')]));

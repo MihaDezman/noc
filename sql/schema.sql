@@ -80,6 +80,9 @@ CREATE TABLE devices (
   script_ver      VARCHAR(12) NULL,
   upd_attempt_at  DATETIME NULL,
   fwlog_enabled   TINYINT(1) NOT NULL DEFAULT 0,
+  lan_watch       TINYINT(1) NOT NULL DEFAULT 1,      -- zaznavanje nenormalnega prometa v LAN (noc-lan)
+  lan_smtp_block  TINYINT(1) NOT NULL DEFAULT 0,      -- samodejna blokada TCP/25 navzven za napravo, ki pošilja spam (24 h)
+  lan_ok          VARCHAR(600) NOT NULL DEFAULT '',   -- izjeme (IP/omrežja), npr. poštni strežnik
   fwlog_seen_at   DATETIME NULL,
   tls_check       TINYINT(1) NOT NULL DEFAULT 0,
   tls_ok          TINYINT(1) NULL,
