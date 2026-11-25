@@ -110,6 +110,18 @@ final class WgServer
         return Actions::create($d, 'wgdel', $name, 1, 'approved', A('odstranitev WireGuard strežnika {n}', ['n' => $name]), 'splet', null, $by);
     }
 
+    /**
+     * Če je Winbox omejen na naslove (available-from), doda omrežje VPN – sicer VPN uporabnik dobi internet, Winbox pa ne.
+     * Neomejenega Winboxa ne spreminja. RouterOS < 7.17 ima lastnost "address", novejši "available-from".
+     */
+    private static function winboxRsc(string $net): string
+    {
+        if ($net === '') return '';
+        $set = fn(string $prop) => ":local af [/ip service get winbox $prop]; :if ([:len \$af] > 0 and [:typeof [:find [:tostr \$af] \"$net\"]] != \"num\") do={ :local s \"\"; :foreach x in=\$af do={ :set s (\$s . \$x . \",\") }; /ip service set winbox $prop=(\$s . \"$net\"); :log info \"noc: Winbox dovoljen tudi iz VPN $net\" }";
+        return "# Winbox prek VPN: omrezje VPN doda k omejitvi Winbox (ce je omejen)\n"
+            . ":do { " . $set('available-from') . " } on-error={ :do { " . $set('address') . " } on-error={} }\n";
+    }
+
     // ------------------------------------------------------------------ ukazi za router
     public static function rsc(array $d, array $a): string
     {
@@ -142,7 +154,7 @@ final class WgServer
         if ($mode === 'lan') {
             $s .= ":if ([:len [/interface list find name=\"LAN\"]] > 0) do={\n"
                 . "  :if ([:len [/interface list member find list=LAN interface=\"$n\"]] = 0) do={ /interface list member add list=LAN interface=$n comment=\"noc: VPN uporabniki\" }\n"
-                . "} else={\n" . $netRules . "}\n";
+                . "} else={\n" . $netRules . "}\n" . self::winboxRsc((string)(LanWatch::nets($addr)[0] ?? ''));
         } else $s .= $netRules;
         return $s . ":log info \"noc: WireGuard strežnik $n nastavljen ($addr, port $port)\"\n";
     }

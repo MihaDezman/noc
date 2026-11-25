@@ -9,7 +9,7 @@ final class DeviceForm
         $ip = fn($v) => filter_var($v, FILTER_VALIDATE_IP) ? $v : '';
         // seznami vmesnikov: ločilo je samo vejica (ali podpičje/nova vrstica) – RouterOS dovoli presledek v imenu vmesnika
         $csv = fn($v) => implode(',', array_unique(array_filter(array_map('trim', preg_split('/[,;\r\n]+/', (string)$v)))));
-        $nets = implode(',', array_filter(array_map('trim', preg_split('/[\s,;]+/', post('lan_networks'))), fn($n) => preg_match('#^\d+\.\d+\.\d+\.\d+/\d{1,2}$#', $n)));
+        $nets = implode(',', LanWatch::nets(post('lan_networks')));   // naslov z masko (172.16.10.1/24) -> omrežje (172.16.10.0/24), brez podvojenih
         $rx = fn($v) => preg_replace('/[^a-zA-Z0-9|,.;_\-]/', '', (string)$v);
         $kind = post('kind') === 'switch' ? 'switch' : 'router';
         $parent = null;
