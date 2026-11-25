@@ -131,9 +131,15 @@ final class Firewall
             $add('svc_' . $n . '_addr', $inputDrop ? 'info' : 'warning', A('{s} sprejema prijave z vseh naslovov', ['s' => $n === 'winbox' ? 'Winbox' : 'SSH']), A('Omeji dostop na tvoje upravljalne naslove in zasebna omrežja (LAN, VPN) – napadalci z interneta potem sploh ne pridejo do prijave.'));
 
         // --- odkrivanje in ostalo
-        if ($hasLanList && $c['mac'] !== 'LAN') $add('mac_server', 'warning', A('MAC Telnet dostopen z vseh vmesnikov'), A('MAC strežnik naj bo dostopen samo iz LAN-a.'));
-        if ($hasLanList && $c['macwinbox'] !== 'LAN') $add('mac_winbox', 'warning', A('MAC Winbox dostopen z vseh vmesnikov'), A('Winbox prek MAC naslova naj bo dostopen samo iz LAN-a.'));
-        if ($hasLanList && $c['neighbor'] !== 'LAN') $add('neighbor', 'warning', A('Router se oglaša tudi proti ponudniku'), A('Neighbor discovery (MNDP/CDP/LLDP) naj deluje samo v LAN-u – sicer razkriva model in verzijo.'));
+        // varno: izklopljeno ("none") ali seznam vmesnikov brez WAN (LAN ali ožji, npr. LAN_DEF); nevarno: privzeto (vsi), all, dynamic, WAN …
+        $lanOnly = function (?string $v) use ($c, $wan): bool {
+            if ($v === 'none') return true;
+            if ($v === null || $v === '' || in_array($v, ['all', 'dynamic', 'static', 'WAN'], true) || $v[0] === '!' || !isset($c['lists'][$v])) return false;
+            return !in_array($wan, $c['lists'][$v], true) && !array_intersect($c['lists'][$v], ['WAN', 'all', 'dynamic']);
+        };
+        if ($hasLanList && !$lanOnly($c['mac'])) $add('mac_server', 'warning', A('MAC Telnet dostopen z vseh vmesnikov'), A('MAC strežnik naj bo dostopen samo iz LAN-a.'));
+        if ($hasLanList && !$lanOnly($c['macwinbox'])) $add('mac_winbox', 'warning', A('MAC Winbox dostopen z vseh vmesnikov'), A('Winbox prek MAC naslova naj bo dostopen samo iz LAN-a.'));
+        if ($hasLanList && !$lanOnly($c['neighbor'])) $add('neighbor', 'warning', A('Router se oglaša tudi proti ponudniku'), A('Neighbor discovery (MNDP/CDP/LLDP) naj deluje samo v LAN-u – sicer razkriva model in verzijo.'));
         if ($c['upnp'] === 'yes') $add('upnp', 'warning', A('Vklopljen UPnP'), A('Naprave v LAN-u lahko same odpirajo porte na internet. Izklopi, razen če ga potrebujejo igralne konzole.'));
         if ($c['proxy'] === 'yes') $add('proxy', 'warning', A('Vklopljen web proxy'), A('Odprt proxy je pogosta tarča zlorabe.'));
         if ($c['socks'] === 'yes') $add('socks', 'warning', A('Vklopljen SOCKS'), A('SOCKS strežnik ni potreben in je lahko zlorabljen.'));
