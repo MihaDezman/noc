@@ -183,7 +183,7 @@ final class Term
             if (!$r || !(int)$r['term_enabled'] || !filter_var((string)$r['public_ip'], FILTER_VALIDATE_IP, FILTER_FLAG_IPV4))
                 return ['error' => A('Terminal stikala potrebuje router z javnim IP in vklopljenim terminalom.')];
             if (!filter_var((string)$d['mgmt_ip'], FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) return ['error' => A('Stikalo nima znanega upravljalnega naslova.')];
-            $jump = ['host' => (string)$r['public_ip'], 'port' => self::sshPort($r), 'user' => self::USER];
+            $jump = ['host' => (string)$r['public_ip'], 'port' => self::sshPort($r), 'user' => self::USER, 'alias' => 'noc-dev-' . (int)$r['id']];
         }
         $host = $jump ? (string)$d['mgmt_ip'] : (string)$d['public_ip'];
         if (!filter_var($host, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) return ['error' => A('Naprava nima znanega javnega IP-ja.')];
@@ -193,7 +193,9 @@ final class Term
         db()->prepare('INSERT INTO audit (user_id, action, detail, ip) VALUES (?, ?, ?, ?)')->execute([$s['user_id'], 'device.terminal', mb_substr("#{$s['id']} {$d['name']} ($host)", 0, 500), $ip ?: $s['client_ip']]);
         if (!is_dir(self::dir('term'))) @mkdir(self::dir('term'), 0750, true);
         return ['id' => (int)$s['id'], 'host' => $host, 'port' => self::sshPort($d), 'user' => self::USER, 'name' => (string)$d['name'], 'jump' => $jump,
-                'alias' => $jump ? 'noc-sw-' . (int)$d['id'] : null,   // zasebni naslovi stikal se pri strankah ponavljajo – ključ gostitelja po napravi
+                // ključ gostitelja po napravi, ne po IP: zasebni naslovi stikal se pri strankah ponavljajo, javni IP routerjev je
+                // pogosto dinamičen (ob menjavi IP-ja bi drug router "zamenjal ključ" -> REMOTE HOST IDENTIFICATION HAS CHANGED)
+                'alias' => $jump ? 'noc-sw-' . (int)$d['id'] : 'noc-dev-' . (int)$d['id'],
                 'keys' => [self::keyFile('ed'), self::keyFile('rsa')], 'known_hosts' => self::knownHosts(), 'log' => self::logFile((int)$s['id'])];
     }
 

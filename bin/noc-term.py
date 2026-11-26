@@ -80,10 +80,12 @@ async def handler(ws, *_):
               '-o', 'StrictHostKeyChecking=accept-new', '-o', 'UserKnownHostsFile=' + info['known_hosts'], '-o', 'LogLevel=ERROR']
         for k in info['keys']:
             pc += ['-i', k]
+        if j.get('alias'):
+            pc += ['-o', 'HostKeyAlias=' + str(j['alias'])]
         pc += ['-W', '%h:%p', f"{j['user']}@{j['host']}"]
         cmd += ['-o', 'ProxyCommand=' + ' '.join(shlex.quote(x) for x in pc)]
-        if info.get('alias'):
-            cmd += ['-o', 'HostKeyAlias=' + str(info['alias'])]
+    if info.get('alias'):   # ključ gostitelja po napravi (router z dinamičnim IP / stikalo z zasebnim naslovom)
+        cmd += ['-o', 'HostKeyAlias=' + str(info['alias'])]
     cmd.append(f"{info['user']}@{info['host']}")
 
     pid, fd = pty.fork()
