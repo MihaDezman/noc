@@ -206,11 +206,18 @@ final class Actions
         return (int)($n['since'] ?? 0) < time() - 1800 ? 'nosync' : 'ok';   // nesinhronizirana več kot 30 min
     }
 
-    /** Vklop NTP odjemalca; obstoječih strežnikov ne spreminja (samo če jih ni, doda dva javna) */
+    /** Strežniki, ki jih NOC zagotovi (neodvisni: pool SI, pool EU, Cloudflare) */
+    public const NTP_SERVERS = ['0.si.pool.ntp.org', 'europe.pool.ntp.org', 'time.cloudflare.com'];
+
+    /**
+     * Vklop NTP odjemalca in trije neodvisni strežniki: manjkajoče doda, obstoječih ne briše. En sam strežnik iz poola
+     * se razreši v en naslov – če ta ne odgovarja, odjemalec ostane v stanju "waiting".
+     */
     private static function ntpRsc(): string
     {
+        $add = ''; foreach (self::NTP_SERVERS as $h) $add .= ":if ([:len [/system ntp client servers find where address=\"$h\"]] = 0) do={ /system ntp client servers add address=$h }; ";
         return "/system ntp client set enabled=yes\n"
-            . ":do { :if ([:len [/system ntp client servers find]] = 0) do={ /system ntp client servers add address=si.pool.ntp.org; /system ntp client servers add address=europe.pool.ntp.org } } on-error={ :do { :if ([:len [/system ntp client get servers]] = 0) do={ /system ntp client set servers=si.pool.ntp.org,europe.pool.ntp.org } } on-error={} }\n"
+            . ":do { " . rtrim($add, '; ') . " } on-error={ :do { :if ([:len [/system ntp client get servers]] < 2) do={ /system ntp client set servers=" . implode(',', self::NTP_SERVERS) . " } } on-error={} }\n"
             . ":log info \"noc: NTP odjemalec vklopljen\"\n";
     }
 

@@ -833,7 +833,7 @@ if ($path === '/updates/ntp-all' && $method === 'POST') {   // vklop NTP na vseh
     Auth::requireSuper();
     $n = 0; $by = (string)(Auth::$user['email'] ?? 'splet');
     foreach (Devices::all() as $d) {
-        if (!(int)($d['active'] ?? 1) || Actions::ntpState($d) !== 'off') continue;
+        if (!(int)($d['active'] ?? 1) || !in_array(Actions::ntpState($d), ['off', 'nosync'], true)) continue;
         if (is_int(Actions::create($d, 'ntp', 'on', 1, 'approved', A('vklop NTP na vseh'), 'splet', null, $by))) $n++;
     }
     audit('ntp.all', "naprav: $n");

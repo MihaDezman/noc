@@ -247,10 +247,10 @@ $upd = $s['upd'] ?? [];
       <div class="panel-head"><h2><?= icon('clock', 18) ?><?= h(A('Točen čas (NTP)')) ?></h2>
         <span class="tag <?= $ntpSt === 'pending' ? 'info' : 'warn' ?>"><?= h(['off' => A('izklopljen'), 'nosync' => A('ni sinhroniziran'), 'pending' => A('vklop čaka na router')][$ntpSt]) ?></span></div>
       <div class="panel-body small muted"><?= h($ntpSt === 'nosync'
-        ? A('NTP je vklopljen (strežnikov: {n}), stanje: {s}. Preveri, ali router doseže strežnike (DNS, UDP 123 navzven): /system ntp client print', ['n' => (int)($ntpS['n'] ?? 0), 's' => (string)($ntpS['s'] ?? '?')])
-        : A('Brez NTP router po izpadu elektrike ali ponovnem zagonu teče z napačno uro – napačni časi v logih, scheduler ob napačni uri, HTTPS lahko odpove. Vklop doda strežnika si.pool.ntp.org in europe.pool.ntp.org (obstoječih ne spreminja).')) ?></div>
-      <?php if ($isSuper && $ntpSt === 'off'): ?><div class="panel-body actions" style="border-top:1px solid var(--line-2)">
-        <form method="post" action="/devices/<?= $id ?>/ntp"><?= Auth::csrf() ?><button class="btn sm primary"><?= icon('clock', 14) ?><?= h(A('Vklopi NTP')) ?></button></form>
+        ? A('NTP je vklopljen (strežnikov: {n}), stanje: {s}. Gumb doda manjkajoče rezervne strežnike (0.si.pool.ntp.org, europe.pool.ntp.org, time.cloudflare.com). Če ne pomaga, preveri, ali router doseže strežnike (DNS, UDP 123): /system ntp client print', ['n' => (int)($ntpS['n'] ?? 0), 's' => (string)($ntpS['s'] ?? '?')])
+        : A('Brez NTP router po izpadu elektrike ali ponovnem zagonu teče z napačno uro – napačni časi v logih, scheduler ob napačni uri, HTTPS lahko odpove. Vklop doda strežnike 0.si.pool.ntp.org, europe.pool.ntp.org in time.cloudflare.com (obstoječih ne spreminja).')) ?></div>
+      <?php if ($isSuper && in_array($ntpSt, ['off', 'nosync'], true)): ?><div class="panel-body actions" style="border-top:1px solid var(--line-2)">
+        <form method="post" action="/devices/<?= $id ?>/ntp"><?= Auth::csrf() ?><button class="btn sm primary"><?= icon('clock', 14) ?><?= h($ntpSt === 'off' ? A('Vklopi NTP') : A('Dodaj rezervne NTP strežnike')) ?></button></form>
       </div><?php endif; ?>
     </section>
     <?php endif; ?>
